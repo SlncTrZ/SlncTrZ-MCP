@@ -182,7 +182,7 @@ describe("gateway HTTP surface", () => {
     };
 
     expect(listResponse.status).toBe(200);
-    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual(["core.ping"]);
+    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual(["core.ping", "core.read"]);
 
     const callResponse = await fetch(`${origin}/mcp`, {
       method: "POST",

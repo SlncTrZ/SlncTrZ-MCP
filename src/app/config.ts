@@ -13,6 +13,7 @@ export interface RuntimeConfig {
   readonly maxDynamicClients: number;
   readonly allowedHostnames: readonly string[];
   readonly allowedOriginHostnames: readonly string[];
+  readonly toolRoot?: string;
   readonly staticClient?: {
     readonly clientId: string;
     readonly clientSecret: string;
@@ -100,6 +101,8 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   ]);
   const allowedOriginHostnames = parseCsv(environment.SLNCTRZ_ALLOWED_ORIGINS, allowedHostnames);
 
+  const toolRoot = environment.SLNCTRZ_TOOL_ROOT;
+
   return {
     host,
     port,
@@ -108,6 +111,7 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     maxDynamicClients,
     allowedHostnames,
     allowedOriginHostnames,
+    ...(toolRoot === undefined || toolRoot.length === 0 ? {} : { toolRoot }),
     ...(staticClient === undefined ? {} : { staticClient })
   };
 }

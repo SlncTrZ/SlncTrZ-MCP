@@ -29,6 +29,7 @@ export interface GatewayServerOptions {
   readonly allowedHostnames?: readonly string[];
   readonly allowedOriginHostnames?: readonly string[];
   readonly maxBodyBytes?: number;
+  readonly toolRoot?: string;
   readonly onError?: (error: Error) => void;
 }
 
@@ -101,7 +102,10 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
   const validateOrigin = originValidation(allowedOriginHostnames);
   const oauthRouter = new OAuthHttpRouter(options.oauthService);
   const errorOptions = options.onError === undefined ? {} : { onError: options.onError };
-  const handler = createGatewayMcpHandler(errorOptions);
+  const handler = createGatewayMcpHandler({
+    ...errorOptions,
+    ...(options.toolRoot === undefined ? {} : { toolRoot: options.toolRoot })
+  });
   const handleMcp = toNodeHandler(
     handler,
     options.onError === undefined ? {} : { onerror: options.onError }

@@ -11,14 +11,21 @@ import { createMcpServer } from "./mcp-server.js";
 
 export interface McpHandlerOptions {
   readonly onError?: (error: Error) => void;
+  readonly toolRoot?: string;
 }
 
 /** Create one handler whose factory isolates every modern and legacy exchange. */
 export function createGatewayMcpHandler(options: McpHandlerOptions = {}): McpHttpHandler {
-  return createMcpHandler(() => createMcpServer(), {
-    legacy: "stateless",
-    responseMode: "auto",
-    keepAliveMs: 15_000,
-    ...(options.onError === undefined ? {} : { onerror: options.onError })
-  });
+  return createMcpHandler(
+    () =>
+      createMcpServer({
+        ...(options.toolRoot === undefined ? {} : { toolRoot: options.toolRoot })
+      }),
+    {
+      legacy: "stateless",
+      responseMode: "auto",
+      keepAliveMs: 15_000,
+      ...(options.onError === undefined ? {} : { onerror: options.onError })
+    }
+  );
 }

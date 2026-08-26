@@ -30,6 +30,7 @@ const server = createGatewayServer({
   oauthService,
   allowedHostnames: config.allowedHostnames,
   allowedOriginHostnames: config.allowedOriginHostnames,
+  ...(config.toolRoot === undefined ? {} : { toolRoot: config.toolRoot }),
   onError: (error) => {
     console.error(error.message);
   }
