@@ -1,0 +1,36 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+*.map
+
+# Reference repositories and research notes — PLAN section 2.1 (clean-room).
+# These MUST remain outside tracked project source.
+_reference/
+research/
+
+# Environment and secrets — never committed (PROVENANCE/SECURITY policy)
+.env
+.env.*
+!.env.example
+*.local
+
+# Credential and session stores (architecture: secrets never in repo)
+*.key
+*.pem
+*.crt
+*.p12
+.ssh/
+.keyring/
+
+# Runtime state
+*.log
+*.pid
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

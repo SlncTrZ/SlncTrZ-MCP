@@ -1,0 +1,28 @@
+# Spec documents — manual formatting (tables and mermaid diagrams)
+PLAN.md
+ARCHITECTURE.md
+
+# Node dependencies
+node_modules/
+
+# Reference / research — PLAN section 2.1 (clean-room)
+_reference/
+research/
+
+# Build artifacts
+dist/
+build/
+coverage/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
