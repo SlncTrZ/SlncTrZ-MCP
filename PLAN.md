@@ -162,9 +162,10 @@ Acceptance criteria:
 
 ### Phase 2 — Identity and authorization
 
-> Implementation status: in progress — embedded owner OAuth, PKCE, DCR, token rotation,
-> rate limiting, bounded DCR state, grant-family revocation, and redacted auth audit
-> are implemented. Real-client runtime verification remains open.
+> Implementation status: complete (2026-08-26) — embedded owner OAuth, PKCE,
+> bounded DCR, token rotation, grant-family revocation, rate limiting, and redacted
+> auth audit are implemented. The deployed gateway completed real-client OAuth-to-MCP
+> runtime verification with an authenticated `core.ping` response.
 
 Deliverables:
 

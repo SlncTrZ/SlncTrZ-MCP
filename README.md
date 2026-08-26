@@ -4,8 +4,8 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 2 in progress · License: Apache-2.0 · Architecture: minimal trusted
-> kernel with isolated extensions
+> Status: Phase 2 complete · Phase 3 next · License: Apache-2.0 · Architecture:
+> minimal trusted kernel with isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
 clients and the capabilities they use, enforcing filesystem, execution, identity, and

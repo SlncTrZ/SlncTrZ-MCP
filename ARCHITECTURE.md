@@ -113,6 +113,19 @@ interface ClientIdentity {
 
 Secrets are never passed into tool descriptions, logs, status files, URLs, or model-visible error messages.
 
+Phase 2 implementation checkpoint (2026-08-26):
+
+- Authorization code grants require PKCE S256 and exact redirect/resource binding.
+- Public dynamic registration is rate-limited and bounded by an inactive-client eviction pool.
+- Access tokens are short-lived; refresh tokens rotate; revocation invalidates the complete grant family.
+- Authentication events use a structured, secret-free audit schema.
+- Owner verifiers and static-client credentials are operating-system-protected runtime files.
+- OAuth state is process-local and ephemeral: restart invalidates clients, grants, and tokens.
+- The deployed gateway completed real-client OAuth discovery, authorization, token exchange,
+  authenticated MCP dispatch, and `core.ping` verification.
+
+See ADR-011, ADR-012, and ADR-013 for the accepted identity-state decisions.
+
 ### 4.3 Protocol Compatibility Adapter
 
 SlncTrZ-MCP supports two protocol eras behind one internal request model.
