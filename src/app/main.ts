@@ -22,6 +22,7 @@ const oauthService = new OAuthService({
   issuer,
   resource: config.publicMcpUrl,
   ownerSecretHash: config.ownerSecretHash,
+  maxDynamicClients: config.maxDynamicClients,
   audit: createJsonLineAuthAuditSink(),
   ...(config.staticClient === undefined ? {} : { staticClient: config.staticClient })
 });

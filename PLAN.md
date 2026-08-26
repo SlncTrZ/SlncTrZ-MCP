@@ -163,8 +163,8 @@ Acceptance criteria:
 ### Phase 2 — Identity and authorization
 
 > Implementation status: in progress — embedded owner OAuth, PKCE, DCR, token rotation,
-> rate limiting, grant-family revocation, and redacted auth audit are implemented.
-> Real-client runtime verification remains open.
+> rate limiting, bounded DCR state, grant-family revocation, and redacted auth audit
+> are implemented. Real-client runtime verification remains open.
 
 Deliverables:
 

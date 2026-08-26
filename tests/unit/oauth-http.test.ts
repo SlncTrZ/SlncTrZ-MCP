@@ -333,6 +333,57 @@ describe("OAuth HTTP flow", () => {
     expect(transactionFromHtml(body)).toBe(transactionId);
   });
 
+  it("rate-limits and audits registration and authorization allocation abuse", async () => {
+    const events: AuthAuditEvent[] = [];
+    const { origin, service } = await startOAuthServer(undefined, (event) => events.push(event));
+
+    let registration: Response | undefined;
+    for (let attempt = 0; attempt < 21; attempt += 1) {
+      registration = await fetch(`${origin}/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          redirect_uris: [`https://client-${attempt}.example.com/oauth/callback`],
+          token_endpoint_auth_method: "none"
+        })
+      });
+    }
+    expect(registration?.status).toBe(429);
+
+    const clientId = service.registerClient({
+      redirect_uris: ["https://client.example.com/oauth/callback"],
+      token_endpoint_auth_method: "none"
+    }).client_id;
+    const authorizeUrl = new URL("/authorize", origin);
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_challenge: service.pkceChallenge("a".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE,
+      scope: "mcp:tools"
+    }).toString();
+
+    let authorization: Response | undefined;
+    for (let attempt = 0; attempt < 61; attempt += 1) {
+      authorization = await fetch(authorizeUrl);
+    }
+    expect(authorization?.status).toBe(429);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "rate_limit.triggered",
+          operation: "registration"
+        }),
+        expect.objectContaining({
+          type: "rate_limit.triggered",
+          operation: "authorization"
+        })
+      ])
+    );
+  });
+
   it("rate-limits and audits repeated owner authentication attempts by direct peer", async () => {
     const events: AuthAuditEvent[] = [];
     const { origin, service } = await startOAuthServer(undefined, (event) => events.push(event));

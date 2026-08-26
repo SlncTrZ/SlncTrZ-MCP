@@ -16,7 +16,8 @@ describe("readRuntimeConfig", () => {
       SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
       SLNCTRZ_ALLOWED_HOSTS: "mcp.example.com,localhost",
       SLNCTRZ_ALLOWED_ORIGINS: "chatgpt.com,claude.ai",
-      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH
+      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH,
+      SLNCTRZ_MAX_DYNAMIC_CLIENTS: "64"
     });
 
     expect(config.host).toBe("0.0.0.0");
@@ -24,6 +25,7 @@ describe("readRuntimeConfig", () => {
     expect(config.publicMcpUrl.href).toBe("https://mcp.example.com/mcp");
     expect(config.allowedHostnames).toEqual(["mcp.example.com", "localhost"]);
     expect(config.allowedOriginHostnames).toEqual(["chatgpt.com", "claude.ai"]);
+    expect(config.maxDynamicClients).toBe(64);
   });
 
   it("rejects missing, insecure, or incorrectly routed public URLs", () => {
@@ -44,6 +46,27 @@ describe("readRuntimeConfig", () => {
         SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH
       })
     ).toThrowError("HTTPS URL ending at /mcp");
+  });
+
+  it("rejects an invalid dynamic-client capacity", () => {
+    const base = {
+      SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
+      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH
+    };
+
+    expect(() =>
+      readRuntimeConfig({
+        ...base,
+        SLNCTRZ_MAX_DYNAMIC_CLIENTS: "0"
+      })
+    ).toThrowError("SLNCTRZ_MAX_DYNAMIC_CLIENTS must be a positive integer");
+
+    expect(() =>
+      readRuntimeConfig({
+        ...base,
+        SLNCTRZ_MAX_DYNAMIC_CLIENTS: "1.5"
+      })
+    ).toThrowError("SLNCTRZ_MAX_DYNAMIC_CLIENTS must be a positive integer");
   });
 
   it("rejects partial confidential-client credentials", () => {

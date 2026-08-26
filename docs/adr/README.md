@@ -21,6 +21,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-010 | No home-directory access by default                                 | Accepted |
 | ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood                       | Accepted |
 | ADR-012 | Grant-family token revocation and redacted authentication audit     | Accepted |
+| ADR-013 | Bound ephemeral OAuth allocations                                   | Accepted |
 
 ## How to add an ADR
 

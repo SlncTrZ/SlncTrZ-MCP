@@ -3,7 +3,7 @@
  * Wing: auth | Topic: oauth-http-surface | Updated: 2026-08-26
  *
  * Provenance: MCP authorization specification 2026-07-28, RFC 7009,
- * W3C CSP Level 3, ADR-011, and ADR-012.
+ * W3C CSP Level 3, ADR-011, ADR-012, and ADR-013.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -14,6 +14,7 @@ import { type OAuthService } from "./oauth-service.js";
 
 const AUTH_BODY_LIMIT_BYTES = 65_536;
 const REGISTRATION_LIMIT_PER_MINUTE = 20;
+const AUTHORIZATION_LIMIT_PER_MINUTE = 60;
 const TOKEN_LIMIT_PER_MINUTE = 60;
 const OWNER_ATTEMPT_LIMIT = 5;
 const OWNER_ATTEMPT_WINDOW_SECONDS = 300;
@@ -163,6 +164,10 @@ export class OAuthHttpRouter {
     limit: REGISTRATION_LIMIT_PER_MINUTE,
     windowSeconds: 60
   });
+  readonly #authorizationLimiter = new FixedWindowRateLimiter({
+    limit: AUTHORIZATION_LIMIT_PER_MINUTE,
+    windowSeconds: 60
+  });
   readonly #tokenLimiter = new FixedWindowRateLimiter({
     limit: TOKEN_LIMIT_PER_MINUTE,
     windowSeconds: 60
@@ -229,6 +234,12 @@ export class OAuthHttpRouter {
 
     if (pathname === "/authorize") {
       if (req.method === "GET") {
+        const rateLimit = this.#authorizationLimiter.consume(this.#peerKey(req));
+        if (!rateLimit.allowed) {
+          this.#service.recordRateLimit("authorization");
+          sendRateLimit(res, rateLimit.retryAfterSeconds);
+          return true;
+        }
         try {
           const pending = this.#service.beginAuthorization(uniqueParameters(url.searchParams));
           sendHtml(

@@ -3,7 +3,8 @@
  * Wing: auth | Topic: oauth-authorization-server | Updated: 2026-08-26
  *
  * Provenance: MCP authorization specification 2026-07-28, RFC 7009, RFC 7591,
- * RFC 7636, RFC 8707, RFC 9207, RFC 9728, SECURITY invariant 1, and ADR-012.
+ * RFC 7636, RFC 8707, RFC 9207, RFC 9728, SECURITY invariant 1,
+ * ADR-012, and ADR-013.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -24,6 +25,7 @@ const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const PKCE_VERIFIER_PATTERN = /^[A-Za-z0-9\-._~]{43,128}$/u;
 const PKCE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const MAX_REDIRECT_URIS = 10;
+const DEFAULT_MAX_DYNAMIC_CLIENTS = 1_024;
 
 type StringRecord = Record<string, string | undefined>;
 
@@ -70,6 +72,7 @@ export interface OAuthServiceOptions {
   readonly resource: URL;
   readonly ownerSecretHash: string;
   readonly audit?: AuthAuditSink;
+  readonly maxDynamicClients?: number;
   /** Optional pre-registered confidential client for static-credential flows. */
   readonly staticClient?: {
     readonly clientId: string;
@@ -214,7 +217,9 @@ export class OAuthService implements OAuthTokenVerifier {
   readonly #ownerSecretHash: string;
   readonly #now: () => number;
   readonly #audit: AuthAuditSink;
+  readonly #maxDynamicClients: number;
   readonly #clients = new Map<string, RegisteredClient>();
+  readonly #dynamicClientIds = new Set<string>();
   readonly #pending = new Map<string, PendingAuthorization>();
   readonly #codes = new Map<string, AuthorizationCodeRecord>();
   readonly #accessTokens = new Map<string, TokenRecord>();
@@ -233,6 +238,10 @@ export class OAuthService implements OAuthTokenVerifier {
     this.#ownerSecretHash = options.ownerSecretHash;
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1_000));
     this.#audit = options.audit ?? (() => undefined);
+    this.#maxDynamicClients = options.maxDynamicClients ?? DEFAULT_MAX_DYNAMIC_CLIENTS;
+    if (!Number.isSafeInteger(this.#maxDynamicClients) || this.#maxDynamicClients <= 0) {
+      throw new RangeError("maxDynamicClients must be a positive safe integer");
+    }
     if (options.staticClient !== undefined) {
       const { clientId, clientSecret, clientName, redirectUris } = options.staticClient;
       this.#clients.set(clientId, {
@@ -292,6 +301,7 @@ export class OAuthService implements OAuthTokenVerifier {
   }
 
   registerClient(input: unknown): RegisteredClientResponse {
+    this.#purgeExpired();
     const metadata = requireObject(input, "Client metadata must be an object");
     const redirectUris = optionalStringArray(metadata.redirect_uris, "redirect_uris");
     if (
@@ -337,6 +347,7 @@ export class OAuthService implements OAuthTokenVerifier {
     }
 
     const normalizedRedirects = [...new Set(redirectUris.map(validateRedirectUri))];
+    this.#ensureDynamicClientCapacity();
     const clientId = randomIdentifier("client");
     const issuedAt = this.#now();
     const clientName = optionalString(metadata.client_name)?.slice(0, 128);
@@ -347,6 +358,7 @@ export class OAuthService implements OAuthTokenVerifier {
       ...(clientName === undefined ? {} : { clientName })
     };
     this.#clients.set(clientId, client);
+    this.#dynamicClientIds.add(clientId);
     this.#emit("client.registered", "success", clientId);
 
     return {
@@ -378,6 +390,7 @@ export class OAuthService implements OAuthTokenVerifier {
     if (client === undefined) {
       throw new OAuthError(OAuthErrorCode.InvalidClient, "Unknown client");
     }
+    if (this.#dynamicClientIds.delete(clientId)) this.#dynamicClientIds.add(clientId);
 
     const redirectUri = validateRedirectUri(
       requiredString(parameters.redirect_uri, "redirect_uri")
@@ -572,7 +585,9 @@ export class OAuthService implements OAuthTokenVerifier {
     this.#emit("token.revoked", "success", clientId);
   }
 
-  recordRateLimit(operation: "registration" | "token" | "owner_authentication"): void {
+  recordRateLimit(
+    operation: "registration" | "authorization" | "token" | "owner_authentication"
+  ): void {
     this.#emit("rate_limit.triggered", "failure", undefined, undefined, operation);
   }
 
@@ -655,6 +670,32 @@ export class OAuthService implements OAuthTokenVerifier {
       scope: scopes.join(" "),
       resource
     };
+  }
+
+  #ensureDynamicClientCapacity(): void {
+    if (this.#dynamicClientIds.size < this.#maxDynamicClients) return;
+
+    for (const clientId of this.#dynamicClientIds) {
+      if (this.#clientHasActiveState(clientId)) continue;
+      this.#dynamicClientIds.delete(clientId);
+      this.#clients.delete(clientId);
+      this.#emit("client.evicted", "success", clientId);
+      return;
+    }
+
+    throw new OAuthError(
+      OAuthErrorCode.TooManyRequests,
+      "Dynamic client capacity is temporarily exhausted"
+    );
+  }
+
+  #clientHasActiveState(clientId: string): boolean {
+    return (
+      [...this.#pending.values()].some((record) => record.clientId === clientId) ||
+      [...this.#codes.values()].some((record) => record.clientId === clientId) ||
+      [...this.#accessTokens.values()].some((record) => record.clientId === clientId) ||
+      [...this.#refreshTokens.values()].some((record) => record.clientId === clientId)
+    );
   }
 
   #emit(

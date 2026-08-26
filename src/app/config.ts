@@ -10,6 +10,7 @@ export interface RuntimeConfig {
   readonly port: number;
   readonly publicMcpUrl: URL;
   readonly ownerSecretHash: string;
+  readonly maxDynamicClients: number;
   readonly allowedHostnames: readonly string[];
   readonly allowedOriginHostnames: readonly string[];
   readonly staticClient?: {
@@ -38,6 +39,11 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
 
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
     throw new Error("SLNCTRZ_PORT must be an integer from 0 to 65535");
+  }
+
+  const maxDynamicClients = Number(environment.SLNCTRZ_MAX_DYNAMIC_CLIENTS ?? "1024");
+  if (!Number.isSafeInteger(maxDynamicClients) || maxDynamicClients <= 0) {
+    throw new Error("SLNCTRZ_MAX_DYNAMIC_CLIENTS must be a positive integer");
   }
 
   const rawPublicUrl = environment.SLNCTRZ_PUBLIC_URL;
@@ -99,6 +105,7 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     port,
     publicMcpUrl,
     ownerSecretHash,
+    maxDynamicClients,
     allowedHostnames,
     allowedOriginHostnames,
     ...(staticClient === undefined ? {} : { staticClient })

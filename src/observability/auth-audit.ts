@@ -7,6 +7,7 @@
 
 export type AuthAuditEventType =
   | "client.registered"
+  | "client.evicted"
   | "authorization.approved"
   | "authorization.denied"
   | "authorization.failed"
@@ -24,7 +25,7 @@ export interface AuthAuditEvent {
   readonly outcome: AuthAuditOutcome;
   readonly clientId?: string;
   readonly reason?: "invalid_owner" | "invalid_token" | "client_mismatch";
-  readonly operation?: "registration" | "token" | "owner_authentication";
+  readonly operation?: "registration" | "authorization" | "token" | "owner_authentication";
 }
 
 export type AuthAuditSink = (event: AuthAuditEvent) => void;

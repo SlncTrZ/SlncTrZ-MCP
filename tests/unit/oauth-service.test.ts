@@ -67,6 +67,64 @@ describe("OAuthService", () => {
     ).toThrowError("redirect URI");
   });
 
+  it("bounds dynamic registration by evicting only inactive clients", () => {
+    const events: AuthAuditEvent[] = [];
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      maxDynamicClients: 2,
+      audit: (event) => events.push(event)
+    });
+    const firstClientId = registerTestClient(service);
+    const firstPending = service.beginAuthorization({
+      response_type: "code",
+      client_id: firstClientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_challenge: service.pkceChallenge("m".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+    const inactiveClientId = registerTestClient(service);
+    const replacementClientId = registerTestClient(service);
+
+    expect(service.authorizationDetails(firstPending.transactionId).transactionId).toBe(
+      firstPending.transactionId
+    );
+    expect(() =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: inactiveClientId,
+        redirect_uri: "https://client.example.com/oauth/callback",
+        code_challenge: service.pkceChallenge("n".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      })
+    ).toThrowError("Unknown client");
+    expect(replacementClientId).toMatch(/^client_/u);
+    service.beginAuthorization({
+      response_type: "code",
+      client_id: replacementClientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_challenge: service.pkceChallenge("p".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+    expect(() => registerTestClient(service)).toThrowError(
+      "Dynamic client capacity is temporarily exhausted"
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "client.evicted",
+        outcome: "success",
+        clientId: inactiveClientId
+      })
+    );
+  });
+
   it("enforces PKCE S256 and binds code, client, redirect, and resource", () => {
     const service = createService();
     const clientId = registerTestClient(service);
