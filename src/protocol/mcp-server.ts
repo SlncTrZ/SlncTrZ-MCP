@@ -9,6 +9,11 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { DEFAULT_MAX_READ_BYTES, ReadError, readContainedFile } from "../kernel/fs-read.js";
+import {
+  DEFAULT_MAX_SEARCH_RESULTS,
+  searchContainedFiles,
+  SearchError
+} from "../kernel/fs-search.js";
 
 const SERVER_INFO = {
   name: "slnctrz-mcp",
@@ -67,6 +72,44 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         };
       } catch (error) {
         if (error instanceof ReadError) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: `${error.code}: ${error.message}` }]
+          };
+        }
+        throw error;
+      }
+    }
+  );
+
+  server.registerTool(
+    "core.search",
+    {
+      title: "Search Files",
+      description: "List files within the configured root whose name matches a pattern.",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      inputSchema: z.object({ pattern: z.string().min(1) })
+    },
+    async (args) => {
+      try {
+        const { matches } = await searchContainedFiles(
+          options.toolRoot,
+          args.pattern,
+          DEFAULT_MAX_SEARCH_RESULTS
+        );
+        return {
+          content: [
+            { type: "text", text: matches.length === 0 ? "(no matches)" : matches.join("\n") }
+          ],
+          structuredContent: { count: matches.length, matches }
+        };
+      } catch (error) {
+        if (error instanceof SearchError) {
           return {
             isError: true,
             content: [{ type: "text", text: `${error.code}: ${error.message}` }]
