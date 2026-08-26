@@ -24,10 +24,14 @@ research/
 *.p12
 .ssh/
 .keyring/
+_runtime/
 
 # Runtime state
 *.log
 *.pid
+
+# Local agent workspace harness — soft harness, not part of the tracked source
+AGENTS.md
 
 # Editor / OS
 .DS_Store

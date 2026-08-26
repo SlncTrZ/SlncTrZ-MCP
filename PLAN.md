@@ -114,7 +114,7 @@ Profiles select capabilities; they do not bypass policy.
 | ADR-003 | Trusted kernel runs in-process | Accepted |
 | ADR-004 | Third-party MCP servers run in isolated child processes by default | Accepted |
 | ADR-005 | Policy Engine is the single source of authorization truth | Accepted |
-| ADR-006 | Modern stateless MCP and legacy session-based MCP are both supported | Proposed |
+| ADR-006 | Isolated modern MCP with stateless legacy compatibility             | Accepted |
 | ADR-007 | Tool registry uses canonical names independent of runtime topology | Accepted |
 | ADR-008 | Standalone packaging is separated from runtime architecture | Accepted |
 | ADR-009 | Project instructions are explicit context, not a security mechanism | Accepted |
@@ -161,6 +161,10 @@ Acceptance criteria:
 - Ingress can run locally without a tunnel.
 
 ### Phase 2 — Identity and authorization
+
+> Implementation status: in progress — embedded owner OAuth, PKCE, DCR, token rotation,
+> rate limiting, grant-family revocation, and redacted auth audit are implemented.
+> Real-client runtime verification remains open.
 
 Deliverables:
 

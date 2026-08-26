@@ -14,11 +14,13 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-003 | Trusted kernel runs in-process                                      | Accepted |
 | ADR-004 | Third-party MCP servers run in isolated child processes by default  | Accepted |
 | ADR-005 | Policy Engine is the single source of authorization truth           | Accepted |
-| ADR-006 | Support both modern stateless MCP and legacy session-based MCP      | Proposed |
+| ADR-006 | Isolated modern MCP with stateless legacy compatibility             | Accepted |
 | ADR-007 | Tool registry uses canonical names independent of runtime topology  | Accepted |
 | ADR-008 | Standalone packaging is separated from runtime architecture         | Accepted |
 | ADR-009 | Project instructions are explicit context, not a security mechanism | Accepted |
 | ADR-010 | No home-directory access by default                                 | Accepted |
+| ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood                       | Accepted |
+| ADR-012 | Grant-family token revocation and redacted authentication audit     | Accepted |
 
 ## How to add an ADR
 

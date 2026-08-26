@@ -11,6 +11,8 @@
   "packageManager": "npm@11.16.0",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/app/main.js",
+    "dev": "npm run build && npm start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -19,7 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
+    "check": "node scripts/check.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.3.0",
@@ -29,5 +31,9 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0"
   }
 }

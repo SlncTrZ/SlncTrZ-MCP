@@ -4,8 +4,8 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: proposed · License: Apache-2.0 · Architecture: minimal trusted kernel with
-> isolated extensions
+> Status: Phase 1 in progress · License: Apache-2.0 · Architecture: minimal trusted
+> kernel with isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
 clients and the capabilities they use, enforcing filesystem, execution, identity, and
@@ -42,10 +42,35 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 
 ```bash
 npm install
-npm run build
-npm test
 npm run check
+npm run dev
 ```
+
+The local endpoints are:
+
+- MCP Streamable HTTP: `http://127.0.0.1:3100/mcp`
+- Liveness: `http://127.0.0.1:3100/healthz`
+- Readiness: `http://127.0.0.1:3100/readyz`
+
+Remote ingress must supply an explicit public URL, hostname allowlist, and an
+owner-secret scrypt verifier from a secret store or protected runtime environment:
+
+```bash
+SLNCTRZ_HOST=0.0.0.0 \
+SLNCTRZ_PORT=3100 \
+SLNCTRZ_PUBLIC_URL=https://mcp.example.com/mcp \
+SLNCTRZ_ALLOWED_HOSTS=mcp.example.com \
+SLNCTRZ_ALLOWED_ORIGINS=chatgpt.com,claude.ai,grok.com \
+SLNCTRZ_OWNER_SECRET_HASH='<runtime scrypt verifier>' \
+npm start
+```
+
+The public MCP endpoint is default-deny. It publishes OAuth discovery, supports public
+client registration and authorization code with PKCE S256, rotates refresh tokens,
+revokes complete token families, and verifies bearer-token resource, scope, and expiry
+before dispatch. Authentication events use a structured, secret-free audit schema. The
+embedded authority keeps client and token state in memory, so a restart requires clients
+to reconnect. See ADR-011 and ADR-012.
 
 See [`ENGINEERING.md`](ENGINEERING.md) for the supported Node.js and operating-system
 matrix and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

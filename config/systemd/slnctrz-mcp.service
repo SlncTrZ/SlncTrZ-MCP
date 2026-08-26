@@ -1,0 +1,46 @@
+[Unit]
+Description=SlncTrZ-MCP gateway (OAuth-protected MCP data plane)
+Documentation=https://github.com/SlncTrZ/SlncTrZ-MCP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=dinhtc
+Group=dinhtc
+WorkingDirectory=/home/dinhtc/slnctrz-mcp
+
+# Runtime-specific hostnames and ports stay outside version control.
+EnvironmentFile=/home/dinhtc/slnctrz-mcp/_runtime/gateway.env
+# The owner verifier is loaded from a mode-0600 runtime file.
+EnvironmentFile=/home/dinhtc/slnctrz-mcp/_runtime/owner.env
+# Optional pre-registered confidential client credentials.
+EnvironmentFile=-/home/dinhtc/slnctrz-mcp/_runtime/client.env
+
+# Run on a supported Node LTS (>=22 <25 per package.json engines). The system default
+# node on .227 is v26, which is outside the supported range.
+ExecStart=/opt/node-v24.19.0/bin/node /home/dinhtc/slnctrz-mcp/dist/app/main.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Hardening — the gateway is stateless and reads no runtime state, so its filesystem
+# is read-only and home is not writable. No MemoryDenyWriteExecute: it breaks the V8 JIT.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target

@@ -27,11 +27,15 @@ Sources are classified as:
 
 ## Dependency license inventory
 
-### Runtime (planned)
+### Runtime
 
-No runtime dependencies are committed yet. Runtime dependencies will be added during
-implementation phases and each will be recorded here with: package, version, license,
-and any NOTICE obligation.
+| Package                        | Version | License | Purpose                         |
+| ------------------------------ | ------- | ------- | ------------------------------- |
+| `@modelcontextprotocol/server` | 2.0.0   | MIT     | MCP protocol server and handler |
+| `@modelcontextprotocol/node`   | 2.0.0   | MIT     | Node.js Streamable HTTP adapter |
+
+Both packages are used through their public SDK API. Their transitive dependencies
+remain governed by their respective licenses and are inventoried before release.
 
 ### Development (current)
 
