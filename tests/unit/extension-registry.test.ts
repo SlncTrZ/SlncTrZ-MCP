@@ -16,7 +16,6 @@ async function stdioManifest(
     version: "1.0.0",
     command: `/usr/local/bin/${id}-mcp`,
     tools: [{ canonicalId: `${id}.search`, riskClass: "read" }],
-    workspaces: ["dev"],
     envAllowlist: [`${id.toUpperCase()}_TOKEN`],
     credentialRefs: [`cred.${id}`],
     startupTimeoutMs: 10_000,
@@ -94,26 +93,6 @@ describe("extension registry (canonical namespace, collisions, stable hash)", ()
     const registry = await compileExtensionRegistry([(await stdioManifest("github")) as never]);
     expect(registry.lookup("github.unknown")).toBeUndefined();
     expect(registry.lookup("gitlab.search")).toBeUndefined();
-  });
-
-  it("enumerates only tools authorized for a workspace", async () => {
-    const registry = await compileExtensionRegistry([
-      { ...(await stdioManifest("github")), workspaces: ["dev"] } as never,
-      {
-        ...(await stdioManifest("gitlab")),
-        workspaces: ["prod"] as unknown
-      } as never
-    ]);
-    const dev = registry.listAuthorized("dev");
-    const prod = registry.listAuthorized("prod");
-    expect(dev.some((tool) => tool.canonicalId === "github.search")).toBe(true);
-    expect(dev.some((tool) => tool.canonicalId === "gitlab.search")).toBe(false);
-    expect(prod.some((tool) => tool.canonicalId === "gitlab.search")).toBe(true);
-  });
-
-  it("denies an unknown workspace (empty authorized set)", async () => {
-    const registry = await compileExtensionRegistry([(await stdioManifest("github")) as never]);
-    expect(registry.listAuthorized("nope")).toEqual([]);
   });
 
   it("rejects more than MAX_EXTENSIONS providers (hard ceiling)", async () => {

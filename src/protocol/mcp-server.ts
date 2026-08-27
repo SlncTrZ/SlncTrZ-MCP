@@ -18,6 +18,7 @@ import {
   SearchError
 } from "../kernel/fs-search.js";
 import { WriteError, writeContainedFile } from "../kernel/fs-write.js";
+import { AdapterError } from "../extension/adapter.js";
 import { type ToolAuditEvent, type ToolAuditSink } from "../observability/tool-audit.js";
 import {
   authorizeKernelCapability,
@@ -424,6 +425,82 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         }
       }
     );
+  }
+
+  // The per-exchange kernelPolicy is a resolved, captured snapshot. Register only the
+  // authorized tools whose provider was ready in that same runtime generation.
+  const extensionRuntime = kernelPolicy.extensionRuntime;
+  if (extensionRuntime !== undefined) {
+    for (const tool of kernelPolicy.extensions) {
+      if (!extensionRuntime.isReady(tool.providerId)) continue;
+      const provider = extensionRuntime.provider(tool.providerId);
+      if (provider === undefined) continue;
+
+      server.registerTool(
+        tool.canonicalId,
+        {
+          title: tool.canonicalId,
+          description: "Policy-authorized extension tool.",
+          annotations: {
+            readOnlyHint: tool.riskClass === "read",
+            destructiveHint: tool.riskClass !== "read",
+            idempotentHint: false,
+            openWorldHint: tool.riskClass === "network"
+          },
+          inputSchema: z.object({}).passthrough()
+        },
+        async (args, context) => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
+          try {
+            // Re-check readiness immediately before dispatch. No name, endpoint, command or
+            // provider selector is accepted from the caller; only this captured canonical tool.
+            if (!extensionRuntime.isReady(tool.providerId)) {
+              return {
+                isError: true,
+                content: [{ type: "text", text: "provider_unavailable" }]
+              };
+            }
+            const result = await provider.invoke(tool.canonicalId, args, {
+              ...(context.http?.req?.signal === undefined
+                ? {}
+                : { signal: context.http.req.signal })
+            });
+            auditResult = result.isError
+              ? result.text === "provider_timeout"
+                ? "timeout"
+                : "error"
+              : "success";
+            return {
+              isError: result.isError,
+              content: [{ type: "text", text: result.text }],
+              structuredContent: { truncated: result.truncated }
+            };
+          } catch (error) {
+            if (error instanceof AdapterError) {
+              auditResult = error.code === "provider_timeout" ? "timeout" : "error";
+              return { isError: true, content: [{ type: "text", text: error.code }] };
+            }
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: options.principal?.clientId ?? "unknown",
+              workspaceId: kernelPolicy.workspaceId,
+              toolId: tool.canonicalId,
+              providerId: tool.providerId,
+              canonicalToolId: tool.canonicalId,
+              riskClass: tool.riskClass,
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        }
+      );
+    }
   }
 
   return server;

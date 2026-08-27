@@ -5,6 +5,7 @@ import { request, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OAuthService } from "../../src/auth/oauth-service.js";
+import { type ExtensionRuntimeCatalog } from "../../src/extension/runtime.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createGatewayServer, listenGateway } from "../../src/app/http-server.js";
 import { type ExecCommandDefinition } from "../../src/kernel/exec.js";
@@ -1057,5 +1058,144 @@ describe("policy snapshot store through HTTP (Phase 4 slice 3)", () => {
     expect(second.status).toBe(403);
     // The old request captured A and still resolved against it; there was no hybrid merge.
     expect(firstTools).toEqual(["core.ping", "core.read", "core.search"]);
+  });
+});
+
+describe("extension MCP discovery and dispatch (Phase 5 slice 3)", () => {
+  it("exposes only ready authorized tools, routes canonical IDs, and emits secret-free audit", async () => {
+    const invocations: { toolId: string; args: unknown }[] = [];
+    let providerReady = true;
+    const { origin, accessToken, auditEvents } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) => {
+        const compiled = await compilePolicyDocument({
+          schemaVersion: 1,
+          extensions: [
+            {
+              id: "github",
+              transport: "stdio",
+              version: "1.0.0",
+              command: "/usr/local/bin/github-mcp",
+              tools: [{ canonicalId: "github.search", riskClass: "read" }]
+            }
+          ],
+          workspaces: [
+            {
+              id: "a",
+              roots: { read: "/r" },
+              profiles: ["read-only", "minimal"],
+              extensionGrants: [{ providerId: "github", profiles: ["minimal"] }]
+            },
+            { id: "b", roots: { read: "/r2" }, profiles: ["read-only"] }
+          ],
+          clientBindings: [{ clientId, workspaceIds: ["a", "b"] }]
+        });
+        const runtime: ExtensionRuntimeCatalog = {
+          registry: compiled.extensionRegistry,
+          provider: (providerId) =>
+            providerId !== "github"
+              ? undefined
+              : {
+                  state: "ready",
+                  start: async () => undefined,
+                  health: () => "ready",
+                  invoke: async (toolId, args) => {
+                    invocations.push({ toolId, args });
+                    return { isError: false, truncated: false, text: "provider-ok" };
+                  },
+                  stop: async () => undefined
+                },
+          isReady: (providerId) => providerReady && providerId === "github",
+          acquire: () => () => undefined,
+          retire: () => undefined,
+          stop: async () => undefined
+        };
+        return buildActivePolicySnapshot(compiled, runtime);
+      }
+    );
+    const headers = {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18",
+      "x-slnctrz-workspace": "a",
+      "x-slnctrz-profile": "minimal"
+    };
+
+    const list = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 70, method: "tools/list", params: {} })
+    });
+    const listed = (await readMcpPayload(list)) as { result?: { tools?: { name?: string }[] } };
+    expect(listed.result?.tools?.map((tool) => tool.name)).toContain("github.search");
+
+    const call = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 71,
+        method: "tools/call",
+        params: { name: "github.search", arguments: { query: "must-not-audit" } }
+      })
+    });
+    const called = (await readMcpPayload(call)) as {
+      result?: { isError?: boolean; content?: { text?: string }[] };
+    };
+    expect(called.result?.isError).not.toBe(true);
+    expect(called.result?.content?.[0]?.text).toBe("provider-ok");
+    expect(invocations).toEqual([{ toolId: "github.search", args: { query: "must-not-audit" } }]);
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]).toMatchObject({
+      providerId: "github",
+      canonicalToolId: "github.search",
+      workspaceId: "a",
+      result: "success"
+    });
+    expect(JSON.stringify(auditEvents[0])).not.toContain("must-not-audit");
+
+    providerReady = false;
+    const unavailable = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 72, method: "tools/list", params: {} })
+    });
+    const unavailablePayload = (await readMcpPayload(unavailable)) as {
+      result?: { tools?: { name?: string }[] };
+    };
+    expect(unavailablePayload.result?.tools?.map((tool) => tool.name)).not.toContain(
+      "github.search"
+    );
+
+    providerReady = true;
+    const denied = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: { ...headers, "x-slnctrz-profile": "read-only" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 74, method: "tools/list", params: {} })
+    });
+    const deniedPayload = (await readMcpPayload(denied)) as {
+      result?: { tools?: { name?: string }[] };
+    };
+    expect(deniedPayload.result?.tools?.map((tool) => tool.name)).not.toContain("github.search");
+
+    const crossWorkspace = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "x-slnctrz-workspace": "b",
+        "x-slnctrz-profile": "read-only"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 73, method: "tools/list", params: {} })
+    });
+    const crossWorkspacePayload = (await readMcpPayload(crossWorkspace)) as {
+      result?: { tools?: { name?: string }[] };
+    };
+    expect(crossWorkspacePayload.result?.tools?.map((tool) => tool.name)).not.toContain(
+      "github.search"
+    );
   });
 });

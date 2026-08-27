@@ -50,8 +50,8 @@ export interface CompiledExtensionRegistry {
 
   /** Look up one canonical tool id; undefined if unknown or cross-namespace. */
   lookup(canonicalId: string): ExtensionToolRef | undefined;
-  /** Enumerate tools authorized for a workspace. */
-  listAuthorized(workspaceId: string): readonly ExtensionToolRef[];
+  /** Enumerate every tool in the catalog for one provider (catalog accessor, not auth). */
+  lookupProvider(providerId: string): readonly ExtensionToolRef[];
 }
 
 function toRecord(manifest: CompiledExtensionManifest): CompiledExtensionRecord {
@@ -71,9 +71,12 @@ function registryHash(extensions: readonly CompiledExtensionRecord[]): string {
         tools: entry.manifest.tools
           .map((tool) => ({ canonicalId: tool.canonicalId, riskClass: tool.riskClass }))
           .sort((left, right) => left.canonicalId.localeCompare(right.canonicalId)),
-        workspaces: [...entry.manifest.workspaces].sort(),
-        envAllowlist: [...entry.manifest.envAllowlist].sort(),
-        credentialRefs: [...entry.manifest.credentialRefs].sort(),
+        envAllowlist: [...entry.manifest.envAllowlist].sort((left, right) =>
+          left.localeCompare(right)
+        ),
+        credentialRefs: [...entry.manifest.credentialRefs].sort((left, right) =>
+          left.localeCompare(right)
+        ),
         startupTimeoutMs: entry.manifest.startupTimeoutMs,
         requestTimeoutMs: entry.manifest.requestTimeoutMs,
         maxOutputBytes: entry.manifest.maxOutputBytes,
@@ -158,15 +161,16 @@ export async function compileExtensionRegistry(
     lookup(canonicalId: string): ExtensionToolRef | undefined {
       return frozenToolIndex[canonicalId];
     },
-    listAuthorized(workspaceId: string): readonly ExtensionToolRef[] {
-      const authorized: ExtensionToolRef[] = [];
+    lookupProvider(providerId: string): readonly ExtensionToolRef[] {
+      const tools: ExtensionToolRef[] = [];
       for (const record of frozenRecords) {
-        if (!record.manifest.workspaces.includes(workspaceId)) continue;
+        if (record.id !== providerId) continue;
         for (const tool of record.manifest.tools) {
-          authorized.push(frozenToolIndex[tool.canonicalId] as ExtensionToolRef);
+          const ref = frozenToolIndex[tool.canonicalId];
+          if (ref !== undefined) tools.push(ref);
         }
       }
-      return authorized.sort((left, right) => left.canonicalId.localeCompare(right.canonicalId));
+      return Object.freeze(tools.sort((a, b) => a.canonicalId.localeCompare(b.canonicalId)));
     }
   });
 }

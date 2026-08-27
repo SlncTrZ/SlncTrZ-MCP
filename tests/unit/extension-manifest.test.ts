@@ -15,7 +15,6 @@ function validStdio(): ExtensionManifestV1 {
       { canonicalId: "github.search", riskClass: "read" },
       { canonicalId: "github.issue.create", riskClass: "write" }
     ],
-    workspaces: ["dev"],
     envAllowlist: ["GITHUB_TOKEN"],
     credentialRefs: ["cred.github"],
     startupTimeoutMs: 10_000,
@@ -82,12 +81,6 @@ describe("extension manifest (typed strict JSON schema)", () => {
     await expect(compileExtensionManifest(http)).rejects.toMatchObject({
       code: "manifest_invalid"
     });
-  });
-
-  it("rejects a wildcard workspace id", async () => {
-    await expect(
-      compileExtensionManifest({ ...validStdio(), workspaces: ["*"] } as ExtensionManifestV1)
-    ).rejects.toMatchObject({ code: "manifest_invalid" });
   });
 
   it("rejects an inline secret value in credential refs or env allowlist", async () => {

@@ -51,7 +51,6 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
       command: process.execPath, // absolute node binary
       args: [provider],
       tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
-      workspaces: ["dev"],
       startupTimeoutMs: 5000,
       requestTimeoutMs: 5000,
       maxOutputBytes: 65536,
@@ -77,7 +76,6 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
       command: process.execPath,
       args: [provider],
       tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
-      workspaces: ["dev"],
       envAllowlist: ["MOCK_TOKEN"],
       startupTimeoutMs: 5000,
       requestTimeoutMs: 5000
@@ -106,7 +104,6 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
       command: process.execPath,
       args: [provider],
       tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
-      workspaces: ["dev"],
       maxOutputBytes: 1024,
       startupTimeoutMs: 5000,
       requestTimeoutMs: 5000

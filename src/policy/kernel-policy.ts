@@ -10,6 +10,8 @@ import { realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { isContainedPath } from "../kernel/fs-boundary.js";
 import { type ExecCommandDefinition } from "../kernel/exec.js";
+import { type RiskClass } from "../kernel/tool-identity.js";
+import { type ExtensionRuntimeCatalog } from "../extension/runtime.js";
 
 export type KernelCapability =
   "core.read" | "core.search" | "core.write" | "core.edit" | "core.exec";
@@ -37,6 +39,17 @@ export interface KernelPolicySnapshot {
   readonly execRoot?: string;
   readonly execPath?: string;
   readonly execCommands?: readonly ExecCommandDefinition[];
+  /** Extension tools authorized for this snapshot's resolved principal/workspace/profile. */
+  readonly extensions: readonly ResolvedExtensionTool[];
+  /** Runtime catalog captured with this policy generation; never read from global state. */
+  readonly extensionRuntime?: ExtensionRuntimeCatalog;
+}
+
+/** An extension tool authorized on a resolved snapshot. */
+export interface ResolvedExtensionTool {
+  readonly canonicalId: string;
+  readonly providerId: string;
+  readonly riskClass: RiskClass;
 }
 
 export interface AuthorizedExecCommand {
@@ -133,6 +146,7 @@ export function createKernelPolicySnapshot(input: KernelPolicyInput): KernelPoli
     version,
     workspaceId: input.workspaceId,
     capabilities: Object.freeze(capabilities),
+    extensions: Object.freeze([]),
     ...(readRoot === undefined ? {} : { readRoot }),
     ...(writeRoot === undefined ? {} : { writeRoot }),
     ...(execEnabled

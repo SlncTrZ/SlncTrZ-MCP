@@ -11,6 +11,7 @@
 import { OAuthService } from "../auth/oauth-service.js";
 import { createJsonLineAuthAuditSink } from "../observability/auth-audit.js";
 import { createJsonLineToolAuditSink } from "../observability/tool-audit.js";
+import { createExtensionRuntimeCatalog } from "../extension/runtime.js";
 import { compilePolicyDocument, loadPolicyDocument } from "../policy/policy-config.js";
 import { buildActivePolicySnapshot, type ActivePolicySnapshot } from "../policy/policy-snapshot.js";
 import { createPolicySnapshotStore, type PolicySnapshotLoader } from "../policy/policy-store.js";
@@ -42,7 +43,9 @@ const oauthService = new OAuthService({
 /** Load, parse, and compile one policy file into a frozen active snapshot. */
 async function loadActivePolicy(policyFile: string): Promise<ActivePolicySnapshot> {
   const document = await loadPolicyDocument(policyFile);
-  return buildActivePolicySnapshot(await compilePolicyDocument(document));
+  const compiled = await compilePolicyDocument(document);
+  const runtime = await createExtensionRuntimeCatalog(compiled.extensionRegistry);
+  return buildActivePolicySnapshot(compiled, runtime);
 }
 
 /** A deny-all snapshot: no workspaces means authenticated clients see core.ping only. */

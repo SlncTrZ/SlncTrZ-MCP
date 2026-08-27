@@ -140,6 +140,27 @@ function workspaceRiskIncrease(previous: CompiledWorkspace, candidate: CompiledW
   return false;
 }
 
+/** Effective extension access is expanded against the catalog so omitted tool/profile fields
+ * are treated as all declared tools/profiles, never as an ambiguous wildcard. */
+function effectiveExtensionAccess(
+  input: CompiledPolicyInput,
+  workspace: CompiledWorkspace
+): ReadonlySet<string> {
+  const access = new Set<string>();
+  for (const grant of workspace.extensionGrants) {
+    const profiles = grant.profiles.length === 0 ? workspace.profiles : grant.profiles;
+    const providerTools = input.extensionRegistry.lookupProvider(grant.providerId);
+    const tools =
+      grant.toolIds.length === 0
+        ? providerTools
+        : providerTools.filter((tool) => grant.toolIds.includes(tool.canonicalId));
+    for (const profile of profiles) {
+      for (const tool of tools) access.add(`${profile}|${tool.canonicalId}|${tool.riskClass}`);
+    }
+  }
+  return access;
+}
+
 function bindingRiskIncrease(previous: CompiledBinding, candidate: CompiledBinding): boolean {
   // Set inclusion, never a length comparison: same length with a substituted workspace is
   // still an escalation. Any candidate workspace not already granted is an increase.
@@ -155,11 +176,25 @@ export function classifyPolicyRisk(
   previous: CompiledPolicyInput,
   candidate: CompiledPolicyInput
 ): RiskAssessment {
+  // Provider declaration changes affect transport, capability or risk ceilings. They are
+  // conservatively approval-gated even if their tool IDs happen to be unchanged.
+  if (previous.extensionRegistry.hash !== candidate.extensionRegistry.hash) {
+    return { riskIncrease: true };
+  }
+
   const prevWorkspaces = keyWorkspaces(previous);
   for (const workspace of candidate.workspaces) {
     const prior = prevWorkspaces.get(workspace.id);
     if (prior === undefined) return { riskIncrease: true };
     if (workspaceRiskIncrease(prior, workspace)) return { riskIncrease: true };
+    if (
+      !setSubset(
+        effectiveExtensionAccess(previous, prior),
+        effectiveExtensionAccess(candidate, workspace)
+      )
+    ) {
+      return { riskIncrease: true };
+    }
   }
 
   const prevBindings = keyBindings(previous);

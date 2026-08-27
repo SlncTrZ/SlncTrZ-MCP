@@ -47,6 +47,8 @@ export interface ReloadResult {
 export interface PolicySnapshotStore {
   /** Return the stable active snapshot reference; never reads policy from disk. */
   capture(): ActivePolicySnapshot;
+  /** Atomically capture a snapshot and retain its extension runtime for one exchange. */
+  captureLease(): { readonly snapshot: ActivePolicySnapshot; release(): void };
   /** Build a candidate off to the side and atomically activate it, or retain the prior one. */
   reload(): Promise<ReloadResult>;
 }
@@ -113,6 +115,13 @@ export function createPolicySnapshotStore(
     capture(): ActivePolicySnapshot {
       return active;
     },
+    captureLease(): { readonly snapshot: ActivePolicySnapshot; release(): void } {
+      const snapshot = active;
+      // Acquisition is synchronous with reading active, so a reload cannot retire this
+      // generation between capture and lease establishment.
+      const release = snapshot.acquireRuntime?.() ?? (() => undefined);
+      return Object.freeze({ snapshot, release });
+    },
     reload(): Promise<ReloadResult> {
       if (reloadPromise !== undefined) {
         return Promise.resolve({
@@ -160,7 +169,9 @@ export function createPolicySnapshotStore(
 
         if (!summary.riskIncrease) {
           // Access reduction or metadata-only rotation: activate without approval.
+          const prior = active;
           active = candidate;
+          prior.retire?.();
           emitAudit(audit, {
             eventType: "policy_reload",
             actorKind,
@@ -191,7 +202,9 @@ export function createPolicySnapshotStore(
         }
 
         if (decision === "approved") {
+          const prior = active;
           active = candidate;
+          prior.retire?.();
           emitAudit(audit, {
             eventType: "policy_reload",
             actorKind,

@@ -17,6 +17,9 @@ export interface ToolAuditEvent {
   readonly result: "success" | "error" | "cancelled" | "timeout";
   readonly durationMs: number;
   readonly commandId?: string;
+  /** Present only for a dispatched extension; no endpoint, arguments or output is retained. */
+  readonly providerId?: string;
+  readonly canonicalToolId?: string;
 }
 
 export type ToolAuditSink = (event: ToolAuditEvent) => void;

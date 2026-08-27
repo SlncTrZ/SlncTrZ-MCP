@@ -19,8 +19,11 @@ import { PolicyConfigError } from "./policy-config.js";
 import {
   type AuthenticatedPrincipal,
   type KernelCapability,
-  type KernelPolicySnapshot
+  type KernelPolicySnapshot,
+  type ResolvedExtensionTool
 } from "./kernel-policy.js";
+import { type CompiledExtensionRegistry } from "../extension/registry.js";
+import { type ExtensionRuntimeCatalog } from "../extension/runtime.js";
 
 export interface ActivePolicySnapshot {
   readonly version: string;
@@ -29,6 +32,10 @@ export interface ActivePolicySnapshot {
   readonly hasWorkspaces: boolean;
   /** Normalized, frozen compile input retained for deterministic policy diffing. */
   readonly normalized: CompiledPolicyInput;
+  /** Retire a captured extension runtime after a newer policy generation activates. */
+  retire?(): void;
+  /** Retain the runtime atomically with snapshot capture; caller must invoke release. */
+  acquireRuntime?(): () => void;
   resolve(
     principal: AuthenticatedPrincipal,
     workspaceId: string,
@@ -44,7 +51,17 @@ function canonicalHash(compiled: CompiledPolicyInput): string {
         w.id,
         w.kernelPolicy.version,
         [...w.profiles].sort().join(","),
-        [...w.customCapabilities].sort().join(",")
+        [...w.customCapabilities].sort().join(","),
+        w.extensionGrants
+          .map((grant) =>
+            [
+              grant.providerId,
+              [...grant.toolIds].sort().join(","),
+              [...grant.profiles].sort().join(",")
+            ].join(":")
+          )
+          .sort()
+          .join(";")
       ].join("|")
     );
   const bindings = [...compiled.clientBindings]
@@ -54,7 +71,12 @@ function canonicalHash(compiled: CompiledPolicyInput): string {
         "|"
       )
     );
-  const canonical = JSON.stringify({ schemaVersion: 1, workspaces, bindings });
+  const canonical = JSON.stringify({
+    schemaVersion: 1,
+    workspaces,
+    bindings,
+    extensionRegistry: compiled.extensionRegistry.hash
+  });
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 }
 
@@ -72,7 +94,9 @@ function profileCapabilities(
 function buildResolvedSnapshot(
   workspace: CompiledWorkspace,
   activeVersion: string,
-  enabled: readonly KernelCapability[]
+  enabled: readonly KernelCapability[],
+  extensions: readonly ResolvedExtensionTool[],
+  extensionRuntime?: ExtensionRuntimeCatalog
 ): KernelPolicySnapshot {
   const readRoot =
     enabled.includes("core.read") || enabled.includes("core.search")
@@ -88,6 +112,8 @@ function buildResolvedSnapshot(
     version: activeVersion,
     workspaceId: workspace.id,
     capabilities: Object.freeze([...enabled]),
+    extensions: Object.freeze(extensions),
+    ...(extensionRuntime === undefined ? {} : { extensionRuntime }),
     ...(readRoot === undefined ? {} : { readRoot }),
     ...(writeRoot === undefined ? {} : { writeRoot }),
     ...(execEnabled && workspace.kernelPolicy.execRoot !== undefined
@@ -104,8 +130,35 @@ function buildResolvedSnapshot(
   });
 }
 
+/** Authorize extension grants for a workspace/profile against the registry catalog. */
+function authorizeExtensions(
+  workspace: CompiledWorkspace,
+  profile: ProfileName,
+  registry: CompiledExtensionRegistry
+): readonly ResolvedExtensionTool[] {
+  const granted: ResolvedExtensionTool[] = [];
+  for (const grant of workspace.extensionGrants) {
+    if (grant.profiles.length > 0 && !grant.profiles.includes(profile)) continue;
+    const tools = registry.lookupProvider(grant.providerId);
+    for (const tool of tools) {
+      if (grant.toolIds.length > 0 && !grant.toolIds.includes(tool.canonicalId)) continue;
+      granted.push(
+        Object.freeze({
+          canonicalId: tool.canonicalId,
+          providerId: tool.providerId,
+          riskClass: tool.riskClass
+        })
+      );
+    }
+  }
+  return granted.sort((a, b) => a.canonicalId.localeCompare(b.canonicalId));
+}
+
 /** Build the frozen active snapshot from a compiled policy input. */
-export function buildActivePolicySnapshot(compiled: CompiledPolicyInput): ActivePolicySnapshot {
+export function buildActivePolicySnapshot(
+  compiled: CompiledPolicyInput,
+  extensionRuntime?: ExtensionRuntimeCatalog
+): ActivePolicySnapshot {
   const version = canonicalHash(compiled);
   return Object.freeze({
     version,
@@ -113,6 +166,12 @@ export function buildActivePolicySnapshot(compiled: CompiledPolicyInput): Active
     createdAt: new Date().toISOString(),
     hasWorkspaces: compiled.workspaces.length > 0,
     normalized: compiled,
+    ...(extensionRuntime === undefined
+      ? {}
+      : {
+          retire: () => extensionRuntime.retire(),
+          acquireRuntime: () => extensionRuntime.acquire()
+        }),
     resolve(principal: AuthenticatedPrincipal, workspaceId: string, profile?: ProfileName) {
       const binding = compiled.clientBindings.find((b) => b.clientId === principal.clientId);
       if (binding === undefined) {
@@ -136,7 +195,12 @@ export function buildActivePolicySnapshot(compiled: CompiledPolicyInput): Active
       const enabled = profileCapabilities(selectedProfile, workspace).filter((cap) =>
         workspace.kernelPolicy.capabilities.includes(cap)
       );
-      return buildResolvedSnapshot(workspace, version, enabled);
+      const extensions = authorizeExtensions(
+        workspace,
+        selectedProfile,
+        compiled.extensionRegistry
+      );
+      return buildResolvedSnapshot(workspace, version, enabled, extensions, extensionRuntime);
     }
   });
 }

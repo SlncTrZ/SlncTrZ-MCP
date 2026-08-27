@@ -232,17 +232,27 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           return;
         }
 
-        const resolution = resolveExchangePolicy(
-          options.policyStore === undefined ? options.activePolicy : options.policyStore.capture(),
-          options.kernelPolicy,
-          req
-        );
+        const captured = options.policyStore?.captureLease();
+        let releaseRuntime = captured?.release;
+        let resolution: ExchangePolicyResolution;
+        try {
+          resolution = resolveExchangePolicy(
+            captured?.snapshot ?? options.activePolicy,
+            options.kernelPolicy,
+            req
+          );
+        } catch (error) {
+          releaseRuntime?.();
+          throw error;
+        }
         if ("forbidden" in resolution) {
+          releaseRuntime?.();
           sendJson(res, 403, {
             error: { code: resolution.forbidden.code, message: resolution.forbidden.message }
           });
           return;
         }
+        releaseRuntime ??= resolution.snapshot.extensionRuntime?.acquire();
         const requestHandler = createGatewayMcpHandler({
           ...errorOptions,
           kernelPolicy: resolution.snapshot,
@@ -258,6 +268,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           await requestHandleMcp(req, res, parsedBody);
         } finally {
           await requestHandler.close();
+          releaseRuntime?.();
         }
       } catch (error) {
         options.onError?.(error instanceof Error ? error : new Error("Unknown error"));

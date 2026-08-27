@@ -14,8 +14,7 @@ function httpsManifest(endpoint: string): ExtensionManifestV1 {
     transport: "streamable-http",
     version: "1.0.0",
     endpoint,
-    tools: [{ canonicalId: "svc.ping", riskClass: "read" }],
-    workspaces: ["dev"]
+    tools: [{ canonicalId: "svc.ping", riskClass: "read" }]
   };
 }
 

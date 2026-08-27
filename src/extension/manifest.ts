@@ -5,9 +5,10 @@
  * Provenance: PLAN Phase 5, ARCHITECTURE §4.11, ADR-020, and the Phase 5 handoff slice 1.
  *
  * A manifest declares one isolated third-party MCP provider. It is operator-owned JSON
- * with no inline secrets, shell strings, arbitrary caller endpoints, wildcard workspaces,
- * or unknown fields. Canonical tool IDs are stable and namespaced `providerId.toolName`;
- * any namespace mismatch or duplicate collides (a fatal candidate-policy error).
+ * with no inline secrets, shell strings, arbitrary caller endpoints, or unknown fields.
+ * Canonical tool IDs are stable and namespaced `providerId.toolName`; any namespace mismatch
+ * or duplicate collides (a fatal candidate-policy error). Manifest describes capability,
+ * transport and risk ceilings only; workspace authorization lives in the policy document.
  */
 
 import { isAbsolute } from "node:path";
@@ -30,7 +31,6 @@ export class ExtensionManifestError extends Error {
 export const EXTENSION_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 export const MAX_EXTENSIONS = 64;
 export const MAX_TOOLS_PER_EXTENSION = 256;
-export const MAX_WORKSPACES_PER_EXTENSION = 64;
 export const MAX_ENV_ALLOWLIST_KEYS = 16;
 export const MAX_CREDENTIAL_REFS = 16;
 
@@ -56,7 +56,6 @@ export interface ExtensionManifestV1 {
   readonly args?: readonly string[];
   readonly endpoint?: string;
   readonly tools: readonly ExtensionToolSchemaRecord[];
-  readonly workspaces: readonly string[];
   readonly envAllowlist?: readonly string[];
   readonly credentialRefs?: readonly string[];
   readonly startupTimeoutMs?: number;
@@ -82,7 +81,6 @@ export interface CompiledExtensionManifest {
   readonly args: readonly string[];
   readonly endpoint?: string;
   readonly tools: readonly CompiledExtensionTool[];
-  readonly workspaces: readonly string[];
   readonly envAllowlist: readonly string[];
   readonly credentialRefs: readonly string[];
   readonly startupTimeoutMs: number;
@@ -109,7 +107,6 @@ const manifestSchema = z
     args: z.array(z.string()).optional(),
     endpoint: z.string().min(1).optional(),
     tools: z.array(toolRecordSchema).min(1).max(MAX_TOOLS_PER_EXTENSION),
-    workspaces: z.array(z.string()).min(0).max(MAX_WORKSPACES_PER_EXTENSION),
     envAllowlist: z.array(z.string()).max(MAX_ENV_ALLOWLIST_KEYS).optional(),
     credentialRefs: z.array(z.string()).max(MAX_CREDENTIAL_REFS).optional(),
     startupTimeoutMs: z.number().int().positive().optional(),
@@ -120,8 +117,6 @@ const manifestSchema = z
     maxRestarts: z.number().int().nonnegative().optional()
   })
   .strict();
-
-const WORKSPACE_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
 function mapZodError(error: z.ZodError): ExtensionManifestError {
   const issue = error.issues[0];
@@ -240,12 +235,6 @@ export async function compileExtensionManifest(
     }
   }
 
-  for (const workspace of parsed.data.workspaces) {
-    if (!WORKSPACE_PATTERN.test(workspace)) {
-      throw new ExtensionManifestError("manifest_invalid", "Workspace id is invalid");
-    }
-  }
-
   for (const ref of parsed.data.credentialRefs ?? []) {
     if (looksLikeSecret(ref)) {
       throw new ExtensionManifestError("manifest_invalid", "Credential ref must be an opaque name");
@@ -289,7 +278,6 @@ export async function compileExtensionManifest(
     args: Object.freeze([...(parsed.data.args ?? [])]),
     ...(parsed.data.endpoint === undefined ? {} : { endpoint: parsed.data.endpoint }),
     tools: Object.freeze(tools),
-    workspaces: Object.freeze([...parsed.data.workspaces]),
     envAllowlist: Object.freeze([...(parsed.data.envAllowlist ?? [])]),
     credentialRefs: Object.freeze([...(parsed.data.credentialRefs ?? [])]),
     startupTimeoutMs: parsed.data.startupTimeoutMs ?? 10_000,
