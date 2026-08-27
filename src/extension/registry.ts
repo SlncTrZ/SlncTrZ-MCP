@@ -17,6 +17,7 @@ import {
   type CompiledExtensionManifest,
   type ExtensionManifestV1
 } from "./manifest.js";
+import { MAX_EXTENSIONS } from "./manifest.js";
 
 export type ExtensionRegistryErrorCode = "registry_collision";
 
@@ -96,6 +97,13 @@ export async function compileExtensionRegistry(
   const records: CompiledExtensionRecord[] = [];
   const providerIds = new Set<string>();
   const toolIds = new Set<string>();
+
+  if (manifests.length > MAX_EXTENSIONS) {
+    throw new ExtensionRegistryError(
+      "registry_collision",
+      "Too many extensions exceeds the hard ceiling"
+    );
+  }
 
   for (const manifest of manifests) {
     let compiled: CompiledExtensionManifest;

@@ -12,7 +12,7 @@
 
 import { isAbsolute } from "node:path";
 import * as z from "zod/v4";
-import { type RiskClass } from "../kernel/tool-identity.js";
+import { type RiskClass, isValidCanonicalId } from "../kernel/tool-identity.js";
 
 export type ExtensionManifestErrorCode =
   "manifest_schema_invalid" | "manifest_invalid" | "manifest_collision";
@@ -33,6 +33,13 @@ export const MAX_TOOLS_PER_EXTENSION = 256;
 export const MAX_WORKSPACES_PER_EXTENSION = 64;
 export const MAX_ENV_ALLOWLIST_KEYS = 16;
 export const MAX_CREDENTIAL_REFS = 16;
+
+export const HARD_MAX_OUTPUT_BYTES = 8 * 1_048_576;
+export const HARD_MAX_MESSAGE_BYTES = 1_048_576;
+export const HARD_MAX_QUEUE = 512;
+export const HARD_MAX_RESTARTS = 16;
+export const HARD_MAX_STARTUP_TIMEOUT_MS = 120_000;
+export const HARD_MAX_REQUEST_TIMEOUT_MS = 120_000;
 
 export type ExtensionTransport = "stdio" | "streamable-http";
 
@@ -136,7 +143,58 @@ export async function compileExtensionManifest(
   if (!parsed.success) throw mapZodError(parsed.error);
 
   const id = parsed.data.id;
-  if (parsed.data.transport === "stdio") {
+  const transport = parsed.data.transport;
+
+  // Reject fields mixed across transports: stdio has no endpoint, HTTP no command/args.
+  if (transport === "stdio" && parsed.data.endpoint !== undefined) {
+    throw new ExtensionManifestError("manifest_invalid", "Stdio transport must not set endpoint");
+  }
+  if (
+    transport === "streamable-http" &&
+    (parsed.data.command !== undefined || parsed.data.args !== undefined)
+  ) {
+    throw new ExtensionManifestError(
+      "manifest_invalid",
+      "HTTP transport must not set command/args"
+    );
+  }
+
+  // Hard ceilings: an operator may not request unbounded output, message, queue or retries.
+  const output = parsed.data.maxOutputBytes;
+  const message = parsed.data.maxMessageBytes;
+  const queue = parsed.data.maxQueue;
+  const restarts = parsed.data.maxRestarts;
+  const startup = parsed.data.startupTimeoutMs;
+  const request = parsed.data.requestTimeoutMs;
+  if (output !== undefined && output > HARD_MAX_OUTPUT_BYTES) {
+    throw new ExtensionManifestError("manifest_invalid", "maxOutputBytes exceeds the hard ceiling");
+  }
+  if (message !== undefined && message > HARD_MAX_MESSAGE_BYTES) {
+    throw new ExtensionManifestError(
+      "manifest_invalid",
+      "maxMessageBytes exceeds the hard ceiling"
+    );
+  }
+  if (queue !== undefined && queue > HARD_MAX_QUEUE) {
+    throw new ExtensionManifestError("manifest_invalid", "maxQueue exceeds the hard ceiling");
+  }
+  if (restarts !== undefined && restarts > HARD_MAX_RESTARTS) {
+    throw new ExtensionManifestError("manifest_invalid", "maxRestarts exceeds the hard ceiling");
+  }
+  if (startup !== undefined && startup > HARD_MAX_STARTUP_TIMEOUT_MS) {
+    throw new ExtensionManifestError(
+      "manifest_invalid",
+      "startupTimeoutMs exceeds the hard ceiling"
+    );
+  }
+  if (request !== undefined && request > HARD_MAX_REQUEST_TIMEOUT_MS) {
+    throw new ExtensionManifestError(
+      "manifest_invalid",
+      "requestTimeoutMs exceeds the hard ceiling"
+    );
+  }
+
+  if (transport === "stdio") {
     const command = parsed.data.command;
     if (command === undefined) {
       throw new ExtensionManifestError("manifest_invalid", "Stdio transport requires a command");
@@ -189,6 +247,16 @@ export async function compileExtensionManifest(
   }
 
   const tools: CompiledExtensionTool[] = parsed.data.tools.map((tool) => {
+    // Format validation only; namespace match (providerId.toolName) is a registry concern.
+    if (
+      !isValidCanonicalId(tool.canonicalId) ||
+      tool.canonicalId.endsWith(".") ||
+      tool.canonicalId.includes("..") ||
+      /\s/iu.test(tool.canonicalId) ||
+      /[\u0000-\u001f]/u.test(tool.canonicalId)
+    ) {
+      throw new ExtensionManifestError("manifest_invalid", "Canonical tool id is invalid");
+    }
     const exposedName = tool.canonicalId;
     return {
       canonicalId: tool.canonicalId,

@@ -115,4 +115,48 @@ describe("extension manifest (typed strict JSON schema)", () => {
     expect(msg).not.toContain("TOP_SECRET");
     expect(msg).not.toContain("bad id");
   });
+
+  it("rejects fields mixed across transports (stdio endpoint / http command)", async () => {
+    await expect(
+      compileExtensionManifest({
+        ...validStdio(),
+        endpoint: "https://example.com/mcp"
+      } as ExtensionManifestV1)
+    ).rejects.toMatchObject({ code: "manifest_invalid" });
+    await expect(
+      compileExtensionManifest({
+        ...validStdio(),
+        transport: "streamable-http",
+        endpoint: "https://example.com/mcp",
+        command: "/usr/local/bin/x"
+      } as ExtensionManifestV1)
+    ).rejects.toMatchObject({ code: "manifest_invalid" });
+  });
+
+  it("rejects limits above the hard ceiling", async () => {
+    const cases = [
+      { maxOutputBytes: 9 * 1_048_576 },
+      { maxMessageBytes: 2 * 1_048_576 },
+      { maxQueue: 513 },
+      { maxRestarts: 17 },
+      { startupTimeoutMs: 121_000 },
+      { requestTimeoutMs: 121_000 }
+    ];
+    for (const override of cases) {
+      await expect(
+        compileExtensionManifest({ ...validStdio(), ...override } as ExtensionManifestV1)
+      ).rejects.toMatchObject({ code: "manifest_invalid" });
+    }
+  });
+
+  it("rejects malformed canonical tool ids (format, not namespace)", async () => {
+    for (const bad of ["github.", "github..x", "gh repo", "gh\tname"]) {
+      await expect(
+        compileExtensionManifest({
+          ...validStdio(),
+          tools: [{ canonicalId: bad, riskClass: "read" }]
+        } as ExtensionManifestV1)
+      ).rejects.toMatchObject({ code: "manifest_invalid" });
+    }
+  });
 });

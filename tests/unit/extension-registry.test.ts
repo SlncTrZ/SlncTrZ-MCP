@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   compileExtensionRegistry,
-  type CompiledExtensionRegistry
+  type CompiledExtensionRegistry,
+  type ExtensionRegistryError
 } from "../../src/extension/registry.js";
 import { type compileExtensionManifest } from "../../src/extension/manifest.js";
 
@@ -113,6 +114,26 @@ describe("extension registry (canonical namespace, collisions, stable hash)", ()
   it("denies an unknown workspace (empty authorized set)", async () => {
     const registry = await compileExtensionRegistry([(await stdioManifest("github")) as never]);
     expect(registry.listAuthorized("nope")).toEqual([]);
+  });
+
+  it("rejects more than MAX_EXTENSIONS providers (hard ceiling)", async () => {
+    const manifests = [];
+    for (let i = 0; i < 65; i += 1) {
+      manifests.push(await stdioManifest(`ext${i}`));
+    }
+    await expect(compileExtensionRegistry(manifests as never)).rejects.toMatchObject({
+      code: "registry_collision"
+    } as Partial<ExtensionRegistryError>);
+  });
+
+  it("deep-freezes every tool record in the index, not just the collection", async () => {
+    const registry = await compileExtensionRegistry([(await stdioManifest("github")) as never]);
+    const tool = registry.lookup("github.search");
+    expect(Object.isFrozen(tool)).toBe(true);
+    expect(() => {
+      (tool as unknown as { riskClass: string }).riskClass = "write";
+    }).toThrow();
+    expect(Object.isFrozen(registry.toolIndex)).toBe(true);
   });
 });
 

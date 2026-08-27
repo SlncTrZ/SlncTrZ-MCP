@@ -24,6 +24,7 @@ class FakeAdapter implements ExtensionAdapter {
   healthValue: AdapterHealth = "ready";
   startBehavior: "resolve" | "reject" | "hang" = "resolve";
   callBehavior: "resolve" | "reject" | "hang" = "resolve";
+  ignoreAbort = false;
   readonly tools: readonly ExtensionToolInfo[] = [
     { canonicalId: "p.findOne", exposedName: "p.findOne", riskClass: "read" },
     { canonicalId: "p.writeOne", exposedName: "p.writeOne", riskClass: "write" }
@@ -62,13 +63,17 @@ class FakeAdapter implements ExtensionAdapter {
     return new Promise<ExtensionCallResult>((resolve, reject) => {
       const entry: DeferredCall = { resolve, reject, signal: options.signal };
       this.deferredCalls.push(entry);
-      options.signal?.addEventListener(
-        "abort",
-        () => {
-          resolve({ isError: true, truncated: false, text: "cancelled" });
-        },
-        { once: true }
-      );
+      // A well-behaved adapter resolves on abort; an adapter that ignores the signal
+      // (ignoreAbort=true) never listens, so the supervisor must hard-bound the timeout.
+      if (!this.ignoreAbort) {
+        options.signal?.addEventListener(
+          "abort",
+          () => {
+            resolve({ isError: true, truncated: false, text: "cancelled" });
+          },
+          { once: true }
+        );
+      }
     });
   }
 
@@ -222,6 +227,99 @@ describe("extension supervisor: state machine (fake-first)", () => {
     adapter.healthValue = "degraded";
     const supervisor = createExtensionSupervisor({ adapter });
     expect(supervisor.health()).toBe("degraded");
+  });
+
+  it("hard-bounds a request timeout even when the adapter ignores abort", async () => {
+    const adapter = new FakeAdapter();
+    adapter.callBehavior = "hang";
+    adapter.ignoreAbort = true; // never resolves on abort, never settles
+    const supervisor = createExtensionSupervisor({ adapter, requestTimeoutMs: 25 });
+    await supervisor.start();
+    const result = await supervisor.invoke("p.findOne", {});
+    // The timeout settles regardless of the stuck adapter, freeing the active slot.
+    expect(result.isError).toBe(true);
+    expect(result.text).toBe("provider_timeout");
+    // A follow-up invoke must run: the previous stuck call did not wedge the queue.
+    adapter.callBehavior = "resolve";
+    adapter.ignoreAbort = false;
+    const next = await supervisor.invoke("p.findOne", {});
+    expect(next.isError).toBe(false);
+  });
+
+  it("rejects a caller abort on a queued entry before dispatch", async () => {
+    const adapter = new FakeAdapter();
+    adapter.callBehavior = "hang";
+    const supervisor = createExtensionSupervisor({ adapter, maxQueue: 3, requestTimeoutMs: 5000 });
+    await supervisor.start();
+    // Fill the active slot and one queue slot, then abort a queued entry.
+    const active = supervisor.invoke("p.findOne", {});
+    await tick();
+    const queuedController = new AbortController();
+    const queued = supervisor.invoke("p.findOne", {}, { signal: queuedController.signal });
+    queuedController.abort(); // abort before dispatch
+    let outcome: unknown;
+    await queued.then(
+      (r) => {
+        outcome = r;
+      },
+      (e) => {
+        outcome = e;
+      }
+    );
+    expect(adapter.callTools).toHaveLength(1); // the queued one never dispatched
+    expect(outcome).toBeInstanceOf(AdapterError);
+    // Release the active call so the test can settle.
+    adapter.deferredCalls.shift()?.resolve({ isError: false, truncated: false, text: "ok" });
+    await active;
+  });
+
+  it("does not dispatch queued calls while restarting, and quarantines after exhaustion", async () => {
+    const adapter = new FakeAdapter();
+    adapter.callBehavior = "reject"; // every call crashes
+    const supervisor = createExtensionSupervisor({
+      adapter,
+      maxRestarts: 0, // no restart allowed: first crash exhausts the budget
+      backoffBaseMs: 5,
+      backoffJitterMs: 0
+    });
+    await supervisor.start();
+    expect(supervisor.state).toBe("ready");
+
+    // First crash exhausts the zero budget -> quarantine.
+    const crashed = await supervisor.invoke("p.findOne", {});
+    expect(crashed.isError).toBe(true);
+    await tick();
+    expect(supervisor.state).toBe("quarantined");
+
+    // After quarantine no request is dispatched; it is rejected (never reaches the adapter).
+    const held = supervisor.invoke("p.findOne", {});
+    let heldOutcome: unknown;
+    await held.then(
+      (r) => {
+        heldOutcome = r;
+      },
+      (e) => {
+        heldOutcome = e;
+      }
+    );
+    expect(adapter.callTools).toHaveLength(1); // the held one was never dispatched
+    expect(heldOutcome).toBeInstanceOf(AdapterError);
+  });
+
+  it("stop() during startup does not throw an illegal transition or rejection", async () => {
+    const adapter = new FakeAdapter();
+    adapter.startBehavior = "hang";
+    const supervisor = createExtensionSupervisor({ adapter, startupTimeoutMs: 5000 });
+    const starting = supervisor.start();
+    await tick();
+    await expect(supervisor.stop()).resolves.toBeUndefined();
+    expect(supervisor.state).toBe("stopped");
+    // The pending start must not reject with an unhandled error after stop.
+    const startResult = await starting.then(
+      () => "ok",
+      () => "rejected"
+    );
+    expect(startResult).toBe("rejected");
   });
 });
 
