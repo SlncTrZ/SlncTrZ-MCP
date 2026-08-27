@@ -7,6 +7,7 @@
  * reject invalid UTF-8 rather than silently replacing bytes.
  */
 
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { TextDecoder } from "node:util";
@@ -38,6 +39,7 @@ export interface ReadResult {
   readonly content: string;
   readonly bytes: number;
   readonly encoding: "utf-8";
+  readonly sha256: string;
 }
 
 function mapBoundaryError(error: BoundaryError): ReadError {
@@ -126,7 +128,12 @@ export async function readContainedFile(
       throw new ReadError("invalid_encoding", "File is not valid UTF-8");
     }
 
-    return { content, bytes: total, encoding: "utf-8" };
+    return {
+      content,
+      bytes: total,
+      encoding: "utf-8",
+      sha256: createHash("sha256").update(bytes.subarray(0, total)).digest("hex")
+    };
   } finally {
     await handle.close();
   }

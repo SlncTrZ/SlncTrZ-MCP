@@ -23,6 +23,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-012 | Grant-family token revocation and redacted authentication audit     | Accepted |
 | ADR-013 | Bound ephemeral OAuth allocations                                   | Accepted |
 | ADR-014 | Non-overridable secret-path denial in the kernel                    | Accepted |
+| ADR-015 | Policy-bound atomic filesystem writes                               | Accepted |
 
 ## How to add an ADR
 

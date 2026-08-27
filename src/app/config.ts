@@ -1,8 +1,8 @@
 /**
  * Runtime Configuration — validates the minimal public ingress environment.
- * Wing: app | Topic: runtime-config | Updated: 2026-08-26
+ * Wing: app | Topic: runtime-config | Updated: 2026-08-27
  *
- * Provenance: PLAN Phase 1 and SECURITY default-deny ingress requirements.
+ * Provenance: PLAN Phases 1 and 3, SECURITY default-deny, and ADR-015.
  */
 
 export interface RuntimeConfig {
@@ -14,6 +14,7 @@ export interface RuntimeConfig {
   readonly allowedHostnames: readonly string[];
   readonly allowedOriginHostnames: readonly string[];
   readonly toolRoot?: string;
+  readonly writeRoot?: string;
   readonly staticClient?: {
     readonly clientId: string;
     readonly clientSecret: string;
@@ -102,6 +103,7 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   const allowedOriginHostnames = parseCsv(environment.SLNCTRZ_ALLOWED_ORIGINS, allowedHostnames);
 
   const toolRoot = environment.SLNCTRZ_TOOL_ROOT;
+  const writeRoot = environment.SLNCTRZ_WRITE_ROOT;
 
   return {
     host,
@@ -112,6 +114,7 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     allowedHostnames,
     allowedOriginHostnames,
     ...(toolRoot === undefined || toolRoot.length === 0 ? {} : { toolRoot }),
+    ...(writeRoot === undefined || writeRoot.length === 0 ? {} : { writeRoot }),
     ...(staticClient === undefined ? {} : { staticClient })
   };
 }

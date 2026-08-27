@@ -1,12 +1,14 @@
 /**
  * Application Entry Point — starts the public MCP data plane.
- * Wing: app | Topic: process-entrypoint | Updated: 2026-08-26
+ * Wing: app | Topic: process-entrypoint | Updated: 2026-08-27
  *
- * Provenance: PLAN Phases 1-2 and ADR-012.
+ * Provenance: PLAN Phases 1-3, ADR-012, and ADR-015.
  */
 
 import { OAuthService } from "../auth/oauth-service.js";
 import { createJsonLineAuthAuditSink } from "../observability/auth-audit.js";
+import { createJsonLineToolAuditSink } from "../observability/tool-audit.js";
+import { createKernelPolicySnapshot } from "../policy/kernel-policy.js";
 import { readRuntimeConfig } from "./config.js";
 import { createGatewayServer, listenGateway } from "./http-server.js";
 
@@ -26,11 +28,17 @@ const oauthService = new OAuthService({
   audit: createJsonLineAuthAuditSink(),
   ...(config.staticClient === undefined ? {} : { staticClient: config.staticClient })
 });
+const kernelPolicy = createKernelPolicySnapshot({
+  workspaceId: "default",
+  ...(config.toolRoot === undefined ? {} : { readRoot: config.toolRoot }),
+  ...(config.writeRoot === undefined ? {} : { writeRoot: config.writeRoot })
+});
 const server = createGatewayServer({
   oauthService,
+  kernelPolicy,
+  toolAudit: createJsonLineToolAuditSink(),
   allowedHostnames: config.allowedHostnames,
   allowedOriginHostnames: config.allowedOriginHostnames,
-  ...(config.toolRoot === undefined ? {} : { toolRoot: config.toolRoot }),
   onError: (error) => {
     console.error(error.message);
   }

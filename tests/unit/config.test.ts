@@ -17,7 +17,9 @@ describe("readRuntimeConfig", () => {
       SLNCTRZ_ALLOWED_HOSTS: "mcp.example.com,localhost",
       SLNCTRZ_ALLOWED_ORIGINS: "chatgpt.com,claude.ai",
       SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH,
-      SLNCTRZ_MAX_DYNAMIC_CLIENTS: "64"
+      SLNCTRZ_MAX_DYNAMIC_CLIENTS: "64",
+      SLNCTRZ_TOOL_ROOT: "/workspace/read",
+      SLNCTRZ_WRITE_ROOT: "/workspace/write"
     });
 
     expect(config.host).toBe("0.0.0.0");
@@ -26,6 +28,8 @@ describe("readRuntimeConfig", () => {
     expect(config.allowedHostnames).toEqual(["mcp.example.com", "localhost"]);
     expect(config.allowedOriginHostnames).toEqual(["chatgpt.com", "claude.ai"]);
     expect(config.maxDynamicClients).toBe(64);
+    expect(config.toolRoot).toBe("/workspace/read");
+    expect(config.writeRoot).toBe("/workspace/write");
   });
 
   it("rejects missing, insecure, or incorrectly routed public URLs", () => {

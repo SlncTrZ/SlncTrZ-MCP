@@ -1,25 +1,43 @@
 /**
  * MCP HTTP Handler — modern per-request MCP with stateless legacy fallback.
- * Wing: protocol | Topic: streamable-http | Updated: 2026-08-26
+ * Wing: protocol | Topic: streamable-http | Updated: 2026-08-27
  *
- * Provenance: PLAN Phase 1, ADR-006, and the public MCP 2026-07-28 transport
+ * Provenance: PLAN Phases 1 and 3, ADR-006, ADR-015, and the public MCP 2026-07-28 transport
  * contract implemented by the official TypeScript SDK v2.
  */
 
 import { createMcpHandler, type McpHttpHandler } from "@modelcontextprotocol/server";
+import { type ToolAuditSink } from "../observability/tool-audit.js";
+import { createKernelPolicySnapshot, type KernelPolicySnapshot } from "../policy/kernel-policy.js";
 import { createMcpServer } from "./mcp-server.js";
 
 export interface McpHandlerOptions {
   readonly onError?: (error: Error) => void;
-  readonly toolRoot?: string;
+  readonly kernelPolicy?: KernelPolicySnapshot;
+  readonly toolAudit?: ToolAuditSink;
 }
 
 /** Create one handler whose factory isolates every modern and legacy exchange. */
 export function createGatewayMcpHandler(options: McpHandlerOptions = {}): McpHttpHandler {
+  const kernelPolicy =
+    options.kernelPolicy ??
+    createKernelPolicySnapshot({
+      workspaceId: "default"
+    });
+
   return createMcpHandler(
-    () =>
+    (context) =>
       createMcpServer({
-        ...(options.toolRoot === undefined ? {} : { toolRoot: options.toolRoot })
+        kernelPolicy,
+        ...(context.authInfo === undefined
+          ? {}
+          : {
+              principal: {
+                clientId: context.authInfo.clientId,
+                scopes: context.authInfo.scopes
+              }
+            }),
+        ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit })
       }),
     {
       legacy: "stateless",

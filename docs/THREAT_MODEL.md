@@ -78,6 +78,9 @@ capabilities.
 
 ### Mutation gate
 
+> Status: passed for `core.write` on 2026-08-27. Revalidate writable/executable root
+> composition when `core.exec` is introduced.
+
 - Threat model reviewed.
 - Atomic replacement and failure cleanup tests pass.
 - Symlink/race tests cover existing and newly created targets.

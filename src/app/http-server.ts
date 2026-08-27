@@ -1,8 +1,8 @@
 /**
  * Public HTTP Server — routes health checks and the MCP data-plane endpoint.
- * Wing: app | Topic: public-http-ingress | Updated: 2026-08-26
+ * Wing: app | Topic: public-http-ingress | Updated: 2026-08-27
  *
- * Provenance: PLAN Phase 1, SECURITY invariants 7 and 12, and ADR-006.
+ * Provenance: PLAN Phases 1 and 3, SECURITY invariants 1, 7, and 12, ADR-006, and ADR-015.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -14,6 +14,8 @@ import {
 } from "@modelcontextprotocol/server";
 import { OAuthHttpRouter } from "../auth/oauth-http-router.js";
 import { type OAuthService } from "../auth/oauth-service.js";
+import { type ToolAuditSink } from "../observability/tool-audit.js";
+import { type KernelPolicySnapshot } from "../policy/kernel-policy.js";
 import { createGatewayMcpHandler } from "../protocol/mcp-handler.js";
 import {
   PayloadTooLargeError,
@@ -29,7 +31,8 @@ export interface GatewayServerOptions {
   readonly allowedHostnames?: readonly string[];
   readonly allowedOriginHostnames?: readonly string[];
   readonly maxBodyBytes?: number;
-  readonly toolRoot?: string;
+  readonly kernelPolicy?: KernelPolicySnapshot;
+  readonly toolAudit?: ToolAuditSink;
   readonly onError?: (error: Error) => void;
 }
 
@@ -104,7 +107,8 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
   const errorOptions = options.onError === undefined ? {} : { onError: options.onError };
   const handler = createGatewayMcpHandler({
     ...errorOptions,
-    ...(options.toolRoot === undefined ? {} : { toolRoot: options.toolRoot })
+    ...(options.kernelPolicy === undefined ? {} : { kernelPolicy: options.kernelPolicy }),
+    ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit })
   });
   const handleMcp = toNodeHandler(
     handler,

@@ -29,11 +29,10 @@ describe("core.read (contained filesystem read)", () => {
     await writeFile(join(root, "sub", "hello.txt"), "xin chào", "utf8");
 
     const result = await readContainedFile(root, "sub/hello.txt");
-    expect(result).toEqual({
-      content: "xin chào",
-      bytes: Buffer.byteLength("xin chào"),
-      encoding: "utf-8"
-    });
+    expect(result.content).toBe("xin chào");
+    expect(result.bytes).toBe(Buffer.byteLength("xin chào"));
+    expect(result.encoding).toBe("utf-8");
+    expect(result.sha256).toMatch(/^[a-f0-9]{64}$/u);
   });
 
   it("rejects default-deny, absolute, traversal, and missing paths", async () => {

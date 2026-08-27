@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OAuthService } from "../../src/auth/oauth-service.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createGatewayServer, listenGateway } from "../../src/app/http-server.js";
+import { type ToolAuditEvent } from "../../src/observability/tool-audit.js";
+import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
 
 const servers: Server[] = [];
 const temporaryDirectories: string[] = [];
@@ -29,9 +31,13 @@ afterEach(async () => {
   );
 });
 
-async function startTestServer(toolRoot?: string): Promise<{
+async function startTestServer(
+  readRoot?: string,
+  writeRoot?: string
+): Promise<{
   readonly origin: string;
   readonly accessToken: string;
+  readonly auditEvents: ToolAuditEvent[];
 }> {
   const oauthService = new OAuthService({
     issuer: new URL("https://mcp.example.com"),
@@ -62,9 +68,15 @@ async function startTestServer(toolRoot?: string): Promise<{
     resource: TEST_RESOURCE
   });
 
+  const auditEvents: ToolAuditEvent[] = [];
   const server = createGatewayServer({
     oauthService,
-    ...(toolRoot === undefined ? {} : { toolRoot })
+    kernelPolicy: createKernelPolicySnapshot({
+      workspaceId: "test-workspace",
+      ...(readRoot === undefined ? {} : { readRoot }),
+      ...(writeRoot === undefined ? {} : { writeRoot })
+    }),
+    toolAudit: (event) => auditEvents.push(event)
   });
   servers.push(server);
   const address = await listenGateway(server, {
@@ -73,7 +85,8 @@ async function startTestServer(toolRoot?: string): Promise<{
   });
   return {
     origin: `http://127.0.0.1:${address.port}`,
-    accessToken: tokens.access_token
+    accessToken: tokens.access_token,
+    auditEvents
   };
 }
 
@@ -192,11 +205,7 @@ describe("gateway HTTP surface", () => {
     };
 
     expect(listResponse.status).toBe(200);
-    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
-      "core.ping",
-      "core.read",
-      "core.search"
-    ]);
+    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual(["core.ping"]);
 
     const callResponse = await fetch(`${origin}/mcp`, {
       method: "POST",
@@ -272,6 +281,76 @@ describe("gateway HTTP surface", () => {
         truncated: false
       })
     );
+  });
+
+  it("exposes policy-authorized core.write and emits a secret-free audit event", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-mcp-write-"));
+    temporaryDirectories.push(root);
+
+    const { origin, accessToken, auditEvents } = await startTestServer(root, root);
+    const headers = {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18"
+    };
+
+    const listResponse = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 6,
+        method: "tools/list",
+        params: {}
+      })
+    });
+    const listPayload = (await readMcpPayload(listResponse)) as {
+      result?: { tools?: { name?: string }[] };
+    };
+    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
+      "core.ping",
+      "core.read",
+      "core.search",
+      "core.write"
+    ]);
+
+    const writeResponse = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: {
+          name: "core.write",
+          arguments: { path: "created.txt", content: "created atomically", dryRun: false }
+        }
+      })
+    });
+    const writePayload = (await readMcpPayload(writeResponse)) as {
+      result?: { structuredContent?: { applied?: boolean; created?: boolean } };
+    };
+
+    expect(writeResponse.status).toBe(200);
+    expect(writePayload.result?.structuredContent).toEqual(
+      expect.objectContaining({ applied: true, created: true })
+    );
+    expect(await readFile(join(root, "created.txt"), "utf8")).toBe("created atomically");
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]).toEqual(
+      expect.objectContaining({
+        workspaceId: "test-workspace",
+        toolId: "core.write",
+        riskClass: "write",
+        decision: "allow",
+        result: "success"
+      })
+    );
+    expect(auditEvents[0]?.clientId).toEqual(expect.any(String));
+    expect(auditEvents[0]?.policyVersion).toMatch(/^[a-f0-9]{16}$/u);
+    expect(JSON.stringify(auditEvents[0])).not.toContain("created.txt");
+    expect(JSON.stringify(auditEvents[0])).not.toContain("created atomically");
   });
 
   it("enforces the request-body boundary before protocol dispatch", async () => {

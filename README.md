@@ -4,7 +4,7 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 3 in progress · Read-only kernel available · License: Apache-2.0 ·
+> Status: Phase 3 in progress · Filesystem kernel available · License: Apache-2.0 ·
 > Architecture: minimal trusted kernel with isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
@@ -15,8 +15,8 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 
 - **One stable MCP endpoint** to AI clients over HTTPS ingress.
 - **OAuth + PKCE** authorization and client identity.
-- **Minimal trusted tool kernel** — `core.read` and `core.search` are available;
-  `core.write`, `core.edit`, and `core.exec` remain gated Phase 3 work.
+- **Minimal trusted tool kernel** — `core.read`, `core.search`, and policy-gated
+  `core.write` are available; `core.edit` and `core.exec` remain gated Phase 3 work.
 - **Universal extension gateway** — third-party MCP servers (GitHub, Postgres,
   Docker, etc.) run in isolated child processes under a supervisor.
 - **Policy engine** as the single authorization authority with live, atomic reload.
@@ -63,7 +63,8 @@ SLNCTRZ_MAX_DYNAMIC_CLIENTS=1024 \
 SLNCTRZ_PUBLIC_URL=https://mcp.example.com/mcp \
 SLNCTRZ_ALLOWED_HOSTS=mcp.example.com \
 SLNCTRZ_ALLOWED_ORIGINS=chatgpt.com,claude.ai,grok.com \
-SLNCTRZ_TOOL_ROOT=/absolute/path/to/one/workspace \
+SLNCTRZ_TOOL_ROOT=/absolute/path/to/readable/workspace \
+SLNCTRZ_WRITE_ROOT=/absolute/path/to/writable/workspace \
 SLNCTRZ_OWNER_SECRET_HASH='<runtime scrypt verifier>' \
 npm start
 ```
@@ -74,6 +75,11 @@ revokes complete token families, and verifies bearer-token resource, scope, and 
 before dispatch. Authentication events use a structured, secret-free audit schema. The
 embedded authority keeps client and token state in memory, so a restart requires clients
 to reconnect. See ADR-011, ADR-012, and ADR-013.
+
+Filesystem capabilities are independently default-deny. `SLNCTRZ_TOOL_ROOT` enables
+`core.read` and `core.search`; `SLNCTRZ_WRITE_ROOT` separately enables `core.write`.
+Writes default to dry-run, and replacing an existing file requires its current SHA-256.
+Omit `SLNCTRZ_WRITE_ROOT` for a read-only deployment. See ADR-014 and ADR-015.
 
 See [`ENGINEERING.md`](ENGINEERING.md) for the supported Node.js and operating-system
 matrix and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

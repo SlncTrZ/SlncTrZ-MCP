@@ -123,6 +123,7 @@ Profiles select capabilities; they do not bypass policy.
 | ADR-012 | Grant-family token revocation and redacted authentication audit | Accepted |
 | ADR-013 | Bound ephemeral OAuth allocations | Accepted |
 | ADR-014 | Non-overridable secret-path denial in the kernel | Accepted |
+| ADR-015 | Policy-bound atomic filesystem writes | Accepted |
 
 ## 6. Delivery roadmap
 
@@ -191,11 +192,12 @@ Acceptance criteria:
 
 ### Phase 3 — Minimal Tool Kernel
 
-> Implementation status: in progress — the read-only slice (`core.read` and
-> `core.search`) is implemented with shared canonical containment, intrinsic
-> secret-path denial, strict UTF-8 reads, deterministic bounded search, timeout and
-> cancellation checkpoints, and authenticated MCP integration tests. Mutation and
-> execution tools remain gated by `docs/THREAT_MODEL.md`.
+> Implementation status: in progress — `core.read`, `core.search`, and `core.write`
+> are implemented. Filesystem tools share canonical containment and intrinsic
+> secret-path denial. Writes have a separate explicit root, default to dry-run, use
+> optimistic SHA-256 concurrency and atomic publication, preserve existing modes, emit
+> attributed secret-free audit events, and are covered through authenticated MCP dispatch.
+> `core.edit` and `core.exec` remain gated by `docs/THREAT_MODEL.md`.
 
 Deliverables:
 

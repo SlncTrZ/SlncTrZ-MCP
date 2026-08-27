@@ -242,17 +242,22 @@ Optional typed filesystem operations:
 
 The model-facing surface remains small. Internal safety services may be more sophisticated without becoming additional tools.
 
-Phase 3 read-only checkpoint (2026-08-27):
+Phase 3 filesystem checkpoint (2026-08-27):
 
-- `core.read` performs strict UTF-8, handle-based, byte-bounded reads.
+- `core.read` performs strict UTF-8, handle-based, byte-bounded reads and returns a
+  SHA-256 content identity for optimistic concurrency.
 - `core.search` performs deterministic filename discovery bounded by depth, scanned
   entries, results, timeout, and cancellation.
-- Both tools use one canonical filesystem boundary with intrinsic secret-path denial.
-- Workspace roots cannot weaken the intrinsic deny policy.
-- Both tools are exercised through authenticated MCP dispatch.
-- Mutation and execution capabilities remain unavailable until their threat-model gates pass.
+- `core.write` is separately policy-authorized, absent without an explicit write root,
+  and defaults to a non-mutating preview.
+- Actual writes use same-directory temporary files, flush before publication, preserve
+  existing modes, and require an expected SHA-256 before replacement.
+- All filesystem tools use one canonical boundary with intrinsic secret-path denial.
+- Authenticated identity and scope are bound to one immutable policy snapshot per MCP
+  exchange; write attempts emit attributed audit events without path or content.
+- `core.edit` and `core.exec` remain unavailable until their threat-model gates pass.
 
-See `docs/THREAT_MODEL.md` and ADR-014.
+See `docs/THREAT_MODEL.md`, ADR-014, and ADR-015.
 
 Shared kernel services:
 
