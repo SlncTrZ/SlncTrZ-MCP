@@ -6,7 +6,13 @@
 
 import { createStdioAdapter } from "./stdio-adapter.js";
 import { createStreamableHttpAdapter } from "./streamable-http-adapter.js";
-import { type AdapterHealth, type ExtensionCallResult } from "./adapter.js";
+import {
+  AdapterError,
+  type AdapterHealth,
+  type ExtensionAdapter,
+  type ExtensionCallResult,
+  type ExtensionToolInfo
+} from "./adapter.js";
 import { createExtensionSupervisor, type SupervisorState } from "./supervisor.js";
 import { type CompiledExtensionRegistry } from "./registry.js";
 
@@ -33,9 +39,62 @@ export interface ExtensionRuntimeCatalog {
   stop(): Promise<void>;
 }
 
+function attestDeclaredTools(
+  adapter: ExtensionAdapter,
+  declaredIds: readonly string[]
+): ExtensionAdapter {
+  let attested = false;
+  const expected = [...declaredIds].sort((left, right) => left.localeCompare(right));
+
+  return {
+    async start(): Promise<void> {
+      attested = false;
+      await adapter.start();
+      try {
+        const discovered = await adapter.listTools();
+        const actual = discovered
+          .map((tool) =>
+            tool.canonicalId === tool.exposedName ? tool.canonicalId : "__invalid_exposed_name__"
+          )
+          .sort((left, right) => left.localeCompare(right));
+        if (
+          actual.length !== expected.length ||
+          actual.some((toolId, index) => toolId !== expected[index])
+        ) {
+          throw new AdapterError("provider_protocol_error", "provider tool declaration mismatch");
+        }
+        attested = true;
+      } catch (error) {
+        await adapter.stop();
+        if (error instanceof AdapterError) throw error;
+        throw new AdapterError("provider_protocol_error", "provider tool discovery failed");
+      }
+    },
+    async listTools(): Promise<readonly ExtensionToolInfo[]> {
+      if (!attested) {
+        throw new AdapterError("provider_unavailable", "provider_unavailable");
+      }
+      return adapter.listTools();
+    },
+    callTool(toolId, args, options): Promise<ExtensionCallResult> {
+      if (!attested) {
+        return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+      }
+      return adapter.callTool(toolId, args, options);
+    },
+    async stop(): Promise<void> {
+      attested = false;
+      await adapter.stop();
+    },
+    health(): AdapterHealth {
+      return attested ? adapter.health() : "unavailable";
+    }
+  };
+}
+
 /**
- * Start every declared provider before exposing this catalog. A failed provider is retained
- * as unavailable; it does not prevent unrelated providers or the gateway from starting.
+ * Start every declared provider and attest its discovered canonical tool set before exposure.
+ * A failed or drifted provider is retained as unavailable; unrelated providers still start.
  */
 export async function createExtensionRuntimeCatalog(
   registry: CompiledExtensionRegistry
@@ -56,10 +115,14 @@ export async function createExtensionRuntimeCatalog(
   };
 
   for (const record of registry.extensions) {
-    const adapter =
+    const transportAdapter =
       record.manifest.transport === "stdio"
         ? createStdioAdapter(record.manifest)
         : createStreamableHttpAdapter(record.manifest);
+    const adapter = attestDeclaredTools(
+      transportAdapter,
+      record.manifest.tools.map((tool) => tool.canonicalId)
+    );
     const supervisor = createExtensionSupervisor({
       adapter,
       startupTimeoutMs: record.manifest.startupTimeoutMs,

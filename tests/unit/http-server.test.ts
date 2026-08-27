@@ -1065,6 +1065,8 @@ describe("extension MCP discovery and dispatch (Phase 5 slice 3)", () => {
   it("exposes only ready authorized tools, routes canonical IDs, and emits secret-free audit", async () => {
     const invocations: { toolId: string; args: unknown }[] = [];
     let providerReady = true;
+    let failBeforeDispatch = false;
+    let readinessChecks = 0;
     const { origin, accessToken, auditEvents } = await startTestServer(
       undefined,
       undefined,
@@ -1079,7 +1081,8 @@ describe("extension MCP discovery and dispatch (Phase 5 slice 3)", () => {
               transport: "stdio",
               version: "1.0.0",
               command: "/usr/local/bin/github-mcp",
-              tools: [{ canonicalId: "github.search", riskClass: "read" }]
+              tools: [{ canonicalId: "github.search", riskClass: "read" }],
+              credentialRefs: ["cred.github-private"]
             }
           ],
           workspaces: [
@@ -1108,7 +1111,12 @@ describe("extension MCP discovery and dispatch (Phase 5 slice 3)", () => {
                   },
                   stop: async () => undefined
                 },
-          isReady: (providerId) => providerReady && providerId === "github",
+          isReady: (providerId) => {
+            if (!providerReady || providerId !== "github") return false;
+            if (!failBeforeDispatch) return true;
+            readinessChecks += 1;
+            return readinessChecks === 1;
+          },
           acquire: () => () => undefined,
           retire: () => undefined,
           stop: async () => undefined
@@ -1156,8 +1164,34 @@ describe("extension MCP discovery and dispatch (Phase 5 slice 3)", () => {
       workspaceId: "a",
       result: "success"
     });
-    expect(JSON.stringify(auditEvents[0])).not.toContain("must-not-audit");
+    const auditLine = JSON.stringify(auditEvents[0]);
+    expect(auditLine).not.toContain("must-not-audit");
+    expect(auditLine).not.toContain("cred.github-private");
 
+    failBeforeDispatch = true;
+    readinessChecks = 0;
+    const becameUnavailable = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 75,
+        method: "tools/call",
+        params: { name: "github.search", arguments: { query: "never-dispatched" } }
+      })
+    });
+    const unavailableCall = (await readMcpPayload(becameUnavailable)) as {
+      result?: { isError?: boolean; content?: { text?: string }[] };
+    };
+    expect(unavailableCall.result).toMatchObject({
+      isError: true,
+      content: [{ text: "provider_unavailable" }]
+    });
+    expect(invocations).toHaveLength(1);
+    expect(auditEvents).toHaveLength(2);
+    expect(auditEvents[1]).toMatchObject({ result: "error", providerId: "github" });
+
+    failBeforeDispatch = false;
     providerReady = false;
     const unavailable = await fetch(`${origin}/mcp`, {
       method: "POST",

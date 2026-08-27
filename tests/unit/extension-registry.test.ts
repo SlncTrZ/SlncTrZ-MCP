@@ -57,6 +57,16 @@ describe("extension registry (canonical namespace, collisions, stable hash)", ()
     expect(a.hash).toMatch(/^[a-f0-9]{16}$/u);
   });
 
+  it("versions discovery when a declared tool contract changes", async () => {
+    const readContract = await compileExtensionRegistry([(await stdioManifest("github")) as never]);
+    const writeContract = await compileExtensionRegistry([
+      (await stdioManifest("github", {
+        tools: [{ canonicalId: "github.search", riskClass: "write" }]
+      })) as never
+    ]);
+    expect(writeContract.hash).not.toBe(readContract.hash);
+  });
+
   it("rejects a duplicate provider id (fatal collision)", async () => {
     await expect(
       compileExtensionRegistry([

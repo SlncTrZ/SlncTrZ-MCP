@@ -81,6 +81,14 @@ function emitAudit(
   }
 }
 
+function retireSnapshotSafely(snapshot: ActivePolicySnapshot): void {
+  try {
+    snapshot.retire?.();
+  } catch {
+    // Runtime cleanup failure must not corrupt the active policy decision.
+  }
+}
+
 function resultOf(
   outcome: Extract<PolicyReloadResult, "activated" | "rejected" | "approval_required">,
   previousVersion: string,
@@ -164,14 +172,40 @@ export function createPolicySnapshotStore(
           };
         }
 
-        const summary: PolicyChangeSummary = await buildPolicyChangeSummary(active, candidate);
+        let summary: PolicyChangeSummary;
+        try {
+          summary = await buildPolicyChangeSummary(active, candidate);
+        } catch (error) {
+          retireSnapshotSafely(candidate);
+          const failureCode = error instanceof PolicyConfigError ? error.code : "policy_invalid";
+          const counts = countsOf(active);
+          emitAudit(audit, {
+            eventType: "policy_reload",
+            actorKind,
+            previousVersion,
+            candidateVersion: candidate.version,
+            activeVersion: active.version,
+            result: "failed",
+            riskIncrease: false,
+            ...counts,
+            durationMs: 0
+          });
+          return {
+            activated: false,
+            previousVersion,
+            activeVersion: active.version,
+            riskIncrease: false,
+            result: "failed",
+            failureCode
+          };
+        }
         const { workspaceCount, bindingCount } = countsOf(candidate);
 
         if (!summary.riskIncrease) {
           // Access reduction or metadata-only rotation: activate without approval.
           const prior = active;
           active = candidate;
-          prior.retire?.();
+          retireSnapshotSafely(prior);
           emitAudit(audit, {
             eventType: "policy_reload",
             actorKind,
@@ -204,7 +238,7 @@ export function createPolicySnapshotStore(
         if (decision === "approved") {
           const prior = active;
           active = candidate;
-          prior.retire?.();
+          retireSnapshotSafely(prior);
           emitAudit(audit, {
             eventType: "policy_reload",
             actorKind,
@@ -221,6 +255,7 @@ export function createPolicySnapshotStore(
         }
 
         const outcome = decision === "rejected" ? "rejected" : "approval_required";
+        retireSnapshotSafely(candidate);
         emitAudit(audit, {
           eventType: "policy_reload",
           actorKind,

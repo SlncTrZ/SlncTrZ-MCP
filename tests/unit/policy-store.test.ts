@@ -15,6 +15,7 @@ import {
 import { type ApprovalHook } from "../../src/policy/approval.js";
 import { type PolicyAuditSink } from "../../src/observability/policy-audit.js";
 import { type KernelCapability } from "../../src/policy/kernel-policy.js";
+import { type ExtensionRuntimeCatalog } from "../../src/extension/runtime.js";
 
 // Slice 4: a risk-increasing reload defers to an approval hook. These serialization/atomic
 // tests change the active root (risk-increasing), so they supply an approving hook to keep
@@ -149,6 +150,80 @@ describe("policy snapshot store (atomic activation + failed reload retention)", 
     expect(store.capture()).toBe(c);
   });
 
+  it("retains the prior snapshot when a candidate manifest collision fails", async () => {
+    const dir = await makeTempDir();
+    const prior = await snapshot(join(dir, "a"));
+    const manifest = {
+      id: "mock",
+      transport: "stdio" as const,
+      version: "1.0.0",
+      command: process.execPath,
+      tools: [{ canonicalId: "mock.echo", riskClass: "read" as const }]
+    };
+    const store = createPolicySnapshotStore(async () => {
+      const compiled = await compilePolicyDocument({
+        schemaVersion: 1,
+        extensions: [manifest, manifest],
+        workspaces: [{ id: "alpha", roots: { read: join(dir, "b") }, profiles: ["read-only"] }],
+        clientBindings: [{ clientId: "client-a", workspaceIds: ["alpha"] }]
+      });
+      return buildActivePolicySnapshot(compiled);
+    }, prior);
+
+    const result = await store.reload();
+    expect(result).toMatchObject({ activated: false, failureCode: "policy_invalid" });
+    expect(store.capture()).toBe(prior);
+  });
+
+  it("keeps the retired runtime alive until an active exchange releases its lease", async () => {
+    const dir = await makeTempDir();
+    const compiledPrior = await compilePolicyDocument({
+      schemaVersion: 1,
+      workspaces: [{ id: "alpha", roots: { read: join(dir, "a") }, profiles: ["read-only"] }],
+      clientBindings: [{ clientId: "client-a", workspaceIds: ["alpha"] }]
+    });
+    const tracker = { retired: 0, stopped: 0 };
+    let leases = 0;
+    let retired = false;
+    const runtime: ExtensionRuntimeCatalog = {
+      registry: compiledPrior.extensionRegistry,
+      provider: () => undefined,
+      isReady: () => false,
+      acquire: () => {
+        leases += 1;
+        let released = false;
+        return () => {
+          if (released) return;
+          released = true;
+          leases -= 1;
+          if (retired && leases === 0) tracker.stopped += 1;
+        };
+      },
+      retire: () => {
+        tracker.retired += 1;
+        retired = true;
+        if (leases === 0) tracker.stopped += 1;
+      },
+      stop: async () => {
+        tracker.stopped += 1;
+      }
+    };
+    const prior = buildActivePolicySnapshot(compiledPrior, runtime);
+    const candidate = await snapshot(join(dir, "b"));
+    const store = createPolicySnapshotStore(async () => candidate, prior, {
+      approval: approveAll
+    });
+    const activeExchange = store.captureLease();
+
+    const result = await store.reload();
+    expect(result.activated).toBe(true);
+    expect(tracker).toEqual({ retired: 1, stopped: 0 });
+    expect(activeExchange.snapshot).toBe(prior);
+
+    activeExchange.release();
+    expect(tracker).toEqual({ retired: 1, stopped: 1 });
+  });
+
   it("does not leak a rejection across repeated load failures", async () => {
     const dir = await makeTempDir();
     const a = await snapshot(join(dir, "a"));
@@ -165,6 +240,44 @@ describe("policy snapshot store (atomic activation + failed reload retention)", 
 });
 
 describe("policy snapshot store: approval boundary (Phase 4 slice 4)", () => {
+  it("retires an eager candidate runtime when approval does not activate it", async () => {
+    const dir = await makeTempDir();
+    for (const decision of ["rejected", "unavailable"] as const) {
+      const prior = await snapshot(join(dir, `prior-${decision}`));
+      const compiledCandidate = await compilePolicyDocument({
+        schemaVersion: 1,
+        workspaces: [
+          {
+            id: "alpha",
+            roots: { read: join(dir, `candidate-${decision}`) },
+            profiles: ["read-only"]
+          }
+        ],
+        clientBindings: [{ clientId: "client-a", workspaceIds: ["alpha"] }]
+      });
+      let retireCount = 0;
+      const runtime: ExtensionRuntimeCatalog = {
+        registry: compiledCandidate.extensionRegistry,
+        provider: () => undefined,
+        isReady: () => false,
+        acquire: () => () => undefined,
+        retire: () => {
+          retireCount += 1;
+        },
+        stop: async () => undefined
+      };
+      const candidate = buildActivePolicySnapshot(compiledCandidate, runtime);
+      const store = createPolicySnapshotStore(async () => candidate, prior, {
+        approval: async () => decision
+      });
+
+      const result = await store.reload();
+      expect(result.result).toBe(decision === "rejected" ? "rejected" : "approval_required");
+      expect(store.capture()).toBe(prior);
+      expect(retireCount).toBe(1);
+    }
+  });
+
   it("stages a risk-increasing reload behind the default unavailable hook, retaining the prior snapshot", async () => {
     const dir = await makeTempDir();
     const a = await snapshot(join(dir, "a"));

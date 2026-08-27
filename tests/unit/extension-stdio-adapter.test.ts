@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createStdioAdapter } from "../../src/extension/stdio-adapter.js";
 import { compileExtensionManifest } from "../../src/extension/manifest.js";
+import { compileExtensionRegistry } from "../../src/extension/registry.js";
+import { createExtensionRuntimeCatalog } from "../../src/extension/runtime.js";
 
 const cleanup: string[] = [];
 
@@ -27,6 +29,23 @@ async function writeMockProvider(dir: string, behavior: "ok" | "echo_env"): Prom
       ? `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'env='+ (process.env.MOCK_TOKEN ?? 'none') + ';other=' + (process.env.UNRELATED_SENTINEL ?? 'none')}]}})+'\\n'); });`
       : `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else if (m.method === 'tools/list') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'mock.echo'}]}})+'\\n'); else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'pong'}]}})+'\\n'); });`;
   await writeFile(path, script, "utf8");
+  return path;
+}
+
+async function writeDiscoveryFailureProvider(
+  dir: string,
+  behavior: "drift" | "malformed"
+): Promise<string> {
+  const path = join(dir, `discovery-${behavior}-provider.js`);
+  const discoveryReply =
+    behavior === "malformed"
+      ? `process.stdout.write('not-json\\n')`
+      : `process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'mock.changed'}]}})+'\\n')`;
+  await writeFile(
+    path,
+    `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else if (m.method === 'tools/list') ${discoveryReply}; });`,
+    "utf8"
+  );
   return path;
 }
 
@@ -114,5 +133,43 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
       code: "provider_unavailable"
     });
     await adapter.stop();
+  });
+
+  it("attests the exact declared tool set before marking a provider ready", async () => {
+    const dir = await makeTempDir();
+    const provider = await writeMockProvider(dir, "ok");
+    const manifest = await compileExtensionManifest({
+      id: "mock",
+      transport: "stdio",
+      version: "1.0.0",
+      command: process.execPath,
+      args: [provider],
+      tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
+      maxRestarts: 0
+    });
+    const runtime = await createExtensionRuntimeCatalog(await compileExtensionRegistry([manifest]));
+    expect(runtime.isReady("mock")).toBe(true);
+    await runtime.stop();
+  });
+
+  it("fails closed on malformed discovery or provider tool drift", async () => {
+    for (const behavior of ["malformed", "drift"] as const) {
+      const dir = await makeTempDir();
+      const provider = await writeDiscoveryFailureProvider(dir, behavior);
+      const manifest = await compileExtensionManifest({
+        id: "mock",
+        transport: "stdio",
+        version: "1.0.0",
+        command: process.execPath,
+        args: [provider],
+        tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
+        maxRestarts: 0
+      });
+      const runtime = await createExtensionRuntimeCatalog(
+        await compileExtensionRegistry([manifest])
+      );
+      expect(runtime.isReady("mock")).toBe(false);
+      await runtime.stop();
+    }
   });
 });
