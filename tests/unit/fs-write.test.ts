@@ -70,7 +70,9 @@ describe("core.write (atomic contained filesystem write)", () => {
     expect(result.created).toBe(false);
     expect(result.applied).toBe(true);
     expect(await readFile(target, "utf8")).toBe("new");
-    expect((await lstat(target)).mode & 0o777).toBe(0o640);
+    if (process.platform !== "win32") {
+      expect((await lstat(target)).mode & 0o777).toBe(0o640);
+    }
   });
 
   it("serializes concurrent replacements against one expected hash", async () => {
