@@ -4,8 +4,8 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 2 complete · Phase 3 next · License: Apache-2.0 · Architecture:
-> minimal trusted kernel with isolated extensions
+> Status: Phase 3 in progress · Read-only kernel available · License: Apache-2.0 ·
+> Architecture: minimal trusted kernel with isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
 clients and the capabilities they use, enforcing filesystem, execution, identity, and
@@ -15,8 +15,8 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 
 - **One stable MCP endpoint** to AI clients over HTTPS ingress.
 - **OAuth + PKCE** authorization and client identity.
-- **Minimal trusted tool kernel** (`core.read`, `core.write`, `core.edit`,
-  `core.exec`, `core.search`).
+- **Minimal trusted tool kernel** — `core.read` and `core.search` are available;
+  `core.write`, `core.edit`, and `core.exec` remain gated Phase 3 work.
 - **Universal extension gateway** — third-party MCP servers (GitHub, Postgres,
   Docker, etc.) run in isolated child processes under a supervisor.
 - **Policy engine** as the single authorization authority with live, atomic reload.
@@ -28,15 +28,16 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 
 ## Documentation
 
-| Document                             | Contents                                                               |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| [`PLAN.md`](PLAN.md)                 | Development plan: purposes, phases, roadmap, risks, definition of done |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | System architecture, components, invariants, failure model             |
-| [`ENGINEERING.md`](ENGINEERING.md)   | Supported Node.js / OS matrix, tooling, conventions                    |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, and contribution workflow                                 |
-| [`SECURITY.md`](SECURITY.md)         | Security policy and vulnerability reporting                            |
-| [`PROVENANCE.md`](PROVENANCE.md)     | Dependency license inventory and provenance rules                      |
-| [`docs/adr/`](docs/adr/)             | Architecture Decision Records                                          |
+| Document                                       | Contents                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| [`PLAN.md`](PLAN.md)                           | Development plan: purposes, phases, roadmap, risks, definition of done |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md)           | System architecture, components, invariants, failure model             |
+| [`ENGINEERING.md`](ENGINEERING.md)             | Supported Node.js / OS matrix, tooling, conventions                    |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md)           | Build, test, and contribution workflow                                 |
+| [`SECURITY.md`](SECURITY.md)                   | Security policy and vulnerability reporting                            |
+| [`PROVENANCE.md`](PROVENANCE.md)               | Dependency license inventory and provenance rules                      |
+| [`docs/adr/`](docs/adr/)                       | Architecture Decision Records                                          |
+| [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Phase 3 kernel threats and capability gates                            |
 
 ## Quick start (developer mode)
 
@@ -62,6 +63,7 @@ SLNCTRZ_MAX_DYNAMIC_CLIENTS=1024 \
 SLNCTRZ_PUBLIC_URL=https://mcp.example.com/mcp \
 SLNCTRZ_ALLOWED_HOSTS=mcp.example.com \
 SLNCTRZ_ALLOWED_ORIGINS=chatgpt.com,claude.ai,grok.com \
+SLNCTRZ_TOOL_ROOT=/absolute/path/to/one/workspace \
 SLNCTRZ_OWNER_SECRET_HASH='<runtime scrypt verifier>' \
 npm start
 ```

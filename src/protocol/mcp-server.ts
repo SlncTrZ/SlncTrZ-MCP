@@ -8,8 +8,10 @@
 
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
+import { ExecutionError } from "../kernel/execution.js";
 import { DEFAULT_MAX_READ_BYTES, ReadError, readContainedFile } from "../kernel/fs-read.js";
 import {
+  DEFAULT_MAX_SEARCH_ENTRIES,
   DEFAULT_MAX_SEARCH_RESULTS,
   searchContainedFiles,
   SearchError
@@ -71,7 +73,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           }
         };
       } catch (error) {
-        if (error instanceof ReadError) {
+        if (error instanceof ReadError || error instanceof ExecutionError) {
           return {
             isError: true,
             content: [{ type: "text", text: `${error.code}: ${error.message}` }]
@@ -97,19 +99,26 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     },
     async (args) => {
       try {
-        const { matches } = await searchContainedFiles(
-          options.toolRoot,
-          args.pattern,
-          DEFAULT_MAX_SEARCH_RESULTS
-        );
+        const result = await searchContainedFiles(options.toolRoot, args.pattern, {
+          maxResults: DEFAULT_MAX_SEARCH_RESULTS,
+          maxEntries: DEFAULT_MAX_SEARCH_ENTRIES
+        });
         return {
           content: [
-            { type: "text", text: matches.length === 0 ? "(no matches)" : matches.join("\n") }
+            {
+              type: "text",
+              text: result.matches.length === 0 ? "(no matches)" : result.matches.join("\n")
+            }
           ],
-          structuredContent: { count: matches.length, matches }
+          structuredContent: {
+            count: result.matches.length,
+            matches: result.matches,
+            scannedEntries: result.scannedEntries,
+            truncated: result.truncated
+          }
         };
       } catch (error) {
-        if (error instanceof SearchError) {
+        if (error instanceof SearchError || error instanceof ExecutionError) {
           return {
             isError: true,
             content: [{ type: "text", text: `${error.code}: ${error.message}` }]

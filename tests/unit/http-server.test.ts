@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { request, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { OAuthService } from "../../src/auth/oauth-service.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createGatewayServer, listenGateway } from "../../src/app/http-server.js";
 
 const servers: Server[] = [];
+const temporaryDirectories: string[] = [];
 const TEST_OWNER_SECRET = "test owner secret for gateway";
 const TEST_RESOURCE = "https://mcp.example.com/mcp";
 
@@ -20,9 +24,12 @@ afterEach(async () => {
         })
     )
   );
+  await Promise.all(
+    temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true }))
+  );
 });
 
-async function startTestServer(): Promise<{
+async function startTestServer(toolRoot?: string): Promise<{
   readonly origin: string;
   readonly accessToken: string;
 }> {
@@ -55,7 +62,10 @@ async function startTestServer(): Promise<{
     resource: TEST_RESOURCE
   });
 
-  const server = createGatewayServer({ oauthService });
+  const server = createGatewayServer({
+    oauthService,
+    ...(toolRoot === undefined ? {} : { toolRoot })
+  });
   servers.push(server);
   const address = await listenGateway(server, {
     host: "127.0.0.1",
@@ -204,6 +214,64 @@ describe("gateway HTTP surface", () => {
 
     expect(callResponse.status).toBe(200);
     expect(callPayload.result?.content?.[0]?.text).toBe("pong");
+  });
+
+  it("calls core.read and core.search through authenticated MCP dispatch", async () => {
+    const toolRoot = await mkdtemp(join(tmpdir(), "slnctrz-mcp-tools-"));
+    temporaryDirectories.push(toolRoot);
+    await writeFile(join(toolRoot, "alpha.txt"), "alpha content", "utf8");
+    await writeFile(join(toolRoot, ".env"), "must-not-leak", "utf8");
+
+    const { origin, accessToken } = await startTestServer(toolRoot);
+    const headers = {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18"
+    };
+
+    const readResponse = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "core.read", arguments: { path: "alpha.txt" } }
+      })
+    });
+    const readPayload = (await readMcpPayload(readResponse)) as {
+      result?: { content?: { text?: string }[]; isError?: boolean };
+    };
+    expect(readResponse.status).toBe(200);
+    expect(readPayload.result?.isError).not.toBe(true);
+    expect(readPayload.result?.content?.[0]?.text).toBe("alpha content");
+
+    const searchResponse = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: { name: "core.search", arguments: { pattern: ".txt" } }
+      })
+    });
+    const searchPayload = (await readMcpPayload(searchResponse)) as {
+      result?: {
+        structuredContent?: {
+          matches?: string[];
+          truncated?: boolean;
+        };
+      };
+    };
+    expect(searchResponse.status).toBe(200);
+    expect(searchPayload.result?.structuredContent).toEqual(
+      expect.objectContaining({
+        matches: ["alpha.txt"],
+        truncated: false
+      })
+    );
   });
 
   it("enforces the request-body boundary before protocol dispatch", async () => {

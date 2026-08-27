@@ -119,6 +119,10 @@ Profiles select capabilities; they do not bypass policy.
 | ADR-008 | Standalone packaging is separated from runtime architecture | Accepted |
 | ADR-009 | Project instructions are explicit context, not a security mechanism | Accepted |
 | ADR-010 | No home-directory access by default | Accepted |
+| ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood | Accepted |
+| ADR-012 | Grant-family token revocation and redacted authentication audit | Accepted |
+| ADR-013 | Bound ephemeral OAuth allocations | Accepted |
+| ADR-014 | Non-overridable secret-path denial in the kernel | Accepted |
 
 ## 6. Delivery roadmap
 
@@ -186,6 +190,12 @@ Acceptance criteria:
 - Authentication and authorization events are auditable.
 
 ### Phase 3 — Minimal Tool Kernel
+
+> Implementation status: in progress — the read-only slice (`core.read` and
+> `core.search`) is implemented with shared canonical containment, intrinsic
+> secret-path denial, strict UTF-8 reads, deterministic bounded search, timeout and
+> cancellation checkpoints, and authenticated MCP integration tests. Mutation and
+> execution tools remain gated by `docs/THREAT_MODEL.md`.
 
 Deliverables:
 

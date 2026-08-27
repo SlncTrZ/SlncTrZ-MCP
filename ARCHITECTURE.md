@@ -242,6 +242,18 @@ Optional typed filesystem operations:
 
 The model-facing surface remains small. Internal safety services may be more sophisticated without becoming additional tools.
 
+Phase 3 read-only checkpoint (2026-08-27):
+
+- `core.read` performs strict UTF-8, handle-based, byte-bounded reads.
+- `core.search` performs deterministic filename discovery bounded by depth, scanned
+  entries, results, timeout, and cancellation.
+- Both tools use one canonical filesystem boundary with intrinsic secret-path denial.
+- Workspace roots cannot weaken the intrinsic deny policy.
+- Both tools are exercised through authenticated MCP dispatch.
+- Mutation and execution capabilities remain unavailable until their threat-model gates pass.
+
+See `docs/THREAT_MODEL.md` and ADR-014.
+
 Shared kernel services:
 
 - Path Resolver.

@@ -1,21 +1,23 @@
 /**
- * Contained Filesystem Read — securely read a UTF-8 file within a configured root.
- * Wing: kernel | Topic: fs-read-tool | Updated: 2026-08-26
+ * Contained Filesystem Read — securely read a strict UTF-8 file within a configured root.
+ * Wing: kernel | Topic: fs-read-tool | Updated: 2026-08-27
  *
- * Provenance: PLAN Phase 3 (symlink-aware containment, explicit size limit) and
- * SECURITY default-deny. Reads are confined to a single configured root; absolute
- * paths and paths that resolve (or symlink) outside the root are rejected.
+ * Provenance: PLAN Phase 3 and THREAT_MODEL read-only gate. Reads use the shared
+ * filesystem boundary, validate the opened handle, enforce a hard byte limit, and
+ * reject invalid UTF-8 rather than silently replacing bytes.
  */
 
-import { readFile, realpath, stat } from "node:fs/promises";
-import { resolve, sep } from "node:path";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
+import { TextDecoder } from "node:util";
+import { BoundaryError, isContainedPath, resolveExistingBoundaryPath } from "./fs-boundary.js";
+import { createExecutionGuard, type KernelExecutionOptions } from "./execution.js";
 
-/** Bounded read limit — 1 MiB. Explicit named constant, never declared inline. */
 export const DEFAULT_MAX_READ_BYTES = 1_048_576;
 
-/** Discriminated failure class for the contained read. */
 export class ReadError extends Error {
   readonly code: ReadErrorCode;
+
   constructor(code: ReadErrorCode, message: string) {
     super(message);
     this.name = "ReadError";
@@ -24,7 +26,13 @@ export class ReadError extends Error {
 }
 
 export type ReadErrorCode =
-  "no_root" | "invalid_path" | "not_found" | "permission_denied" | "too_large" | "invalid_limit";
+  | "no_root"
+  | "invalid_path"
+  | "not_found"
+  | "permission_denied"
+  | "too_large"
+  | "invalid_encoding"
+  | "invalid_limit";
 
 export interface ReadResult {
   readonly content: string;
@@ -32,60 +40,94 @@ export interface ReadResult {
   readonly encoding: "utf-8";
 }
 
-function isAbsolutePath(value: string): boolean {
-  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
+function mapBoundaryError(error: BoundaryError): ReadError {
+  return new ReadError(error.code, error.message);
 }
 
-/** Read a UTF-8 file, confined to `root`, with a hard byte limit. Default-deny. */
+function sameFile(
+  left: { readonly dev: number | bigint; readonly ino: number | bigint },
+  right: { readonly dev: number | bigint; readonly ino: number | bigint }
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+/** Read one strict UTF-8 file through a validated, bounded file handle. */
 export async function readContainedFile(
   root: string | undefined,
   relPath: string,
-  maxBytes: number = DEFAULT_MAX_READ_BYTES
+  maxBytes: number = DEFAULT_MAX_READ_BYTES,
+  execution: KernelExecutionOptions = {}
 ): Promise<ReadResult> {
-  if (root === undefined || root.length === 0) {
-    throw new ReadError("no_root", "No filesystem root is configured");
-  }
-  if (typeof relPath !== "string" || relPath.length === 0) {
-    throw new ReadError("invalid_path", "A non-empty path is required");
-  }
-  if (isAbsolutePath(relPath)) {
-    throw new ReadError("invalid_path", "Only relative paths within the root are allowed");
-  }
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new ReadError("invalid_limit", "maxBytes must be a positive safe integer");
   }
 
-  // Resolve the root (symlink-aware) and the candidate target.
-  let rootReal: string;
+  const guard = createExecutionGuard(execution);
+  guard.checkpoint();
+
+  let boundary;
   try {
-    rootReal = await realpath(root);
-  } catch {
-    throw new ReadError("no_root", "Configured filesystem root does not exist");
+    boundary = await resolveExistingBoundaryPath(root, relPath);
+  } catch (error) {
+    if (error instanceof BoundaryError) throw mapBoundaryError(error);
+    throw error;
   }
 
-  // Lexical containment FIRST: reject traversal before touching the filesystem, so
-  // a `../` escape fails with permission_denied even when the target does not exist.
-  const targetLexical = resolve(rootReal, relPath);
-  if (targetLexical !== rootReal && !targetLexical.startsWith(rootReal + sep)) {
-    throw new ReadError("permission_denied", "Path escapes the configured root");
+  guard.checkpoint();
+
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  let handle;
+  try {
+    handle = await open(boundary.targetReal, constants.O_RDONLY | noFollow);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") throw new ReadError("not_found", "Path does not exist");
+    throw new ReadError("permission_denied", "File could not be opened safely");
   }
 
-  // Symlink-aware containment: resolve the target and confirm it still lives under root.
-  const targetReal = await realpath(targetLexical).catch(() => {
-    throw new ReadError("not_found", "Path does not exist");
-  });
-  if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
-    throw new ReadError("permission_denied", "Path escapes the configured root");
-  }
+  try {
+    const [openedInfo, currentInfo, currentReal] = await Promise.all([
+      handle.stat(),
+      lstat(boundary.targetReal),
+      realpath(boundary.targetReal)
+    ]);
+    guard.checkpoint();
 
-  const info = await stat(targetReal);
-  if (!info.isFile()) {
-    throw new ReadError("not_found", "Path is not a regular file");
-  }
-  if (info.size > maxBytes) {
-    throw new ReadError("too_large", `File exceeds the ${maxBytes}-byte read limit`);
-  }
+    if (
+      currentInfo.isSymbolicLink() ||
+      !sameFile(openedInfo, currentInfo) ||
+      !isContainedPath(boundary.rootReal, currentReal)
+    ) {
+      throw new ReadError("permission_denied", "File changed during boundary validation");
+    }
+    if (!openedInfo.isFile()) {
+      throw new ReadError("not_found", "Path is not a regular file");
+    }
+    if (openedInfo.size > maxBytes) {
+      throw new ReadError("too_large", `File exceeds the ${maxBytes}-byte read limit`);
+    }
 
-  const content = await readFile(targetReal, { encoding: "utf-8" });
-  return { content, bytes: Buffer.byteLength(content, "utf-8"), encoding: "utf-8" };
+    const bytes = Buffer.allocUnsafe(maxBytes + 1);
+    let total = 0;
+    while (total < bytes.length) {
+      guard.checkpoint();
+      const result = await handle.read(bytes, total, bytes.length - total, total);
+      if (result.bytesRead === 0) break;
+      total += result.bytesRead;
+    }
+    if (total > maxBytes) {
+      throw new ReadError("too_large", `File exceeds the ${maxBytes}-byte read limit`);
+    }
+
+    let content: string;
+    try {
+      content = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, total));
+    } catch {
+      throw new ReadError("invalid_encoding", "File is not valid UTF-8");
+    }
+
+    return { content, bytes: total, encoding: "utf-8" };
+  } finally {
+    await handle.close();
+  }
 }
