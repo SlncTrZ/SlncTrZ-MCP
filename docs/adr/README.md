@@ -24,6 +24,8 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-013 | Bound ephemeral OAuth allocations                                   | Accepted |
 | ADR-014 | Non-overridable secret-path denial in the kernel                    | Accepted |
 | ADR-015 | Policy-bound atomic filesystem writes                               | Accepted |
+| ADR-016 | Deterministic exact-match filesystem edits                          | Accepted |
+| ADR-017 | Policy-bound direct process execution                               | Accepted |
 
 ## How to add an ADR
 

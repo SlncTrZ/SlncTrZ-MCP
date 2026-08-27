@@ -96,7 +96,7 @@ Prompt instructions are not a security boundary.
 ## 4. Capability profiles
 
 | Profile | Default tools | Intended use |
-|---|---|---|
+| --- | --- | --- |
 | Read-only | `core.read`, `core.search` | Inspection and review |
 | Minimal | `core.read`, `core.write`, `core.edit`, `core.exec` | Pi-style coding work |
 | Filesystem extended | Adds `core.mkdir`, `core.move`, `core.stat` | Explicit file operations where shell is restricted |
@@ -108,13 +108,13 @@ Profiles select capabilities; they do not bypass policy.
 ## 5. Architecture decisions
 
 | ID | Decision | Status |
-|---|---|---|
+| --- | --- | --- |
 | ADR-001 | TypeScript and Node.js for the gateway core | Accepted |
 | ADR-002 | Apache-2.0 project license | Accepted |
 | ADR-003 | Trusted kernel runs in-process | Accepted |
 | ADR-004 | Third-party MCP servers run in isolated child processes by default | Accepted |
 | ADR-005 | Policy Engine is the single source of authorization truth | Accepted |
-| ADR-006 | Isolated modern MCP with stateless legacy compatibility             | Accepted |
+| ADR-006 | Isolated modern MCP with stateless legacy compatibility | Accepted |
 | ADR-007 | Tool registry uses canonical names independent of runtime topology | Accepted |
 | ADR-008 | Standalone packaging is separated from runtime architecture | Accepted |
 | ADR-009 | Project instructions are explicit context, not a security mechanism | Accepted |
@@ -124,6 +124,8 @@ Profiles select capabilities; they do not bypass policy.
 | ADR-013 | Bound ephemeral OAuth allocations | Accepted |
 | ADR-014 | Non-overridable secret-path denial in the kernel | Accepted |
 | ADR-015 | Policy-bound atomic filesystem writes | Accepted |
+| ADR-016 | Deterministic exact-match filesystem edits | Accepted |
+| ADR-017 | Policy-bound direct process execution | Accepted |
 
 ## 6. Delivery roadmap
 
@@ -192,12 +194,18 @@ Acceptance criteria:
 
 ### Phase 3 — Minimal Tool Kernel
 
-> Implementation status: in progress — `core.read`, `core.search`, and `core.write`
-> are implemented. Filesystem tools share canonical containment and intrinsic
-> secret-path denial. Writes have a separate explicit root, default to dry-run, use
-> optimistic SHA-256 concurrency and atomic publication, preserve existing modes, emit
-> attributed secret-free audit events, and are covered through authenticated MCP dispatch.
-> `core.edit` and `core.exec` remain gated by `docs/THREAT_MODEL.md`.
+> Implementation status: in progress — `core.read`, `core.search`, `core.write`,
+> `core.edit`, and `core.exec` (POSIX fixed-command) are implemented. Filesystem tools
+> share canonical containment and intrinsic secret-path denial. Writes have a separate
+> explicit root, default to dry-run, use optimistic SHA-256 concurrency and atomic
+> publication, preserve existing modes, emit attributed secret-free audit events, and
+> are covered through authenticated MCP dispatch. `core.edit` performs deterministic
+> exact-match replacements against one base snapshot, rejecting missing, ambiguous, and
+> overlapping matches, and never creates a file. `core.exec` runs operator-authored
+> fixed-command definitions selected by `commandId`, is POSIX-only (Windows is
+> fail-closed), never inherits the gateway environment, kills the full process group on
+> timeout/abort, and reports a non-zero exit as a result, not an error. See ADR-016 and
+> ADR-017.
 
 Deliverables:
 
@@ -384,7 +392,7 @@ Release gates:
 Initial targets are hypotheses until measured.
 
 | Metric | Measurement |
-|---|---|
+| --- | --- |
 | Core tool overhead | P50/P95/P99 gateway-added Latency |
 | Cold start | Process start to readiness |
 | Memory | Idle, one client, concurrent clients, extension load |
@@ -404,7 +412,7 @@ Benchmark rules:
 ## 8. Major risks
 
 | Risk | Mitigation |
-|---|---|
+| --- | --- |
 | Protocol evolution | Dual-era adapter, versioned conformance suite |
 | Extension escape | Process isolation, scoped environment, OS sandbox where available |
 | Write plus execute escalation | Capability separation and policy composition checks |

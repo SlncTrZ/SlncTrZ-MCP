@@ -40,6 +40,7 @@ export interface ReadResult {
   readonly bytes: number;
   readonly encoding: "utf-8";
   readonly sha256: string;
+  readonly hadBom: boolean;
 }
 
 function mapBoundaryError(error: BoundaryError): ReadError {
@@ -121,6 +122,8 @@ export async function readContainedFile(
       throw new ReadError("too_large", `File exceeds the ${maxBytes}-byte read limit`);
     }
 
+    const hadBom = total >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+
     let content: string;
     try {
       content = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, total));
@@ -132,7 +135,8 @@ export async function readContainedFile(
       content,
       bytes: total,
       encoding: "utf-8",
-      sha256: createHash("sha256").update(bytes.subarray(0, total)).digest("hex")
+      sha256: createHash("sha256").update(bytes.subarray(0, total)).digest("hex"),
+      hadBom
     };
   } finally {
     await handle.close();

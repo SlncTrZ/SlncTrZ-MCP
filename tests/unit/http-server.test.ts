@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { request, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OAuthService } from "../../src/auth/oauth-service.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createGatewayServer, listenGateway } from "../../src/app/http-server.js";
+import { type ExecCommandDefinition } from "../../src/kernel/exec.js";
 import { type ToolAuditEvent } from "../../src/observability/tool-audit.js";
 import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
 
@@ -33,7 +35,9 @@ afterEach(async () => {
 
 async function startTestServer(
   readRoot?: string,
-  writeRoot?: string
+  writeRoot?: string,
+  execRoot?: string,
+  execCommands?: readonly ExecCommandDefinition[]
 ): Promise<{
   readonly origin: string;
   readonly accessToken: string;
@@ -74,7 +78,9 @@ async function startTestServer(
     kernelPolicy: createKernelPolicySnapshot({
       workspaceId: "test-workspace",
       ...(readRoot === undefined ? {} : { readRoot }),
-      ...(writeRoot === undefined ? {} : { writeRoot })
+      ...(writeRoot === undefined ? {} : { writeRoot }),
+      ...(execRoot === undefined ? {} : { execRoot }),
+      ...(execCommands === undefined ? {} : { execCommands })
     }),
     toolAudit: (event) => auditEvents.push(event)
   });
@@ -312,7 +318,8 @@ describe("gateway HTTP surface", () => {
       "core.ping",
       "core.read",
       "core.search",
-      "core.write"
+      "core.write",
+      "core.edit"
     ]);
 
     const writeResponse = await fetch(`${origin}/mcp`, {
@@ -352,6 +359,222 @@ describe("gateway HTTP surface", () => {
     expect(JSON.stringify(auditEvents[0])).not.toContain("created.txt");
     expect(JSON.stringify(auditEvents[0])).not.toContain("created atomically");
   });
+
+  it("applies policy-authorized core.edit with a secret-free audit event", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-mcp-edit-"));
+    temporaryDirectories.push(root);
+    const target = join(root, "doc.txt");
+    await writeFile(target, "hello world", "utf8");
+    const baseSha = createHash("sha256").update("hello world").digest("hex");
+
+    const { origin, accessToken, auditEvents } = await startTestServer(root, root);
+    const headers = {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18"
+    };
+
+    const listResponse = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 8,
+        method: "tools/list",
+        params: {}
+      })
+    });
+    const listPayload = (await readMcpPayload(listResponse)) as {
+      result?: { tools?: { name?: string }[] };
+    };
+    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
+      "core.ping",
+      "core.read",
+      "core.search",
+      "core.write",
+      "core.edit"
+    ]);
+
+    const editResponse = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: {
+          name: "core.edit",
+          arguments: {
+            path: "doc.txt",
+            expectedSha256: baseSha,
+            edits: [{ oldText: "world", newText: "there" }],
+            dryRun: false
+          }
+        }
+      })
+    });
+    const editPayload = (await readMcpPayload(editResponse)) as {
+      result?: { structuredContent?: { applied?: boolean; editCount?: number } };
+    };
+
+    expect(editResponse.status).toBe(200);
+    expect(editPayload.result?.structuredContent).toEqual(
+      expect.objectContaining({ applied: true, editCount: 1 })
+    );
+    expect(await readFile(target, "utf8")).toBe("hello there");
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]).toEqual(
+      expect.objectContaining({
+        workspaceId: "test-workspace",
+        toolId: "core.edit",
+        riskClass: "write",
+        decision: "allow",
+        result: "success"
+      })
+    );
+    expect(JSON.stringify(auditEvents[0])).not.toContain("doc.txt");
+    expect(JSON.stringify(auditEvents[0])).not.toContain("world");
+    expect(JSON.stringify(auditEvents[0])).not.toContain("there");
+  });
+
+  it("core.edit defaults to a non-mutating dry-run and rejects a stale hash", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-mcp-edit-"));
+    temporaryDirectories.push(root);
+    const target = join(root, "doc.txt");
+    await writeFile(target, "hello world", "utf8");
+    const baseSha = createHash("sha256").update("hello world").digest("hex");
+
+    const { origin, accessToken } = await startTestServer(root, root);
+    const headers = {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18"
+    };
+    const call = async (id: number, name: string, args: unknown): Promise<unknown> => {
+      const response = await fetch(`${origin}/mcp`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: args }
+        })
+      });
+      return readMcpPayload(response);
+    };
+
+    const dryPayload = (await call(10, "core.edit", {
+      path: "doc.txt",
+      expectedSha256: baseSha,
+      edits: [{ oldText: "world", newText: "there" }]
+    })) as { result?: { structuredContent?: { applied?: boolean } } };
+    expect(dryPayload.result?.structuredContent).toEqual(
+      expect.objectContaining({ applied: false })
+    );
+    expect(await readFile(target, "utf8")).toBe("hello world");
+
+    const stalePayload = (await call(11, "core.edit", {
+      path: "doc.txt",
+      expectedSha256: "0".repeat(64),
+      edits: [{ oldText: "world", newText: "there" }],
+      dryRun: false
+    })) as { result?: { isError?: boolean; content?: { text?: string }[] } };
+    expect(stalePayload.result?.isError).toBe(true);
+    expect(stalePayload.result?.content?.[0]?.text).toMatch(/^conflict:/u);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "runs policy-authorized core.exec with a fixed command",
+    async () => {
+      const execRoot = await mkdtemp(join(tmpdir(), "slnctrz-mcp-exec-"));
+      temporaryDirectories.push(execRoot);
+      const script = join(execRoot, "tool.sh");
+      await writeFile(script, '#!/bin/sh\necho "exec-ok"\n', { mode: 0o755 });
+      await chmod(script, 0o755);
+      const binaryPath = await realpath(script);
+      const execRootReal = await realpath(execRoot);
+      const execCommand: ExecCommandDefinition = {
+        commandId: "tool",
+        binaryPath,
+        fixedArgs: [],
+        allowExtraArgs: false,
+        maxExtraArgs: 0,
+        cwdMode: "fixed",
+        fixedEnv: {},
+        allowStdin: false,
+        commandClass: "inspect"
+      };
+
+      const { origin, accessToken, auditEvents } = await startTestServer(
+        undefined,
+        undefined,
+        execRootReal,
+        [execCommand]
+      );
+      const headers = {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18"
+      };
+      const call = async (id: number, args: unknown): Promise<unknown> => {
+        const response = await fetch(`${origin}/mcp`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name: "core.exec", arguments: args }
+          })
+        });
+        return readMcpPayload(response);
+      };
+
+      const listPayload = (await readMcpPayload(
+        await fetch(`${origin}/mcp`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ jsonrpc: "2.0", id: 20, method: "tools/list", params: {} })
+        })
+      )) as { result?: { tools?: { name?: string }[] } };
+      expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
+        "core.ping",
+        "core.exec"
+      ]);
+
+      const dry = (await call(21, { commandId: "tool" })) as {
+        result?: { structuredContent?: { applied?: boolean } };
+      };
+      expect(dry.result?.structuredContent).toEqual(expect.objectContaining({ applied: false }));
+
+      const run = (await call(22, { commandId: "tool", dryRun: false })) as {
+        result?: { structuredContent?: { applied?: boolean; exitCode?: number; stdout?: string } };
+      };
+      expect(run.result?.structuredContent).toEqual(
+        expect.objectContaining({ applied: true, exitCode: 0 })
+      );
+      expect(run.result?.structuredContent?.stdout).toContain("exec-ok");
+
+      const unknown = (await call(23, { commandId: "does-not-exist" })) as {
+        result?: { isError?: boolean; content?: { text?: string }[] };
+      };
+      expect(unknown.result?.isError).toBe(true);
+
+      expect(auditEvents).toHaveLength(3);
+      // The authorized dry-run and real run record the (caller-trusted) commandId; the
+      // unknown-command attempt must never record the raw caller input.
+      expect(JSON.stringify(auditEvents[0])).toContain('"commandId":"tool"');
+      expect(JSON.stringify(auditEvents[1])).toContain('"commandId":"tool"');
+      expect(JSON.stringify(auditEvents[2])).not.toContain("commandId");
+      for (const event of auditEvents) {
+        expect(JSON.stringify(event)).not.toContain("exec-ok");
+      }
+    }
+  );
 
   it("enforces the request-body boundary before protocol dispatch", async () => {
     const { origin, accessToken } = await startTestServer();

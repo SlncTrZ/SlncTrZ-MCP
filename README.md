@@ -15,8 +15,9 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 
 - **One stable MCP endpoint** to AI clients over HTTPS ingress.
 - **OAuth + PKCE** authorization and client identity.
-- **Minimal trusted tool kernel** — `core.read`, `core.search`, and policy-gated
-  `core.write` are available; `core.edit` and `core.exec` remain gated Phase 3 work.
+- **Minimal trusted tool kernel** — `core.read`, `core.search`, policy-gated
+  `core.write`, `core.edit`, and POSIX fixed-command `core.exec` are available (Windows
+  `core.exec` is fail-closed).
 - **Universal extension gateway** — third-party MCP servers (GitHub, Postgres,
   Docker, etc.) run in isolated child processes under a supervisor.
 - **Policy engine** as the single authorization authority with live, atomic reload.
@@ -77,9 +78,14 @@ embedded authority keeps client and token state in memory, so a restart requires
 to reconnect. See ADR-011, ADR-012, and ADR-013.
 
 Filesystem capabilities are independently default-deny. `SLNCTRZ_TOOL_ROOT` enables
-`core.read` and `core.search`; `SLNCTRZ_WRITE_ROOT` separately enables `core.write`.
-Writes default to dry-run, and replacing an existing file requires its current SHA-256.
-Omit `SLNCTRZ_WRITE_ROOT` for a read-only deployment. See ADR-014 and ADR-015.
+`core.read` and `core.search`; `SLNCTRZ_WRITE_ROOT` separately enables `core.write` and
+`core.edit`. Writes and edits default to dry-run, and replacing an existing file or
+editing it requires its current SHA-256; edits accept only exact-match replacements and
+never create a file. Omit `SLNCTRZ_WRITE_ROOT` for a read-only deployment. `core.exec`
+is POSIX-only and requires `SLNCTRZ_EXEC_ROOT` together with `SLNCTRZ_EXEC_COMMANDS_FILE`
+(a fixed command-registry JSON); the registry and exec root are operator-owned and must
+not be writable by the service identity or any workspace root. See ADR-014, ADR-015,
+ADR-016, and ADR-017.
 
 See [`ENGINEERING.md`](ENGINEERING.md) for the supported Node.js and operating-system
 matrix and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

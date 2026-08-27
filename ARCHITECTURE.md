@@ -252,12 +252,17 @@ Phase 3 filesystem checkpoint (2026-08-27):
   and defaults to a non-mutating preview.
 - Actual writes use same-directory temporary files, flush before publication, preserve
   existing modes, and require an expected SHA-256 before replacement.
+- `core.edit` performs exact-match replacements against one base snapshot, rejecting
+  missing, ambiguous, and overlapping matches, and never creates a file.
 - All filesystem tools use one canonical boundary with intrinsic secret-path denial.
 - Authenticated identity and scope are bound to one immutable policy snapshot per MCP
   exchange; write attempts emit attributed audit events without path or content.
-- `core.edit` and `core.exec` remain unavailable until their threat-model gates pass.
+- `core.exec` (Phase 3.1) runs operator-authored fixed-command definitions selected by
+  `commandId`; it is POSIX-only, direct-spawn with no shell, uses a fixed minimal child
+  environment, kills the full process group on timeout/abort, and reports a non-zero exit
+  as a result. Windows is fail-closed until a separate Job Object ADR lands.
 
-See `docs/THREAT_MODEL.md`, ADR-014, and ADR-015.
+See `docs/THREAT_MODEL.md`, ADR-014, ADR-015, ADR-016, and ADR-017.
 
 Shared kernel services:
 
@@ -334,13 +339,14 @@ Write requirements:
 
 Edit requirements:
 
-- Exact-match or structured patch modes.
-- Ambiguous matches fail.
-- Dry-run diff.
-- Expected base hash.
-- Line-ending policy.
-- Encoding validation.
-- Atomic commit.
+- Exact-match replacement only; fuzzy, regex, and unified-patch input are not phased.
+- Ambiguous and overlapping matches fail closed.
+- Dry-run diff (default) and explicit execution.
+- Required expected base hash for both dry-run and execution.
+- Deterministic resolution against one immutable base snapshot.
+- Bounded structured diff that never splits a hunk.
+- Preserved untouched bytes, line endings, and UTF-8 encoding.
+- Atomic commit through the ADR-015 writer.
 
 The system must not silently apply a fuzzy edit to the wrong location.
 
@@ -364,7 +370,7 @@ Execution policy separates:
 Command classes:
 
 | Class | Meaning |
-|---|---|
+| --- | --- |
 | Inspect | No intended mutation |
 | Metadata mutation | Changes repository/cache metadata |
 | Workspace mutation | Changes user-visible files |
@@ -612,7 +618,7 @@ Node SEA is an implementation candidate, not an architectural dependency. The pr
 ## 9. Failure model
 
 | Failure | Required behavior |
-|---|---|
+| --- | --- |
 | Invalid configuration | Keep previous valid snapshot |
 | OAuth store unavailable | Fail closed |
 | Policy Engine unavailable | Deny execution |

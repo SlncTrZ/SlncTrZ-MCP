@@ -7,6 +7,8 @@
 
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
+import { ExecError, executeContainedCommand, type ExecResult } from "../kernel/exec.js";
+import { EditError, editContainedFile } from "../kernel/fs-edit.js";
 import { ExecutionError } from "../kernel/execution.js";
 import { DEFAULT_MAX_READ_BYTES, ReadError, readContainedFile } from "../kernel/fs-read.js";
 import {
@@ -19,6 +21,7 @@ import { WriteError, writeContainedFile } from "../kernel/fs-write.js";
 import { type ToolAuditEvent, type ToolAuditSink } from "../observability/tool-audit.js";
 import {
   authorizeKernelCapability,
+  authorizeKernelCommand,
   createKernelPolicySnapshot,
   KernelPolicyError,
   type AuthenticatedPrincipal,
@@ -61,7 +64,16 @@ function emitToolAuditSafely(sink: ToolAuditSink, event: ToolAuditEvent): void {
   }
 }
 
-function errorResult(error: ReadError | SearchError | WriteError | ExecutionError) {
+function errorResult(
+  error:
+    | ReadError
+    | SearchError
+    | WriteError
+    | EditError
+    | ExecError
+    | KernelPolicyError
+    | ExecutionError
+) {
   return {
     isError: true as const,
     content: [{ type: "text" as const, text: `${error.code}: ${error.message}` }]
@@ -255,6 +267,159 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             decision: "allow",
             result: auditResult,
             durationMs: Math.max(0, Date.now() - startedAt)
+          });
+        }
+      }
+    );
+  }
+
+  const editAuthorization = authorizedContext(kernelPolicy, options.principal, "core.edit");
+  if (editAuthorization !== undefined) {
+    server.registerTool(
+      "core.edit",
+      {
+        title: "Edit File",
+        description:
+          "Apply exact-match replacements to one UTF-8 file within the policy-authorized write root.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z.object({
+          path: z.string().min(1),
+          expectedSha256: z.string().regex(/^[a-f0-9]{64}$/iu),
+          edits: z
+            .array(z.object({ oldText: z.string().min(1), newText: z.string() }))
+            .min(1)
+            .max(64),
+          dryRun: z.boolean().optional()
+        })
+      },
+      async (args, context) => {
+        const startedAt = Date.now();
+        let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+        try {
+          const result = await editContainedFile(editAuthorization.root, args.path, args.edits, {
+            expectedSha256: args.expectedSha256,
+            ...(args.dryRun === undefined ? {} : { dryRun: args.dryRun }),
+            ...(context.http?.req?.signal === undefined ? {} : { signal: context.http.req.signal })
+          });
+          return {
+            content: [{ type: "text", text: result.applied ? "edit applied" : "dry-run only" }],
+            structuredContent: result
+          };
+        } catch (error) {
+          if (error instanceof EditError || error instanceof ExecutionError) {
+            auditResult =
+              error.code === "cancelled"
+                ? "cancelled"
+                : error.code === "timeout"
+                  ? "timeout"
+                  : "error";
+            return errorResult(error);
+          }
+          auditResult = "error";
+          throw error;
+        } finally {
+          emitToolAuditSafely(toolAudit, {
+            timestamp: new Date().toISOString(),
+            requestId: String(context.mcpReq.id),
+            clientId: editAuthorization.clientId,
+            workspaceId: editAuthorization.workspaceId,
+            toolId: "core.edit",
+            riskClass: "write",
+            policyVersion: editAuthorization.policyVersion,
+            decision: "allow",
+            result: auditResult,
+            durationMs: Math.max(0, Date.now() - startedAt)
+          });
+        }
+      }
+    );
+  }
+
+  const execAuthorization = authorizedContext(kernelPolicy, options.principal, "core.exec");
+  if (execAuthorization !== undefined) {
+    server.registerTool(
+      "core.exec",
+      {
+        title: "Execute Command",
+        description: "Run one policy-authorized fixed command (POSIX-only).",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({ commandId: z.string().min(1), dryRun: z.boolean().optional() })
+          .strict()
+      },
+      async (args, context) => {
+        const startedAt = Date.now();
+        let outcome: ExecResult | undefined;
+        let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
+        let auditedCommandId: string | undefined;
+        try {
+          const authorized = authorizeKernelCommand(
+            kernelPolicy,
+            options.principal,
+            args.commandId
+          );
+          // Only after authorization succeeds may the (caller-trusted) commandId be
+          // audited; an unknown/denied attempt never records the raw caller input.
+          auditedCommandId = authorized.command.commandId;
+          const result = await executeContainedCommand(
+            authorized.execRoot,
+            authorized.command,
+            [],
+            undefined,
+            undefined,
+            {
+              ...(args.dryRun === undefined ? {} : { dryRun: args.dryRun }),
+              execPath: kernelPolicy.execPath ?? "",
+              ...(context.http?.req?.signal === undefined
+                ? {}
+                : { signal: context.http.req.signal })
+            }
+          );
+          outcome = result;
+          const text = result.applied
+            ? result.exitCode === null
+              ? `terminated by signal ${result.signal ?? ""}`
+              : `exit ${result.exitCode}`
+            : "dry-run only";
+          return {
+            content: [{ type: "text", text }],
+            structuredContent: result
+          };
+        } catch (error) {
+          if (error instanceof ExecError || error instanceof KernelPolicyError) {
+            return errorResult(error);
+          }
+          throw error;
+        } finally {
+          if (outcome !== undefined) {
+            auditResult = outcome.timedOut
+              ? "timeout"
+              : outcome.cancelled
+                ? "cancelled"
+                : "success";
+          }
+          emitToolAuditSafely(toolAudit, {
+            timestamp: new Date().toISOString(),
+            requestId: String(context.mcpReq.id),
+            clientId: execAuthorization.clientId,
+            workspaceId: execAuthorization.workspaceId,
+            toolId: "core.exec",
+            riskClass: "execute",
+            policyVersion: execAuthorization.policyVersion,
+            decision: "allow",
+            result: auditResult,
+            durationMs: Math.max(0, Date.now() - startedAt),
+            ...(auditedCommandId === undefined ? {} : { commandId: auditedCommandId })
           });
         }
       }

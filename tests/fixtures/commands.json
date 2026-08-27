@@ -1,0 +1,15 @@
+[
+  {
+    "commandId": "show-version",
+    "binaryPath": "/workspace/exec/echo.sh",
+    "fixedArgs": ["--version"],
+    "allowExtraArgs": false,
+    "maxExtraArgs": 0,
+    "cwdMode": "fixed",
+    "fixedEnv": {},
+    "allowStdin": false,
+    "commandClass": "inspect",
+    "timeoutMs": 30000,
+    "maxOutputBytes": 1048576
+  }
+]

@@ -94,6 +94,44 @@ describe("readRuntimeConfig", () => {
     ).toThrowError("SLNCTRZ_CLIENT_ID and SLNCTRZ_CLIENT_SECRET must be configured together");
   });
 
+  it("parses exec root, command file, and exec path", () => {
+    const config = readRuntimeConfig({
+      SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
+      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH,
+      SLNCTRZ_EXEC_ROOT: "/workspace/exec",
+      SLNCTRZ_EXEC_COMMANDS_FILE: "/workspace/exec/commands.json",
+      SLNCTRZ_EXEC_PATH: "/opt/bin:/usr/bin"
+    });
+    expect(config.execRoot).toBe("/workspace/exec");
+    expect(config.execCommandsFile).toBe("/workspace/exec/commands.json");
+    expect(config.execPath).toBe("/opt/bin:/usr/bin");
+  });
+
+  it("requires exec root and command file together and rejects NUL in exec path", () => {
+    const base = {
+      SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
+      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH
+    };
+    expect(() => readRuntimeConfig({ ...base, SLNCTRZ_EXEC_ROOT: "/workspace/exec" })).toThrowError(
+      "SLNCTRZ_EXEC_ROOT and SLNCTRZ_EXEC_COMMANDS_FILE must be configured together"
+    );
+    expect(() => readRuntimeConfig({ ...base, SLNCTRZ_EXEC_PATH: "a\0b" })).toThrowError(
+      "SLNCTRZ_EXEC_PATH must not contain NUL bytes"
+    );
+  });
+
+  it("rejects a relative exec command registry path", () => {
+    const base = {
+      SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
+      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH,
+      SLNCTRZ_EXEC_ROOT: "/workspace/exec",
+      SLNCTRZ_EXEC_COMMANDS_FILE: "commands.json"
+    };
+    expect(() => readRuntimeConfig(base)).toThrowError(
+      "SLNCTRZ_EXEC_COMMANDS_FILE must be an absolute path"
+    );
+  });
+
   it("requires a syntactically valid owner verifier at authority construction", async () => {
     const { OAuthService } = await import("../../src/auth/oauth-service.js");
 

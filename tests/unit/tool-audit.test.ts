@@ -34,4 +34,31 @@ describe("tool audit", () => {
     });
     expect(lines[0]).not.toMatch(/path|content|token|secret|credential/iu);
   });
+
+  it("carries core.edit write attribution without path, content, or diff", () => {
+    const lines: string[] = [];
+    const sink = createJsonLineToolAuditSink((line) => lines.push(line));
+
+    sink({
+      timestamp: "2026-08-27T00:00:00.000Z",
+      requestId: "request-2",
+      clientId: "client-1",
+      workspaceId: "workspace-main",
+      toolId: "core.edit",
+      riskClass: "write",
+      policyVersion: "policy-1",
+      decision: "allow",
+      result: "success",
+      durationMs: 4
+    });
+
+    const parsed = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+    expect(parsed).toMatchObject({
+      toolId: "core.edit",
+      riskClass: "write",
+      decision: "allow",
+      result: "success"
+    });
+    expect(lines[0]).not.toMatch(/path|content|diff|oldText|newText|token|secret|credential/iu);
+  });
 });

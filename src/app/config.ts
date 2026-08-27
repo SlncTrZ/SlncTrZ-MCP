@@ -5,6 +5,8 @@
  * Provenance: PLAN Phases 1 and 3, SECURITY default-deny, and ADR-015.
  */
 
+import { isAbsolute } from "node:path";
+
 export interface RuntimeConfig {
   readonly host: string;
   readonly port: number;
@@ -15,6 +17,9 @@ export interface RuntimeConfig {
   readonly allowedOriginHostnames: readonly string[];
   readonly toolRoot?: string;
   readonly writeRoot?: string;
+  readonly execRoot?: string;
+  readonly execCommandsFile?: string;
+  readonly execPath?: string;
   readonly staticClient?: {
     readonly clientId: string;
     readonly clientSecret: string;
@@ -104,6 +109,19 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
 
   const toolRoot = environment.SLNCTRZ_TOOL_ROOT;
   const writeRoot = environment.SLNCTRZ_WRITE_ROOT;
+  const execRoot = environment.SLNCTRZ_EXEC_ROOT;
+  const execCommandsFile = environment.SLNCTRZ_EXEC_COMMANDS_FILE;
+  const execPath = environment.SLNCTRZ_EXEC_PATH;
+
+  if ((execRoot === undefined) !== (execCommandsFile === undefined)) {
+    throw new Error("SLNCTRZ_EXEC_ROOT and SLNCTRZ_EXEC_COMMANDS_FILE must be configured together");
+  }
+  if (execCommandsFile !== undefined && !isAbsolute(execCommandsFile)) {
+    throw new Error("SLNCTRZ_EXEC_COMMANDS_FILE must be an absolute path");
+  }
+  if (execPath !== undefined && execPath.includes("\0")) {
+    throw new Error("SLNCTRZ_EXEC_PATH must not contain NUL bytes");
+  }
 
   return {
     host,
@@ -115,6 +133,11 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     allowedOriginHostnames,
     ...(toolRoot === undefined || toolRoot.length === 0 ? {} : { toolRoot }),
     ...(writeRoot === undefined || writeRoot.length === 0 ? {} : { writeRoot }),
+    ...(execRoot === undefined || execRoot.length === 0 ? {} : { execRoot }),
+    ...(execCommandsFile === undefined || execCommandsFile.length === 0
+      ? {}
+      : { execCommandsFile }),
+    ...(execPath === undefined ? {} : { execPath }),
     ...(staticClient === undefined ? {} : { staticClient })
   };
 }

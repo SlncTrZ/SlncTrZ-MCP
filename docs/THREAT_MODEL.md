@@ -78,23 +78,36 @@ capabilities.
 
 ### Mutation gate
 
-> Status: passed for `core.write` on 2026-08-27. Revalidate writable/executable root
-> composition when `core.exec` is introduced.
+> Status: passed for `core.write` and `core.edit` on 2026-08-27. Revalidate
+> writable/executable root composition when `core.exec` is introduced.
 
 - Threat model reviewed.
 - Atomic replacement and failure cleanup tests pass.
 - Symlink/race tests cover existing and newly created targets.
 - Dry-run and expected-content hash are implemented.
+- Exact-match edits resolve against one immutable base snapshot and reject missing,
+  ambiguous, and overlapping matches without falling back to fuzzy behavior.
+- Editing never creates a file and preserves untouched bytes, line endings, and UTF-8.
 - Audit attribution includes client and policy snapshot.
 - No writable/executable root overlap is possible.
 
 ### Execution gate
 
-- Direct process spawn only.
-- Binary, subcommand, arguments, cwd, environment, stdin, network, timeout, and output
-  are independently authorized.
-- Process-tree cancellation and output backpressure are tested.
-- Inline evaluation and implicit shell execution remain denied unless separately approved.
+> Status: passed for POSIX Phase 3.1 `core.exec` on 2026-08-27 (ADR-017). Windows is
+> explicitly deferred and not claimed covered; a later Windows slice requires a
+> reviewed Job Object/native-helper ADR. Revalidate writable/executable root
+> composition if a caller-controlled argument policy is ever added.
+
+- Direct process spawn only; the caller selects a pre-authorized `commandId`, never a
+  binary, shell string, or free-form argv.
+- Fixed commands only: no caller args, cwd, or stdin in Phase 3.1.
+- `execRoot` must not overlap `writeRoot` in either direction, failing closed at startup.
+- Child environment is a fixed allowlist; loader/runtime-injection keys are denied and
+  the gateway environment is never inherited.
+- Timeout and cancellation kill the full process group (POSIX) with a bounded grace
+  period; a non-zero exit code is a result, not an error.
+- Output is bounded and deterministically truncated; audit carries no args, stdin,
+  output, cwd, or environment values.
 
 ## 7. Residual risks
 

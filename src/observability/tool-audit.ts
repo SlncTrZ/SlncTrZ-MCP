@@ -16,6 +16,7 @@ export interface ToolAuditEvent {
   readonly decision: "allow" | "deny" | "approve";
   readonly result: "success" | "error" | "cancelled" | "timeout";
   readonly durationMs: number;
+  readonly commandId?: string;
 }
 
 export type ToolAuditSink = (event: ToolAuditEvent) => void;
