@@ -126,6 +126,9 @@ Profiles select capabilities; they do not bypass policy.
 | ADR-015 | Policy-bound atomic filesystem writes | Accepted |
 | ADR-016 | Deterministic exact-match filesystem edits | Accepted |
 | ADR-017 | Policy-bound direct process execution | Accepted |
+| ADR-018 | Versioned immutable policy snapshots and atomic activation | Accepted |
+| ADR-019 | Scoped developer access and sandbox escalation | Accepted |
+| ADR-020 | Bounded isolated MCP extension transports | Accepted |
 
 ## 6. Delivery roadmap
 
@@ -270,6 +273,14 @@ Acceptance criteria:
 
 ### Phase 5 — Universal MCP Extension Gateway
 
+> Implementation checkpoint: complete on `feat/phase-5-extension-gateway` (2026-08-27),
+> pending final review/merge. Strict manifests, canonical registry, stdio/HTTPS adapters,
+> bounded supervision, policy-only workspace/profile grants, request-scoped discovery and
+> dispatch, runtime-generation leases, and secret-free extension audit are implemented.
+> Linux `npm run check` and `npm run build` pass on Node 22.23.2 and 24.19.0. This phase
+> claims process/protocol isolation only, not an OS sandbox, dynamic installation, public
+> control plane, remote credential fetching, or discovery-change notifications.
+
 Deliverables:
 
 - Extension manifest schema.
@@ -277,9 +288,9 @@ Deliverables:
 - Stdio and Streamable HTTP adapters.
 - Child Process Supervisor.
 - Startup, readiness, timeout, backoff, restart, shutdown, and quarantine states.
-- Tool discovery and change notifications.
-- Per-extension environment and filesystem policy.
-- Circuit breaker and health state.
+- Request-scoped ready-and-authorized tool discovery.
+- Policy workspace/profile grants plus provider-scoped environment and credential refs.
+- Bounded queue, restart/quarantine, and health state.
 
 Acceptance criteria:
 
@@ -289,6 +300,10 @@ Acceptance criteria:
 - Unhealthy extensions are removed or marked unavailable predictably.
 - Credentials are scoped to the extension that needs them.
 - Resource limits and output limits are enforced.
+- Malformed discovery or provider tool drift fails closed before exposure.
+- Reload cannot mix policy/registry/runtime generations or stop an active exchange.
+- Extension errors and audit records do not disclose arguments, output, endpoints,
+  environment data, credential references, or raw provider errors.
 
 ### Phase 6 — Project context and instruction system
 

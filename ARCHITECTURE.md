@@ -1,6 +1,6 @@
 # SlncTrZ-MCP Architecture
 
-> Status: proposed  
+> Status: active implementation architecture
 > License: Apache-2.0  
 > Core model: in-process trusted kernel plus isolated MCP extensions
 
@@ -206,10 +206,7 @@ interface ToolRecord {
   canonicalId: string;
   exposedName: string;
   providerId: string;
-  schemaHash: string;
   riskClass: "read" | "write" | "execute" | "network" | "admin";
-  availability: "ready" | "degraded" | "unavailable";
-  version: string;
 }
 ```
 
@@ -217,7 +214,8 @@ Rules:
 
 - Collision is a configuration error.
 - Renaming requires an explicit compatibility mapping.
-- Tool-list changes are versioned and notified where supported.
+- Declared tool-contract changes alter the deterministic registry/snapshot version;
+  discovery-change notifications are deferred until the SDK contract is verified.
 - Unhealthy providers do not silently resolve to another tool.
 - Tool descriptions cannot grant permissions.
 
@@ -427,6 +425,23 @@ stateDiagram-v2
     Ready --> Stopped
 ```
 
+Phase 5 implementation checkpoint (2026-08-27):
+
+- One operator-owned policy document compiles extension manifests, the immutable canonical
+  registry, workspace/profile grants, and the policy snapshot as one candidate.
+- The registry is a neutral capability catalog. Only policy `extensionGrants` authorize a
+  provider/tool/profile; manifests cannot self-grant workspace or tenant access.
+- Every provider starts eagerly and must attest an exact canonical `tools/list` before it
+  becomes discoverable. Malformed discovery or tool drift fails closed.
+- Each MCP exchange captures one snapshot/runtime generation. Discovery is
+  `authorized ∩ ready`; dispatch rechecks readiness and never falls back by name.
+- Atomic reload rejects an invalid candidate and retains the active snapshot. A valid but
+  non-activated candidate retires its eager runtime. After activation, the prior runtime
+  drains active exchange leases before supervisors stop, preventing hybrid dispatch.
+- Extension calls emit one bounded audit event containing attribution, canonical identity,
+  risk, result, and duration only; arguments, output, endpoints, environment data,
+  credential refs, manifest text, and raw errors are excluded.
+
 Extension manifest includes:
 
 - Provider ID and namespace.
@@ -434,9 +449,8 @@ Extension manifest includes:
 - Executable or remote endpoint.
 - Version.
 - Environment allowlist.
-- Workspace access.
-- Network destinations.
-- Credentials reference.
+- Opaque provider-scoped credential references.
+- Fixed HTTPS endpoint for network providers.
 - Startup and request timeout.
 - Restart policy.
 - Resource limits.
@@ -452,6 +466,12 @@ Supervisor properties:
 - Output and message size limits.
 - Quarantine after repeated failure.
 - No automatic privilege expansion on restart.
+- Readiness re-attestation after every start/restart.
+
+The boundary is out-of-process execution and bounded protocol handling, not an OS
+sandbox. Stdio children retain the operating-system permissions of the gateway service
+identity; deployments must apply a restricted identity and external sandboxing before
+accepting untrusted code or broad filesystem/network authority.
 
 ### 4.12 Project Instructions
 

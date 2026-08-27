@@ -12,9 +12,9 @@ network request, or receive model-supplied arguments. The gateway must preserve 
 canonical namespace and prevent one provider from exhausting core resources or obtaining
 gateway credentials.
 
-This decision implements the transport and lifecycle boundary described by PLAN Phase 5
-and ARCHITECTURE §4.11. Policy selection, discovery and MCP dispatch remain separate
-slices.
+This decision covers the transport/lifecycle boundary and its integration with the Phase 4
+policy snapshot, authenticated discovery, MCP dispatch, reload retirement, and audit as
+described by PLAN Phase 5 and ARCHITECTURE §4.11.
 
 ## Decision
 
@@ -32,7 +32,20 @@ slices.
   failure.
 - A supervisor serializes one provider's calls behind a bounded queue, propagates
   cancellation, hard-bounds requests, uses a finite restart budget and quarantines a
-  provider once exhausted. A failed or quarantined provider cannot block the core.
+  provider once exhausted. Every start/restart must attest the provider's exact declared
+  canonical tool set; malformed discovery or drift leaves it unavailable.
+- Manifests are capability/transport declarations, never authorization grants. The
+  operator-owned policy document is the single workspace/profile authorization source.
+  Authenticated discovery exposes only `authorized ∩ ready` tools.
+- Each MCP exchange captures one immutable policy/runtime generation. Dispatch remains
+  bound to that snapshot's canonical authorization, rechecks readiness, and never falls
+  back by name. An activated reload retires
+  the prior runtime only after its active exchange leases release; invalid/colliding
+  candidates keep the exact previous snapshot, and valid non-activated candidates retire
+  their eagerly started runtime.
+- Extension audit has a fixed secret-free schema: attribution, policy version, provider,
+  canonical tool, risk, result, and duration only. It cannot carry args, output, endpoint,
+  environment data, credential refs, manifest text, or raw provider errors.
 - This is process and protocol isolation, not an OS sandbox. Extensions may still have
   the operating-system permissions of the gateway identity. No container, network
   namespace, dynamic provider installation, public control plane or credential fetching
@@ -63,9 +76,12 @@ slices.
 ## Verification
 
 - Unit and real child-process tests cover manifest rejection, immutable registry records,
-  timeout, queued cancellation, active-stop settlement, failed restart quarantine, stderr
-  overflow, same-origin HTTPS redirects and streamed response limits.
-- `npm run check` and build must pass on Node 22 and Node 24 on Linux before Phase 5
-  acceptance. Windows evidence is compile/test only for the cross-platform code paths.
-- Authenticated policy/discovery/dispatch and secret-free extension audit remain required
-  before Phase 5 can merge to `master`.
+  collision retention, malformed/tool-drift discovery, no inherited environment, timeout,
+  queued cancellation/overload, active-stop settlement, reload lease drain, crash-loop
+  quarantine, stderr/output overflow, same-origin HTTPS redirects, streamed response
+  limits, authenticated policy/discovery/dispatch, stable unavailable errors, and
+  credential/audit redaction.
+- On 2026-08-27, `npm run check` and `npm run build` passed in Linux containers on Node
+  22.23.2 and Node 24.19.0. `git diff --check` passed and the lockfile did not change.
+- Windows execution/isolation evidence is not claimed by this checkpoint. Windows
+  compile/fail-closed coverage remains a release/merge evidence item where applicable.

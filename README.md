@@ -4,8 +4,9 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 3 in progress · Filesystem kernel available · License: Apache-2.0 ·
-> Architecture: minimal trusted kernel with isolated extensions
+> Status: Phase 5 extension gateway implemented on the feature branch · Linux Node 22/24
+> acceptance passed · License: Apache-2.0 · Architecture: minimal trusted kernel with
+> isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
 clients and the capabilities they use, enforcing filesystem, execution, identity, and
@@ -18,10 +19,10 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 - **Minimal trusted tool kernel** — `core.read`, `core.search`, policy-gated
   `core.write`, `core.edit`, and POSIX fixed-command `core.exec` are available (Windows
   `core.exec` is fail-closed).
-- **Universal extension gateway** — third-party MCP servers (GitHub, Postgres,
-  Docker, etc.) run in isolated child processes under a supervisor.
+- **Universal extension gateway** — operator-declared third-party MCP servers run
+  out-of-process over fixed stdio or HTTPS transports under bounded supervision.
 - **Policy engine** as the single authorization authority with live, atomic reload.
-- **Local control plane** for workspace, capability, extension, and token management.
+- **Planned local control plane** for workspace, capability, extension, and token management.
 - **Audit and redaction pipeline** with privacy-preserving observability.
 
 > SlncTrZ-MCP is an **independent, clean-room implementation**. Reference repository
@@ -38,7 +39,7 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 | [`SECURITY.md`](SECURITY.md)                   | Security policy and vulnerability reporting                            |
 | [`PROVENANCE.md`](PROVENANCE.md)               | Dependency license inventory and provenance rules                      |
 | [`docs/adr/`](docs/adr/)                       | Architecture Decision Records                                          |
-| [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Phase 3 kernel threats and capability gates                            |
+| [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Kernel, policy, and extension-gateway threat gates                     |
 
 ## Quick start (developer mode)
 
@@ -77,14 +78,15 @@ before dispatch. Authentication events use a structured, secret-free audit schem
 embedded authority keeps client and token state in memory, so a restart requires clients
 to reconnect. See ADR-011, ADR-012, and ADR-013.
 
-Machine authorization is default-deny. Phase 4 loads one operator-owned JSON policy
-(`SLNCTRZ_POLICY_FILE`) that declares workspace roots, client bindings, capability
-profiles, and exec command registries. An absent file compiles a deny-all snapshot, so an
-authenticated client sees only `core.ping`. Each request selects an explicit workspace
-(and profile for multi-profile workspaces) after authentication; unknown or unauthorized
-selectors return 403. A reload a whole validated snapshot atomically and never
-leaves partial state; a risk-increasing change is held behind an approval hook until it
-is approved. See ADR-018.
+Machine authorization is default-deny. One operator-owned JSON policy
+(`SLNCTRZ_POLICY_FILE`) declares workspace roots, client bindings, capability profiles,
+fixed exec registries, extension manifests, and workspace/profile extension grants. An
+absent file compiles a deny-all snapshot, so an authenticated client sees only
+`core.ping`. Each request selects an explicit workspace (and profile for multi-profile
+workspaces) after authentication; unknown or unauthorized selectors return 403. Reload
+compiles a complete candidate off-side and activates it atomically; invalid manifests,
+namespace collisions, or invalid grants retain the prior snapshot. Risk-increasing
+changes remain behind the approval hook. See ADR-018 and ADR-020.
 
 Filesystem capabilities are independently default-deny. `SLNCTRZ_TOOL_ROOT` enables
 `core.read` and `core.search`; `SLNCTRZ_WRITE_ROOT` separately enables `core.write` and
@@ -95,6 +97,23 @@ is POSIX-only and requires `SLNCTRZ_EXEC_ROOT` together with `SLNCTRZ_EXEC_COMMA
 (a fixed command-registry JSON); the registry and exec root are operator-owned and must
 not be writable by the service identity or any workspace root. See ADR-014, ADR-015,
 ADR-016, and ADR-017.
+
+## Extension gateway
+
+Extension manifests describe technical capability and transport only; they cannot grant
+workspace access. Policy `extensionGrants` are the single authorization source. Each MCP
+exchange captures one immutable snapshot/runtime generation, and discovery exposes only
+tools that are both authorized and ready. Provider tool drift, malformed discovery,
+crashes, timeout, queue/output overflow, or quarantine fail closed without falling back
+to another provider. Retired supervisors drain active exchanges before stopping, and
+extension audit events omit arguments, results, endpoints, environment data, credential
+references, and raw provider errors.
+
+Stdio providers use a fixed absolute executable, fixed arguments, `shell: false`, a
+minimal explicit environment, and bounded protocol/output handling. Streamable HTTP
+providers use a fixed HTTPS endpoint with same-origin redirects only. This is process and
+protocol isolation, not an OS sandbox; run the gateway with a restricted service identity.
+See ADR-020.
 
 ## Scoped development access
 
