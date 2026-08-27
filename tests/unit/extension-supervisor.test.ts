@@ -22,7 +22,8 @@ class FakeAdapter implements ExtensionAdapter {
   listToolsCalls = 0;
   callTools: string[] = [];
   healthValue: AdapterHealth = "ready";
-  startBehavior: "resolve" | "reject" | "hang" = "resolve";
+  startBehavior: "resolve" | "reject" | "hang" | "reject_after_first" = "resolve";
+  listToolsBehavior: "resolve" | "hang" = "resolve";
   callBehavior: "resolve" | "reject" | "hang" = "resolve";
   ignoreAbort = false;
   readonly tools: readonly ExtensionToolInfo[] = [
@@ -35,9 +36,13 @@ class FakeAdapter implements ExtensionAdapter {
   async start(): Promise<void> {
     this.startCalls += 1;
     if (this.startBehavior === "resolve") return;
-    if (this.startBehavior === "reject") {
+    if (
+      this.startBehavior === "reject" ||
+      (this.startBehavior === "reject_after_first" && this.startCalls > 1)
+    ) {
       throw new AdapterError("provider_unavailable", "start refused");
     }
+    if (this.startBehavior === "reject_after_first") return;
     return new Promise<void>((resolve, reject) => {
       this.deferredStarts.push({ resolve, reject });
     });
@@ -45,6 +50,12 @@ class FakeAdapter implements ExtensionAdapter {
 
   async listTools(): Promise<readonly ExtensionToolInfo[]> {
     this.listToolsCalls += 1;
+    if (this.listToolsBehavior === "hang") {
+      return new Promise<readonly ExtensionToolInfo[]>((resolve) => {
+        const timer = setTimeout(() => resolve([]), 60_000);
+        timer.unref();
+      });
+    }
     return this.tools;
   }
 
@@ -320,6 +331,45 @@ describe("extension supervisor: state machine (fake-first)", () => {
       () => "rejected"
     );
     expect(startResult).toBe("rejected");
+  });
+
+  it("retries failed starts until the finite budget is exhausted, then quarantines", async () => {
+    const adapter = new FakeAdapter();
+    adapter.callBehavior = "reject";
+    adapter.startBehavior = "reject_after_first";
+    const supervisor = createExtensionSupervisor({
+      adapter,
+      maxRestarts: 2,
+      startupTimeoutMs: 20,
+      backoffBaseMs: 1,
+      backoffJitterMs: 0
+    });
+    await supervisor.start();
+    await supervisor.invoke("p.findOne", {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(adapter.startCalls).toBe(3); // initial + both budgeted restart attempts
+    expect(supervisor.state).toBe("quarantined");
+  });
+
+  it("settles an active uncooperative call when stopped", async () => {
+    const adapter = new FakeAdapter();
+    adapter.callBehavior = "hang";
+    adapter.ignoreAbort = true;
+    const supervisor = createExtensionSupervisor({ adapter, requestTimeoutMs: 5000 });
+    await supervisor.start();
+    const active = supervisor.invoke("p.findOne", {});
+    await tick();
+    await supervisor.stop();
+    const result = await active;
+    expect(result).toMatchObject({ isError: true, text: "provider_unavailable" });
+  });
+
+  it("bounds a hanging tool listing", async () => {
+    const adapter = new FakeAdapter();
+    adapter.listToolsBehavior = "hang";
+    const supervisor = createExtensionSupervisor({ adapter, requestTimeoutMs: 20 });
+    await supervisor.start();
+    await expect(supervisor.listTools()).rejects.toMatchObject({ code: "provider_timeout" });
   });
 });
 

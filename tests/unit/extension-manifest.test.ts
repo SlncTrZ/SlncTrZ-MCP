@@ -159,4 +159,23 @@ describe("extension manifest (typed strict JSON schema)", () => {
       ).rejects.toMatchObject({ code: "manifest_invalid" });
     }
   });
+
+  it("freezes nested tools and rejects endpoint credentials/query", async () => {
+    const compiled = await compileExtensionManifest(validStdio());
+    expect(Object.isFrozen(compiled.tools[0])).toBe(true);
+    for (const endpoint of [
+      "https://user:secret@provider.example.com/mcp",
+      "https://provider.example.com/mcp?token=secret"
+    ]) {
+      await expect(
+        compileExtensionManifest({
+          ...validStdio(),
+          transport: "streamable-http",
+          command: undefined,
+          args: undefined,
+          endpoint
+        } as unknown as ExtensionManifestV1)
+      ).rejects.toMatchObject({ code: "manifest_invalid" });
+    }
+  });
 });

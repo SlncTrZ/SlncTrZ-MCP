@@ -92,4 +92,37 @@ describe("streamable http adapter (integration against real fetch)", () => {
     // The raw body text never surfaces in the error.
     expect((caught as Error).message).not.toContain("boom");
   });
+
+  it("refuses a cross-origin HTTPS redirect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: "https://other.example.com/mcp" }
+          })
+      )
+    );
+    const manifest = await compileExtensionManifest(httpsManifest("https://provider.example.com"));
+    const adapter = createStreamableHttpAdapter(manifest);
+    await expect(adapter.callTool("svc.ping", {}, {})).rejects.toMatchObject({
+      code: "provider_protocol_error"
+    });
+  });
+
+  it("rejects a streamed response body that exceeds the byte cap", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("x".repeat(128), { status: 200 }))
+    );
+    const manifest = await compileExtensionManifest({
+      ...httpsManifest("https://provider.example.com"),
+      maxMessageBytes: 16
+    });
+    const adapter = createStreamableHttpAdapter(manifest);
+    await expect(adapter.callTool("svc.ping", {}, {})).rejects.toMatchObject({
+      code: "provider_protocol_error"
+    });
+  });
 });

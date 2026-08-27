@@ -24,9 +24,19 @@ async function writeMockProvider(dir: string, behavior: "ok" | "echo_env"): Prom
   const path = join(dir, "mock-provider.js");
   const script =
     behavior === "echo_env"
-      ? `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'env='+ (process.env.MOCK_TOKEN ?? 'none')}]}})+'\\n'); });`
+      ? `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'env='+ (process.env.MOCK_TOKEN ?? 'none') + ';other=' + (process.env.UNRELATED_SENTINEL ?? 'none')}]}})+'\\n'); });`
       : `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else if (m.method === 'tools/list') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'mock.echo'}]}})+'\\n'); else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'pong'}]}})+'\\n'); });`;
   await writeFile(path, script, "utf8");
+  return path;
+}
+
+async function writeStderrFloodProvider(dir: string): Promise<string> {
+  const path = join(dir, "stderr-flood-provider.js");
+  await writeFile(
+    path,
+    `process.stdin.on('data', (d) => { const m = JSON.parse(String(d).trim()); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{}})+'\\n'); else process.stderr.write('x'.repeat(4096)); });`,
+    "utf8"
+  );
   return path;
 }
 
@@ -73,14 +83,39 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
       requestTimeoutMs: 5000
     });
     process.env.MOCK_TOKEN = "SECRET_VALUE";
+    process.env.UNRELATED_SENTINEL = "must-not-cross-boundary";
     try {
       const adapter = createStdioAdapter(manifest);
       await adapter.start();
       const result = await adapter.callTool("mock.echo", {}, {});
-      expect(result.text).toBe("env=SECRET_VALUE");
+      expect(result.text).toBe("env=SECRET_VALUE;other=none");
       await adapter.stop();
     } finally {
       delete process.env.MOCK_TOKEN;
+      delete process.env.UNRELATED_SENTINEL;
     }
+  });
+
+  it("drains stderr but tears down a provider that exceeds its output cap", async () => {
+    const dir = await makeTempDir();
+    const provider = await writeStderrFloodProvider(dir);
+    const manifest = await compileExtensionManifest({
+      id: "mock",
+      transport: "stdio",
+      version: "1.0.0",
+      command: process.execPath,
+      args: [provider],
+      tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
+      workspaces: ["dev"],
+      maxOutputBytes: 1024,
+      startupTimeoutMs: 5000,
+      requestTimeoutMs: 5000
+    });
+    const adapter = createStdioAdapter(manifest);
+    await adapter.start();
+    await expect(adapter.callTool("mock.echo", {}, {})).rejects.toMatchObject({
+      code: "provider_unavailable"
+    });
+    await adapter.stop();
   });
 });

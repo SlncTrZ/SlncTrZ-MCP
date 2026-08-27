@@ -2,22 +2,20 @@
  * Streamable HTTP Extension Adapter — one isolated provider over HTTPS MCP.
  * Wing: extension | Topic: http-adapter | Updated: 2026-08-27
  *
- * Provenance: PLAN Phase 5, ARCHITECTURE §4.11, ADR-020, and the Phase 5 handoff slice 2.
- *
- * Talks the MCP Streamable HTTP transport against a fixed HTTPS endpoint from the
- * manifest. It enforces HTTPS-only, a per-request timeout driven by AbortSignal, bounded
- * output, and refuses any redirect that downgrades to http. It never accepts a caller-
- * selected endpoint, command, argv, or extra header. Provider logic never runs in-process.
+ * Requests go only to a fixed manifest endpoint. Redirects must remain same-origin HTTPS;
+ * response bodies are streamed into a byte-bounded buffer before parsing, so a provider
+ * cannot allocate unbounded gateway memory. Every protocol operation has an abortable
+ * timeout and raw provider failures map to stable, non-sensitive adapter errors.
  */
 
 import {
+  AdapterError,
   type AdapterCallOptions,
   type AdapterHealth,
   type ExtensionAdapter,
   type ExtensionCallResult,
   type ExtensionToolInfo
 } from "./adapter.js";
-import { AdapterError } from "./adapter.js";
 import { type CompiledExtensionManifest } from "./manifest.js";
 
 const INITIALIZE_PROTOCOL = "2025-06-18";
@@ -33,47 +31,92 @@ interface CallToolResult {
 }
 
 interface HttpProviderMessage {
-  readonly jsonrpc?: string;
-  readonly id?: number | string;
   readonly result?: unknown;
   readonly error?: { readonly code: number; readonly message: string };
 }
 
-/** Follow up to MAX_REDIRECTS but refuse any downgrade to http. */
-async function fetchWithRedirectGuard(url: URL, init: RequestInit): Promise<Response> {
-  let current = new URL(url);
-  let redirects = 0;
+function truncateText(text: string, limit: number): { text: string; truncated: boolean } {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.length <= limit) return { text, truncated: false };
+  return { text: bytes.subarray(0, limit).toString("utf8"), truncated: true };
+}
 
-  while (true) {
-    const response = await fetch(current, {
-      ...init,
-      redirect: "manual",
-      headers: { ...init.headers, "content-type": "application/json" }
-    });
-    if (response.status >= 300 && response.status < 400) {
-      redirects += 1;
-      if (redirects > MAX_REDIRECTS) {
-        throw new AdapterError("provider_unavailable", "too many redirects");
+async function readBoundedBody(
+  response: Response,
+  maxBytes: number,
+  controller: AbortController
+): Promise<string> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null && Number(declaredLength) > maxBytes) {
+    controller.abort();
+    throw new AdapterError("provider_protocol_error", "response exceeds message cap");
+  }
+  if (response.body === null) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const item = await reader.read();
+      if (item.done) break;
+      size += item.value.byteLength;
+      if (size > maxBytes) {
+        controller.abort();
+        await reader.cancel();
+        throw new AdapterError("provider_protocol_error", "response exceeds message cap");
       }
-      const location = response.headers.get("location");
-      if (location === null) {
-        throw new AdapterError("provider_protocol_error", "redirect without location");
-      }
-      const next = new URL(location, current);
-      if (next.protocol !== "https:") {
-        throw new AdapterError("provider_protocol_error", "redirect downgraded below https");
-      }
-      current = next;
-      continue;
+      chunks.push(item.value);
     }
-    return response;
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
+}
+
+async function fetchWithRedirectGuard(
+  url: URL,
+  init: RequestInit,
+  controller: AbortController
+): Promise<Response> {
+  const origin = url.origin;
+  let current = new URL(url);
+  for (let redirects = 0; ; redirects += 1) {
+    let response: Response;
+    try {
+      response = await fetch(current, {
+        ...init,
+        redirect: "manual",
+        headers: { ...init.headers, "content-type": "application/json" }
+      });
+    } catch (error) {
+      if (error instanceof AdapterError) throw error;
+      throw new AdapterError("provider_unavailable", "provider_unavailable");
+    }
+    if (response.status < 300 || response.status >= 400) return response;
+    if (redirects >= MAX_REDIRECTS) {
+      controller.abort();
+      throw new AdapterError("provider_unavailable", "too many redirects");
+    }
+    const location = response.headers.get("location");
+    if (location === null) {
+      throw new AdapterError("provider_protocol_error", "redirect without location");
+    }
+    const next = new URL(location, current);
+    if (next.protocol !== "https:" || next.origin !== origin) {
+      throw new AdapterError("provider_protocol_error", "redirect leaves fixed https origin");
+    }
+    current = next;
   }
 }
 
-/**
- * Create a Streamable HTTP adapter bound to one compiled manifest. The endpoint is the
- * fixed operator HTTPS URL; a caller never chooses a destination.
- */
+function asResult(message: HttpProviderMessage): unknown {
+  if (message.error !== undefined) {
+    throw new AdapterError("provider_unavailable", "provider_unavailable");
+  }
+  return message.result;
+}
+
+/** Create an adapter bound to one fixed HTTPS extension endpoint. */
 export function createStreamableHttpAdapter(manifest: CompiledExtensionManifest): ExtensionAdapter {
   const endpoint = manifest.endpoint;
   if (endpoint === undefined) {
@@ -83,13 +126,14 @@ export function createStreamableHttpAdapter(manifest: CompiledExtensionManifest)
   try {
     base = new URL(endpoint);
   } catch {
-    throw new AdapterError("provider_unavailable", "http adapter requires a valid https endpoint");
+    throw new AdapterError("provider_unavailable", "http adapter requires valid https endpoint");
   }
   if (base.protocol !== "https:") {
     throw new AdapterError("provider_unavailable", "http adapter requires https");
   }
 
-  const transportHeaders = {
+  let ready = false;
+  const headers = {
     accept: "application/json, text/event-stream",
     "mcp-protocol-version": INITIALIZE_PROTOCOL
   };
@@ -97,48 +141,69 @@ export function createStreamableHttpAdapter(manifest: CompiledExtensionManifest)
   const post = async (
     method: string,
     params: Record<string, unknown>,
-    signal?: AbortSignal
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): Promise<any> => {
+    controller: AbortController
+  ): Promise<unknown> => {
     const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
-    const init: RequestInit = {
-      method: "POST",
-      headers: { ...transportHeaders },
-      body
-    };
-    if (signal !== undefined) init.signal = signal;
-    const response = await fetchWithRedirectGuard(base, init);
+    if (Buffer.byteLength(body, "utf8") > manifest.maxMessageBytes) {
+      throw new AdapterError("provider_protocol_error", "request exceeds message cap");
+    }
+    const response = await fetchWithRedirectGuard(
+      base,
+      { method: "POST", headers, body, signal: controller.signal },
+      controller
+    );
     if (!response.ok) {
-      throw new AdapterError("provider_unavailable", `http ${response.status}`);
+      throw new AdapterError("provider_unavailable", "provider_unavailable");
     }
-    const text = await response.text();
-    if (text.length > manifest.maxMessageBytes) {
-      throw new AdapterError("provider_protocol_error", "message exceeds the byte cap");
-    }
+    const text = await readBoundedBody(response, manifest.maxMessageBytes, controller);
     let parsed: HttpProviderMessage;
     try {
       parsed = JSON.parse(text) as HttpProviderMessage;
     } catch {
       throw new AdapterError("provider_protocol_error", "invalid JSON response");
     }
-    if (parsed.error !== undefined) {
+    return asResult(parsed);
+  };
+
+  const postWithTimeout = async (
+    method: string,
+    params: Record<string, unknown>,
+    caller?: AbortSignal
+  ): Promise<unknown> => {
+    const controller = new AbortController();
+    let timedOut = false;
+    const linkAbort = (): void => controller.abort();
+    if (caller?.aborted === true) controller.abort();
+    caller?.addEventListener("abort", linkAbort, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, manifest.requestTimeoutMs);
+    timer.unref();
+    try {
+      return await post(method, params, controller);
+    } catch (error) {
+      if (timedOut) throw new AdapterError("provider_timeout", "provider_timeout");
+      if (error instanceof AdapterError) throw error;
       throw new AdapterError("provider_unavailable", "provider_unavailable");
+    } finally {
+      clearTimeout(timer);
+      caller?.removeEventListener("abort", linkAbort);
     }
-    return parsed.result;
   };
 
   return {
     async start(): Promise<void> {
-      // No persistent connection; readiness is confirmed by a protocol version exchange.
-      await post("initialize", {
+      await postWithTimeout("initialize", {
         protocolVersion: INITIALIZE_PROTOCOL,
         capabilities: {},
         clientInfo: { name: "slnctrz", version: "0.1.0" }
       });
+      ready = true;
     },
 
     async listTools(): Promise<readonly ExtensionToolInfo[]> {
-      const result = (await post("tools/list", {})) as ListToolsResult;
+      const result = (await postWithTimeout("tools/list", {})) as ListToolsResult;
       return (result.tools ?? [])
         .filter((tool) => tool.name !== undefined)
         .map((tool) => ({
@@ -153,38 +218,22 @@ export function createStreamableHttpAdapter(manifest: CompiledExtensionManifest)
       args: unknown,
       options: AdapterCallOptions
     ): Promise<ExtensionCallResult> {
-      const controller = new AbortController();
-      const caller = options.signal;
-      const linkAbort = (): void => controller.abort();
-      caller?.addEventListener("abort", linkAbort, { once: true });
-      const timer = setTimeout(() => controller.abort(), manifest.requestTimeoutMs ?? 30_000);
-      timer.unref();
-      try {
-        const result = (await post(
-          "tools/call",
-          { name: toolId, arguments: args },
-          controller.signal
-        )) as CallToolResult;
-        return {
-          isError: result.isError === true,
-          truncated: false,
-          text: (result.content ?? [])
-            .map((content) => content.text ?? "")
-            .join("\n")
-            .slice(-manifest.maxOutputBytes)
-        };
-      } finally {
-        clearTimeout(timer);
-        caller?.removeEventListener("abort", linkAbort);
-      }
+      const result = (await postWithTimeout(
+        "tools/call",
+        { name: toolId, arguments: args },
+        options.signal
+      )) as CallToolResult;
+      const rendered = (result.content ?? []).map((content) => content.text ?? "").join("\n");
+      const bounded = truncateText(rendered, manifest.maxOutputBytes);
+      return { isError: result.isError === true, truncated: bounded.truncated, text: bounded.text };
     },
 
     async stop(): Promise<void> {
-      // Stateless HTTP: no persistent connection to release.
+      ready = false;
     },
 
     health(): AdapterHealth {
-      return "ready";
+      return ready ? "ready" : "unavailable";
     }
   };
 }

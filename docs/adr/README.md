@@ -28,6 +28,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-017 | Policy-bound direct process execution                               | Accepted |
 | ADR-018 | Versioned immutable policy snapshots and atomic activation          | Accepted |
 | ADR-019 | Scoped developer access and sandbox escalation criteria             | Accepted |
+| ADR-020 | Bounded isolated MCP extension transports                           | Accepted |
 
 ## How to add an ADR
 

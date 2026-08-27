@@ -2,25 +2,22 @@
  * Stdio Extension Adapter — one isolated third-party MCP provider over stdio.
  * Wing: extension | Topic: stdio-adapter | Updated: 2026-08-27
  *
- * Provenance: PLAN Phase 5, ARCHITECTURE §4.11, ADR-020, and the Phase 5 handoff slice 2.
- *
- * Spawns one provider process with `shell: false`, the manifest's fixed absolute command
- * and fixed argv, and an explicit sanitized environment (only allowlisted keys plus PATH);
- * it never inherits the gateway environment or a broad cwd. The adapter implements the
- * MCP JSON-RPC initialize/tools/list and tools/call messages over stdio, with a hard
- * startup/readiness timeout, a request timeout, abort propagation, child cleanup on stop,
- * and bounded stdout/stderr/message sizes. It never runs provider logic in-process.
+ * The adapter spawns only the manifest's fixed command and argv with shell disabled, a
+ * minimal explicit environment and a fixed command-directory cwd. It drains and bounds
+ * both output streams, parses every newline-delimited JSON-RPC frame, and tears the child
+ * down on cancellation, protocol failure, output overflow or stop.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { dirname } from "node:path";
 import {
+  AdapterError,
   type AdapterCallOptions,
   type AdapterHealth,
   type ExtensionAdapter,
   type ExtensionCallResult,
   type ExtensionToolInfo
 } from "./adapter.js";
-import { AdapterError } from "./adapter.js";
 import { type CompiledExtensionManifest } from "./manifest.js";
 
 const INITIALIZE_PROTOCOL = "2025-06-18";
@@ -41,37 +38,8 @@ interface CallToolResult {
   readonly isError?: boolean;
 }
 
-/** Parse a single newline-delimited JSON-RPC frame, tolerating a per-message byte cap. */
-function readMessage(
-  chunk: Buffer,
-  carry: string,
-  maxMessageBytes: number
-): { message: RpcResponse | undefined; rest: string } {
-  const text = carry + chunk.toString("utf8");
-  const newline = text.indexOf("\n");
-  if (newline === -1) {
-    if (text.length > maxMessageBytes) {
-      throw new AdapterError("provider_protocol_error", "message exceeds the byte cap");
-    }
-    return { message: undefined, rest: text };
-  }
-  const line = text.slice(0, newline);
-  if (line.length > maxMessageBytes) {
-    throw new AdapterError("provider_protocol_error", "message exceeds the byte cap");
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    throw new AdapterError("provider_protocol_error", "invalid JSON-RPC frame");
-  }
-  return { message: parsed as RpcResponse, rest: text.slice(newline + 1) };
-}
-
-/** Build the child environment from the manifest allowlist. Never inherit process.env. */
 function sanitizedEnv(manifest: CompiledExtensionManifest): Record<string, string> {
-  const env: Record<string, string> = {};
-  env.PATH = process.env.PATH ?? "/usr/bin:/bin";
+  const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
   for (const key of manifest.envAllowlist) {
     const value = process.env[key];
     if (value !== undefined) env[key] = value;
@@ -79,9 +47,22 @@ function sanitizedEnv(manifest: CompiledExtensionManifest): Record<string, strin
   return env;
 }
 
+function truncateText(text: string, limit: number): { text: string; truncated: boolean } {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.length <= limit) return { text, truncated: false };
+  return { text: bytes.subarray(0, limit).toString("utf8"), truncated: true };
+}
+
+function asResult(response: RpcResponse): unknown {
+  if (response.error !== undefined) {
+    throw new AdapterError("provider_protocol_error", "provider returned a JSON-RPC error");
+  }
+  return response.result;
+}
+
 /**
- * Create a stdio adapter bound to one compiled manifest. The adapter owns the child
- * process lifetime; it never accepts a caller-selected command, endpoint, argv, or env.
+ * Create a stdio adapter bound to one compiled manifest. No caller-selected executable,
+ * args, cwd or environment crosses this boundary.
  */
 export function createStdioAdapter(manifest: CompiledExtensionManifest): ExtensionAdapter {
   const command = manifest.command;
@@ -93,16 +74,14 @@ export function createStdioAdapter(manifest: CompiledExtensionManifest): Extensi
   let stopped = false;
   let nextId = 1;
   let stdoutCarry = "";
-  let stdoutBytes = 0;
+  let operationBytes = 0;
   const pending = new Map<
     number,
-    { resolve: (v: unknown) => void; reject: (e: unknown) => void }
+    { resolve: (value: RpcResponse) => void; reject: (error: unknown) => void }
   >();
 
   const rejectAllPending = (code: AdapterError["code"]): void => {
-    for (const entry of pending.values()) {
-      entry.reject(new AdapterError(code, code));
-    }
+    for (const entry of pending.values()) entry.reject(new AdapterError(code, code));
     pending.clear();
   };
 
@@ -110,65 +89,105 @@ export function createStdioAdapter(manifest: CompiledExtensionManifest): Extensi
     if (stopped) return;
     stopped = true;
     const current = child;
-    if (current !== undefined) {
-      child = undefined;
-      current.stdin?.end();
-      current.kill("SIGTERM");
-      current.stdout?.removeAllListeners();
-      current.stderr?.removeAllListeners();
-    }
+    child = undefined;
     rejectAllPending("provider_unavailable");
+    if (current === undefined) return;
+    current.stdin?.end();
+    current.stdout?.removeAllListeners();
+    current.stderr?.removeAllListeners();
+    current.kill("SIGTERM");
+    const killTimer = setTimeout(() => {
+      if (current.exitCode === null) current.kill("SIGKILL");
+    }, 1_000);
+    killTimer.unref();
   };
 
-  const readLoop = (): void => {
-    child?.stdout?.on("data", (chunk: Buffer) => {
-      stdoutBytes += chunk.length;
-      if (stdoutBytes > manifest.maxOutputBytes) {
+  const consumeStdout = (chunk: Buffer): void => {
+    operationBytes += chunk.length;
+    if (operationBytes > manifest.maxOutputBytes) {
+      stop();
+      return;
+    }
+    stdoutCarry += chunk.toString("utf8");
+    if (Buffer.byteLength(stdoutCarry, "utf8") > manifest.maxMessageBytes) {
+      stop();
+      return;
+    }
+    while (true) {
+      const newline = stdoutCarry.indexOf("\n");
+      if (newline === -1) return;
+      const line = stdoutCarry.slice(0, newline);
+      stdoutCarry = stdoutCarry.slice(newline + 1);
+      if (Buffer.byteLength(line, "utf8") > manifest.maxMessageBytes) {
         stop();
         return;
       }
-      let parsed: { message: RpcResponse | undefined; rest: string };
+      let message: RpcResponse;
       try {
-        parsed = readMessage(chunk, stdoutCarry, manifest.maxMessageBytes);
+        message = JSON.parse(line) as RpcResponse;
       } catch {
         stop();
         return;
       }
-      stdoutCarry = parsed.rest;
-      const message = parsed.message;
-      if (message === undefined) return;
-      if (message.id !== undefined) {
-        const entry = pending.get(Number(message.id));
-        if (entry !== undefined) {
-          pending.delete(Number(message.id));
-          entry.resolve(message);
-          return;
-        }
-      }
-    });
+      if (message.id === undefined) continue;
+      const id = Number(message.id);
+      const pendingEntry = pending.get(id);
+      if (pendingEntry === undefined) continue;
+      pending.delete(id);
+      pendingEntry.resolve(message);
+    }
+  };
+
+  const consumeStderr = (chunk: Buffer): void => {
+    operationBytes += chunk.length;
+    if (operationBytes > manifest.maxOutputBytes) stop();
   };
 
   const send = (payload: Record<string, unknown>): Promise<RpcResponse> => {
+    const current = child;
+    const stdin = current?.stdin;
+    if (stdin === undefined || stdin === null || stopped) {
+      return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+    }
     const id = nextId;
     nextId += 1;
     const line = `${JSON.stringify({ jsonrpc: "2.0", id, ...payload })}\n`;
+    if (Buffer.byteLength(line, "utf8") > manifest.maxMessageBytes) {
+      return Promise.reject(
+        new AdapterError("provider_protocol_error", "request exceeds message cap")
+      );
+    }
+    operationBytes = 0;
     return new Promise<RpcResponse>((resolve, reject) => {
-      pending.set(id, { resolve: (value) => resolve(value as RpcResponse), reject });
-      child?.stdin?.write(line);
+      pending.set(id, { resolve, reject });
+      stdin.write(line, (error) => {
+        if (error === undefined || error === null) return;
+        pending.delete(id);
+        reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+      });
     });
   };
 
   return {
     async start(): Promise<void> {
-      if (child !== undefined) return;
-      child = spawn(command, manifest.args, {
+      if (child !== undefined && !stopped) return;
+      stopped = false;
+      stdoutCarry = "";
+      operationBytes = 0;
+      const current = spawn(command, manifest.args, {
         shell: false,
-        cwd: "/",
+        cwd: dirname(command),
         stdio: ["pipe", "pipe", "pipe"],
         env: sanitizedEnv(manifest)
       });
-      readLoop();
-      child.stdin?.on("error", () => undefined);
+      child = current;
+      current.stdout?.on("data", (chunk: Buffer) => consumeStdout(chunk));
+      current.stderr?.on("data", (chunk: Buffer) => consumeStderr(chunk));
+      current.stdout?.on("error", stop);
+      current.stderr?.on("error", stop);
+      current.stdin?.on("error", stop);
+      current.once("error", stop);
+      current.once("exit", stop);
       try {
         await send({
           method: "initialize",
@@ -179,16 +198,14 @@ export function createStdioAdapter(manifest: CompiledExtensionManifest): Extensi
           }
         });
       } catch {
+        stop();
         throw new AdapterError("provider_unavailable", "initialize failed");
       }
     },
 
     async listTools(): Promise<readonly ExtensionToolInfo[]> {
-      if (child === undefined) {
-        throw new AdapterError("provider_unavailable", "provider not started");
-      }
       const response = await send({ method: "tools/list", params: {} });
-      const result = response.result as ListToolsResult;
+      const result = asResult(response) as ListToolsResult;
       return (result.tools ?? [])
         .filter((tool) => tool.name !== undefined)
         .map((tool) => ({
@@ -203,12 +220,10 @@ export function createStdioAdapter(manifest: CompiledExtensionManifest): Extensi
       args: unknown,
       options: AdapterCallOptions
     ): Promise<ExtensionCallResult> {
-      if (child === undefined) {
-        throw new AdapterError("provider_unavailable", "provider not started");
-      }
-      const requestTimeout = setTimeout(() => stop(), manifest.requestTimeoutMs ?? 30_000);
-      requestTimeout.unref();
       const signal = options.signal;
+      if (signal?.aborted === true) {
+        throw new AdapterError("provider_unavailable", "provider_unavailable");
+      }
       const onAbort = (): void => stop();
       signal?.addEventListener("abort", onAbort, { once: true });
       try {
@@ -216,17 +231,15 @@ export function createStdioAdapter(manifest: CompiledExtensionManifest): Extensi
           method: "tools/call",
           params: { name: toolId, arguments: args }
         });
-        const callResult = response.result as CallToolResult;
+        const result = asResult(response) as CallToolResult;
+        const rendered = (result.content ?? []).map((content) => content.text ?? "").join("\n");
+        const bounded = truncateText(rendered, manifest.maxOutputBytes);
         return {
-          isError: callResult.isError === true,
-          truncated: false,
-          text: (callResult.content ?? [])
-            .map((content) => content.text ?? "")
-            .join("\n")
-            .slice(-manifest.maxOutputBytes)
+          isError: result.isError === true,
+          truncated: bounded.truncated,
+          text: bounded.text
         };
       } finally {
-        clearTimeout(requestTimeout);
         signal?.removeEventListener("abort", onAbort);
       }
     },

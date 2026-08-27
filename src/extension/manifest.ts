@@ -232,6 +232,12 @@ export async function compileExtensionManifest(
     if (url.protocol !== "https:") {
       throw new ExtensionManifestError("manifest_invalid", "HTTP endpoint must use HTTPS");
     }
+    if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {
+      throw new ExtensionManifestError(
+        "manifest_invalid",
+        "HTTP endpoint must not carry inline credentials, query or fragment"
+      );
+    }
   }
 
   for (const workspace of parsed.data.workspaces) {
@@ -258,12 +264,12 @@ export async function compileExtensionManifest(
       throw new ExtensionManifestError("manifest_invalid", "Canonical tool id is invalid");
     }
     const exposedName = tool.canonicalId;
-    return {
+    return Object.freeze({
       canonicalId: tool.canonicalId,
       exposedName,
       riskClass: tool.riskClass,
       providerId: id
-    };
+    });
   });
 
   // Duplicate tool names within one provider are fatal.

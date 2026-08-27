@@ -2,18 +2,10 @@
  * Extension Supervisor — lifecycle state machine for one isolated provider.
  * Wing: extension | Topic: supervisor | Updated: 2026-08-27
  *
- * Provenance: PLAN Phase 5, ARCHITECTURE §4.11, ADR-020, and the Phase 5 handoff slice 2.
- *
- * The supervisor owns the state machine and resource bounds for one provider adapter; it
- * never executes provider logic itself. Startup/readiness and request timeouts, a bounded
- * per-provider queue, cancellation propagation, graceful stop, exponential backoff plus
- * jitter, a finite restart budget and quarantine all live here. An adapter error maps to a
- * stable outcome without leaking command paths, output, or credentials.
- *
- * Request timeout is hard-bound and races the adapter, so an adapter that ignores the
- * abort signal (or never resolves) cannot wedge the active slot or the queue. A caller
- * abort on a queued entry rejects it immediately without dispatching. Stop() aborts a
- * pending start so no illegal transition or unhandled rejection remains.
+ * The supervisor owns the state machine and resource bounds for one provider adapter. A
+ * request timeout races the adapter so an uncooperative adapter cannot wedge the queue;
+ * cancellation is removed before dispatch; stop settles the active caller; and failed
+ * restarts consume one finite budget before the provider is quarantined.
  */
 
 import {
@@ -56,18 +48,14 @@ const VALID_TRANSITIONS: Readonly<Record<SupervisorState, readonly SupervisorSta
   failed: ["stopped"]
 };
 
-function canTransition(from: SupervisorState, to: SupervisorState): boolean {
-  return VALID_TRANSITIONS[from].includes(to);
-}
-
 interface QueueEntry {
-  resolve: (r: ExtensionCallResult) => void;
-  reject: (e: unknown) => void;
+  resolve: (result: ExtensionCallResult) => void;
+  reject: (error: unknown) => void;
   toolId: string;
   args: unknown;
   options: AdapterCallOptions;
   removed: boolean;
-  onQueuedAbort?: () => void;
+  removeQueuedAbort?: () => void;
 }
 
 type CallOutcome =
@@ -75,6 +63,10 @@ type CallOutcome =
   | { readonly kind: "timeout" }
   | { readonly kind: "adapter"; readonly code: AdapterError["code"] }
   | { readonly kind: "error"; readonly error: unknown };
+
+function isRunnable(state: SupervisorState): boolean {
+  return state === "ready" || state === "degraded";
+}
 
 export function createExtensionSupervisor(options: ExtensionSupervisorOptions): {
   readonly state: SupervisorState;
@@ -101,11 +93,12 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   let restarting: Promise<void> | undefined;
   let stopped = false;
   let abortStart: (() => void) | undefined;
-  const queue: QueueEntry[] = [];
   let activeCall: QueueEntry | undefined;
+  let abortActive: (() => void) | undefined;
+  const queue: QueueEntry[] = [];
 
   const transition = (to: SupervisorState): void => {
-    if (!canTransition(state, to)) {
+    if (!VALID_TRANSITIONS[state].includes(to)) {
       throw new Error(`Illegal supervisor transition ${state} -> ${to}`);
     }
     state = to;
@@ -114,31 +107,89 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   const rejectEntry = (entry: QueueEntry, code: AdapterError["code"]): void => {
     if (entry.removed) return;
     entry.removed = true;
+    entry.removeQueuedAbort?.();
     entry.reject(new AdapterError(code, code));
   };
 
-  const removeFromQueue = (entry: QueueEntry): void => {
-    const index = queue.indexOf(entry);
-    if (index >= 0) queue.splice(index, 1);
-  };
-
   const rejectQueued = (code: AdapterError["code"]): void => {
-    for (const entry of [...queue]) {
-      if (entry.removed) continue;
-      rejectEntry(entry, code);
-    }
-    queue.length = 0;
+    for (const entry of queue.splice(0)) rejectEntry(entry, code);
   };
 
-  const sleep = (ms: number): Promise<void> =>
+  const sleep = (milliseconds: number): Promise<void> =>
     new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
+      const timer = setTimeout(resolve, milliseconds);
       timer.unref();
     });
 
-  const settleActive = (): void => {
+  const withTimeout = <T>(work: Promise<T>, timeoutMs: number): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new AdapterError("provider_timeout", "provider_timeout")),
+        timeoutMs
+      );
+      timer.unref();
+      void work.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
+
+  const drain = (): void => {
+    if (activeCall !== undefined || !isRunnable(state)) return;
+    while (queue.length > 0) {
+      const next = queue.shift();
+      if (next === undefined || next.removed) continue;
+      if (next.options.signal?.aborted === true) {
+        rejectEntry(next, "provider_unavailable");
+        continue;
+      }
+      next.removeQueuedAbort?.();
+      activeCall = next;
+      run(next);
+      return;
+    }
+  };
+
+  const settleActive = (entry: QueueEntry): void => {
+    if (activeCall !== entry) return;
     activeCall = undefined;
+    abortActive = undefined;
     drain();
+  };
+
+  const scheduleRestart = (): Promise<void> => {
+    if (restarting !== undefined) return restarting;
+    restarting = (async () => {
+      transition("restarting");
+      while (!stopped) {
+        restartAttempts += 1;
+        if (restartAttempts > maxRestarts) {
+          transition("quarantined");
+          rejectQueued("provider_unavailable");
+          return;
+        }
+        await sleep(backoffBaseMs + Math.floor(Math.random() * backoffJitterMs));
+        if (stopped) return;
+        transition("starting");
+        try {
+          await withTimeout(adapter.start(), startupTimeoutMs);
+          if (state === "starting") transition("ready");
+          return;
+        } catch {
+          if (state !== "starting") return;
+          transition("restarting");
+        }
+      }
+    })().finally(() => {
+      restarting = undefined;
+    });
+    return restarting;
   };
 
   const run = (entry: QueueEntry): void => {
@@ -147,97 +198,49 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     const linkAbort = (): void => controller.abort();
     caller?.addEventListener("abort", linkAbort, { once: true });
 
-    let settled = false;
-    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
-    timer.unref();
+    let settleStopped: ((outcome: CallOutcome) => void) | undefined;
+    const stoppedOutcome = new Promise<CallOutcome>((resolve) => {
+      settleStopped = resolve;
+    });
+    abortActive = (): void => {
+      controller.abort();
+      settleStopped?.({ kind: "adapter", code: "provider_unavailable" });
+    };
 
-    const outcomePromise: Promise<CallOutcome> = Promise.race([
-      adapter
-        .callTool(entry.toolId, entry.args, { signal: controller.signal })
-        .then((result) => ({ kind: "ok", result }) as CallOutcome)
-        .catch((error: unknown) =>
-          error instanceof AdapterError
-            ? ({ kind: "adapter", code: error.code } as CallOutcome)
-            : ({ kind: "error", error } as CallOutcome)
-        ),
-      new Promise<CallOutcome>((resolve) => {
-        const onTimer = (): void => resolve({ kind: "timeout" });
-        const timerId = setTimeout(onTimer, requestTimeoutMs);
-        timerId.unref();
-      })
-    ]);
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutOutcome = new Promise<CallOutcome>((resolve) => {
+      timeoutTimer = setTimeout(() => {
+        controller.abort();
+        resolve({ kind: "timeout" });
+      }, requestTimeoutMs);
+      timeoutTimer.unref();
+    });
 
-    void outcomePromise.then((outcome) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
+    const providerOutcome = adapter
+      .callTool(entry.toolId, entry.args, { signal: controller.signal })
+      .then((result) => ({ kind: "ok", result }) as CallOutcome)
+      .catch((error: unknown) =>
+        error instanceof AdapterError
+          ? ({ kind: "adapter", code: error.code } as CallOutcome)
+          : ({ kind: "error", error } as CallOutcome)
+      );
+
+    void Promise.race([providerOutcome, timeoutOutcome, stoppedOutcome]).then((outcome) => {
+      clearTimeout(timeoutTimer);
       caller?.removeEventListener("abort", linkAbort);
+
       if (outcome.kind === "timeout") {
         entry.resolve({ isError: true, truncated: false, text: "provider_timeout" });
-        settleActive();
-        return;
-      }
-      if (outcome.kind === "ok") {
+      } else if (outcome.kind === "ok") {
         entry.resolve(outcome.result);
-        settleActive();
-        return;
-      }
-      if (outcome.kind === "adapter") {
+      } else if (outcome.kind === "adapter") {
         entry.resolve({ isError: true, truncated: false, text: outcome.code });
-        if (state === "ready" || state === "degraded") {
-          void scheduleRestart();
-        }
-        settleActive();
-        return;
+        if (isRunnable(state)) void scheduleRestart();
+      } else {
+        entry.reject(outcome.error);
       }
-      entry.reject(outcome.error);
-      settleActive();
+      settleActive(entry);
     });
-  };
-
-  const scheduleRestart = async (): Promise<void> => {
-    if (restarting !== undefined) return;
-    restarting = (async () => {
-      transition("restarting");
-      restartAttempts += 1;
-      if (restartAttempts > maxRestarts) {
-        transition("quarantined");
-        rejectQueued("provider_unavailable");
-        return;
-      }
-      await sleep(backoffBaseMs + Math.floor(Math.random() * backoffJitterMs));
-      if (stopped) return;
-      transition("starting");
-      try {
-        await adapter.start();
-        if (state === "starting") transition("ready");
-      } catch {
-        // A failed restart attempt either retries (while budget remains) or quarantines.
-        if (state === "starting") {
-          await scheduleRestart();
-        }
-      } finally {
-        restarting = undefined;
-      }
-    })();
-    return restarting;
-  };
-
-  const drain = (): void => {
-    if (activeCall !== undefined) return;
-    if (state !== "ready" && state !== "degraded") return;
-    while (queue.length > 0) {
-      const next = queue.shift();
-      if (next === undefined || next.removed) continue;
-      if (next.options.signal?.aborted === true) {
-        rejectEntry(next, "provider_unavailable");
-        continue;
-      }
-      next.onQueuedAbort?.();
-      activeCall = next;
-      run(next);
-      return;
-    }
   };
 
   const enqueue = (entry: QueueEntry): void => {
@@ -251,16 +254,13 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       return;
     }
     if (signal !== undefined) {
-      // onQueuedAbort is only a cleanup hook (drop the listener) used at dispatch time;
-      // the separate abort listener rejects the entry. This split avoids re-entrancy.
       const onAbort = (): void => {
-        removeFromQueue(entry);
+        const index = queue.indexOf(entry);
+        if (index >= 0) queue.splice(index, 1);
         rejectEntry(entry, "provider_unavailable");
       };
-      entry.onQueuedAbort = (): void => {
-        signal.removeEventListener("abort", onAbort);
-      };
       signal.addEventListener("abort", onAbort, { once: true });
+      entry.removeQueuedAbort = (): void => signal.removeEventListener("abort", onAbort);
     }
     queue.push(entry);
     drain();
@@ -274,22 +274,15 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     async start(): Promise<void> {
       transition("starting");
       let rejectStart: ((error: unknown) => void) | undefined;
-      const startAborted = new Promise<never>((_, reject) => {
+      const stoppedStart = new Promise<never>((_, reject) => {
         rejectStart = reject;
       });
       abortStart = (): void =>
         rejectStart?.(new AdapterError("provider_unavailable", "provider_unavailable"));
       try {
-        await Promise.race([
-          adapter.start(),
-          sleep(startupTimeoutMs).then(() => {
-            throw new AdapterError("provider_timeout", "provider_timeout");
-          }),
-          startAborted
-        ]);
+        await Promise.race([withTimeout(adapter.start(), startupTimeoutMs), stoppedStart]);
         if (state === "starting") transition("ready");
       } catch (error) {
-        // stop() may already have moved state to "stopped"; only transition if still starting.
         if (state === "starting") transition("failed");
         rejectQueued("provider_unavailable");
         throw error;
@@ -299,10 +292,10 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     },
 
     async listTools(): Promise<readonly ExtensionToolInfo[]> {
-      if (state !== "ready" && state !== "degraded") {
+      if (!isRunnable(state)) {
         throw new AdapterError("provider_unavailable", "provider_unavailable");
       }
-      return adapter.listTools();
+      return withTimeout(adapter.listTools(), requestTimeoutMs);
     },
 
     invoke(
@@ -310,24 +303,18 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       args: unknown,
       callOptions: AdapterCallOptions = {}
     ): Promise<ExtensionCallResult> {
-      if (state !== "ready" && state !== "degraded") {
+      if (!isRunnable(state)) {
         return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
       }
       return new Promise<ExtensionCallResult>((resolve, reject) => {
-        enqueue({
-          resolve,
-          reject,
-          toolId,
-          args,
-          options: callOptions,
-          removed: false
-        });
+        enqueue({ resolve, reject, toolId, args, options: callOptions, removed: false });
       });
     },
 
     async stop(): Promise<void> {
       stopped = true;
       abortStart?.();
+      abortActive?.();
       rejectQueued("provider_unavailable");
       try {
         await adapter.stop();
