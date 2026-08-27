@@ -66,6 +66,19 @@ capabilities.
 - Read permission does not imply write, execute, network, or secret access.
 - A policy increase is rejected until explicitly approved and atomically activated.
 
+Phase 4 reload and approval boundary (2026-08-27):
+
+- The active policy is one immutable, versioned snapshot; a reload either activates a whole
+  validated candidate or changes nothing (no partial workspace merge, no in-place mutation).
+- A missing policy file and an empty workspace list both compile to deny-all (yes-only).
+- A reload is serialized; a concurrent call returns `reload_in_progress` without queuing.
+- A risk-increasing change (adds a workspace/binding/profile/capability, broadens a root
+  or child PATH/fixed environment, or removes a deny) is blocked until an approval hook
+  says `approved`. The default hook is `unavailable`, so it returns `approval_required`.
+- The decision audit carries versions, counts, a risk flag, and a result only; it never
+  contains paths, config text, roots, argv, environment values, client binding ids, or
+  credentials. A sink failure cannot undo an already-completed activation.
+
 ## 6. Phase gates
 
 ### Read-only gate

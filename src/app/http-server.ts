@@ -15,7 +15,10 @@ import {
 import { OAuthHttpRouter } from "../auth/oauth-http-router.js";
 import { type OAuthService } from "../auth/oauth-service.js";
 import { type ToolAuditSink } from "../observability/tool-audit.js";
-import { type KernelPolicySnapshot } from "../policy/kernel-policy.js";
+import { createKernelPolicySnapshot, type KernelPolicySnapshot } from "../policy/kernel-policy.js";
+import { PolicyConfigError, type ProfileName } from "../policy/policy-config.js";
+import { type ActivePolicySnapshot } from "../policy/policy-snapshot.js";
+import { type PolicySnapshotStore } from "../policy/policy-store.js";
 import { createGatewayMcpHandler } from "../protocol/mcp-handler.js";
 import {
   PayloadTooLargeError,
@@ -32,6 +35,8 @@ export interface GatewayServerOptions {
   readonly allowedOriginHostnames?: readonly string[];
   readonly maxBodyBytes?: number;
   readonly kernelPolicy?: KernelPolicySnapshot;
+  readonly activePolicy?: ActivePolicySnapshot;
+  readonly policyStore?: PolicySnapshotStore;
   readonly toolAudit?: ToolAuditSink;
   readonly onError?: (error: Error) => void;
 }
@@ -91,6 +96,74 @@ function applyCors(res: ServerResponse): void {
   );
 }
 
+type ExchangePolicyResolution =
+  | { readonly snapshot: KernelPolicySnapshot }
+  | { readonly forbidden: { readonly code: string; readonly message: string } };
+
+function parseSelectorHeader(value: string | string[] | undefined): {
+  present: boolean;
+  valid: boolean;
+  value?: string;
+} {
+  if (value === undefined) return { present: false, valid: true };
+  const raw = Array.isArray(value) ? value[value.length - 1] : value;
+  if (raw === undefined) return { present: false, valid: true };
+  if (raw.length === 0 || raw.length > 64 || !/^[A-Za-z0-9._-]+$/u.test(raw)) {
+    return { present: true, valid: false };
+  }
+  return { present: true, valid: true, value: raw };
+}
+
+function denyAllPolicy(): KernelPolicySnapshot {
+  return createKernelPolicySnapshot({ workspaceId: "deny-all" });
+}
+
+function resolveExchangePolicy(
+  activePolicy: ActivePolicySnapshot | undefined,
+  kernelPolicy: KernelPolicySnapshot | undefined,
+  req: NormalizedIncomingMessage
+): ExchangePolicyResolution {
+  if (activePolicy === undefined) {
+    if (kernelPolicy !== undefined) return { snapshot: kernelPolicy };
+    return { snapshot: denyAllPolicy() };
+  }
+  if (!activePolicy.hasWorkspaces) return { snapshot: denyAllPolicy() };
+
+  const workspace = parseSelectorHeader(req.headers["x-slnctrz-workspace"]);
+  const profile = parseSelectorHeader(req.headers["x-slnctrz-profile"]);
+  if (workspace.present && !workspace.valid) {
+    return { forbidden: { code: "workspace_denied", message: "invalid workspace header" } };
+  }
+  if (profile.present && !profile.valid) {
+    return { forbidden: { code: "workspace_denied", message: "invalid profile header" } };
+  }
+  if (!workspace.present) {
+    return { forbidden: { code: "workspace_denied", message: "workspace header required" } };
+  }
+  const auth = req.auth;
+  if (auth === undefined) {
+    return { forbidden: { code: "workspace_denied", message: "unauthenticated" } };
+  }
+  const principal = { clientId: auth.clientId, scopes: auth.scopes };
+  const workspaceValue = workspace.value;
+  if (workspaceValue === undefined) {
+    return { forbidden: { code: "workspace_denied", message: "invalid workspace header" } };
+  }
+  try {
+    const snapshot = activePolicy.resolve(
+      principal,
+      workspaceValue,
+      profile.value as ProfileName | undefined
+    );
+    return { snapshot };
+  } catch (error) {
+    if (error instanceof PolicyConfigError) {
+      return { forbidden: { code: "workspace_denied", message: error.message } };
+    }
+    throw error;
+  }
+}
+
 /** Construct the public data-plane server without binding a network socket. */
 export function createGatewayServer(options: GatewayServerOptions): Server {
   const allowedHostnames = [...(options.allowedHostnames ?? DEFAULT_ALLOWED_HOSTNAMES)];
@@ -105,15 +178,6 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
   const validateOrigin = originValidation(allowedOriginHostnames);
   const oauthRouter = new OAuthHttpRouter(options.oauthService);
   const errorOptions = options.onError === undefined ? {} : { onError: options.onError };
-  const handler = createGatewayMcpHandler({
-    ...errorOptions,
-    ...(options.kernelPolicy === undefined ? {} : { kernelPolicy: options.kernelPolicy }),
-    ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit })
-  });
-  const handleMcp = toNodeHandler(
-    handler,
-    options.onError === undefined ? {} : { onerror: options.onError }
-  );
 
   const server = createServer(
     { maxHeaderSize: 16_384, requestTimeout: 30_000, headersTimeout: 10_000 },
@@ -168,9 +232,33 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           return;
         }
 
-        const parsedBody =
-          req.method === "POST" ? await readBoundedJson(req, maxBodyBytes) : undefined;
-        await handleMcp(req, res, parsedBody);
+        const resolution = resolveExchangePolicy(
+          options.policyStore === undefined ? options.activePolicy : options.policyStore.capture(),
+          options.kernelPolicy,
+          req
+        );
+        if ("forbidden" in resolution) {
+          sendJson(res, 403, {
+            error: { code: resolution.forbidden.code, message: resolution.forbidden.message }
+          });
+          return;
+        }
+        const requestHandler = createGatewayMcpHandler({
+          ...errorOptions,
+          kernelPolicy: resolution.snapshot,
+          ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit })
+        });
+        const requestHandleMcp = toNodeHandler(
+          requestHandler,
+          options.onError === undefined ? {} : { onerror: options.onError }
+        );
+        try {
+          const parsedBody =
+            req.method === "POST" ? await readBoundedJson(req, maxBodyBytes) : undefined;
+          await requestHandleMcp(req, res, parsedBody);
+        } finally {
+          await requestHandler.close();
+        }
       } catch (error) {
         options.onError?.(error instanceof Error ? error : new Error("Unknown error"));
 
@@ -209,10 +297,6 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
       }
     }
   );
-
-  server.on("close", () => {
-    void handler.close();
-  });
 
   return server;
 }

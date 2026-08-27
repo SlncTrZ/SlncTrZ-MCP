@@ -262,7 +262,24 @@ Phase 3 filesystem checkpoint (2026-08-27):
   environment, kills the full process group on timeout/abort, and reports a non-zero exit
   as a result. Windows is fail-closed until a separate Job Object ADR lands.
 
-See `docs/THREAT_MODEL.md`, ADR-014, ADR-015, ADR-016, and ADR-017.
+See `docs/THREAT_MODEL.md`, ADR-014, ADR-015, ADR-016, ADR-017, and ADR-018.
+
+Phase 4 policy engine checkpoint (2026-08-27):
+
+- The active policy is one immutable, versioned snapshot compiled from an operator-owned
+  JSON document (`SLNCTRZ_POLICY_FILE`). An absent file compiles a deny-all snapshot.
+- A request authenticates, validates workspace/profile selectors, captures one snapshot,
+  and resolves one workspace bound to that principal before the MCP server is constructed.
+- Profiles select capabilities (`read-only`, `minimal`, `custom`) and never fabricate
+  absent roots or commands; multi-profile workspaces require explicit selection.
+- Reload builds a candidate off to the side and atomically swaps the reference; a
+  concurrent call returns `reload_in_progress`; a failed candidate retains the prior one.
+- A risk-increasing change (adds a workspace/binding/profile/capability, broadens a root
+  or child PATH/fixed environment, or removes a deny) defers to an approval hook. The
+  default hook is unavailable, so it returns `approval_required` while preserving the
+  prior snapshot. Access reductions activate without approval.
+- Every startup compile and reload attempt emits exactly one secret-free `PolicyAuditEvent`
+  (versions, counts, risk flag, result); a sink failure never undoes an activation.
 
 Shared kernel services:
 
@@ -378,6 +395,19 @@ Command classes:
 | Admin | Changes system or gateway configuration |
 
 A command such as fetching repository metadata is not classified as read-only merely because it leaves the working tree unchanged.
+
+### 4.10.1 Scoped developer access
+
+A Developer Profile is a policy composition of explicit workspace roots and
+operator-authored fixed commands; it is not a general shell or an implicit coding-agent
+escape hatch. Risk-increasing profile, root, command, or binding changes require the
+policy approval boundary. The current reload mechanism is internal and explicit: no
+public data-plane reload tool, file watcher, owner CLI, or control-plane UI exists yet.
+
+A full runtime sandbox is deliberately deferred. The baseline containment is a non-root
+service account, explicit OS-level filesystem restrictions, policy roots, fixed command
+execution, and audit. A sandbox becomes a required design gate before free-form command
+execution, untrusted code, broad network access, or multi-tenant operation. See ADR-019.
 
 ### 4.11 Extension Gateway
 

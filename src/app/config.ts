@@ -20,6 +20,7 @@ export interface RuntimeConfig {
   readonly execRoot?: string;
   readonly execCommandsFile?: string;
   readonly execPath?: string;
+  readonly policyFile?: string;
   readonly staticClient?: {
     readonly clientId: string;
     readonly clientSecret: string;
@@ -112,6 +113,7 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   const execRoot = environment.SLNCTRZ_EXEC_ROOT;
   const execCommandsFile = environment.SLNCTRZ_EXEC_COMMANDS_FILE;
   const execPath = environment.SLNCTRZ_EXEC_PATH;
+  const policyFile = environment.SLNCTRZ_POLICY_FILE;
 
   if ((execRoot === undefined) !== (execCommandsFile === undefined)) {
     throw new Error("SLNCTRZ_EXEC_ROOT and SLNCTRZ_EXEC_COMMANDS_FILE must be configured together");
@@ -121,6 +123,9 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   }
   if (execPath !== undefined && execPath.includes("\0")) {
     throw new Error("SLNCTRZ_EXEC_PATH must not contain NUL bytes");
+  }
+  if (policyFile !== undefined && !isAbsolute(policyFile)) {
+    throw new Error("SLNCTRZ_POLICY_FILE must be an absolute path");
   }
 
   return {
@@ -138,6 +143,7 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
       ? {}
       : { execCommandsFile }),
     ...(execPath === undefined ? {} : { execPath }),
+    ...(policyFile === undefined ? {} : { policyFile }),
     ...(staticClient === undefined ? {} : { staticClient })
   };
 }

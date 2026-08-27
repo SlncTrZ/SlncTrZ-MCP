@@ -77,6 +77,15 @@ before dispatch. Authentication events use a structured, secret-free audit schem
 embedded authority keeps client and token state in memory, so a restart requires clients
 to reconnect. See ADR-011, ADR-012, and ADR-013.
 
+Machine authorization is default-deny. Phase 4 loads one operator-owned JSON policy
+(`SLNCTRZ_POLICY_FILE`) that declares workspace roots, client bindings, capability
+profiles, and exec command registries. An absent file compiles a deny-all snapshot, so an
+authenticated client sees only `core.ping`. Each request selects an explicit workspace
+(and profile for multi-profile workspaces) after authentication; unknown or unauthorized
+selectors return 403. A reload a whole validated snapshot atomically and never
+leaves partial state; a risk-increasing change is held behind an approval hook until it
+is approved. See ADR-018.
+
 Filesystem capabilities are independently default-deny. `SLNCTRZ_TOOL_ROOT` enables
 `core.read` and `core.search`; `SLNCTRZ_WRITE_ROOT` separately enables `core.write` and
 `core.edit`. Writes and edits default to dry-run, and replacing an existing file or
@@ -86,6 +95,21 @@ is POSIX-only and requires `SLNCTRZ_EXEC_ROOT` together with `SLNCTRZ_EXEC_COMMA
 (a fixed command-registry JSON); the registry and exec root are operator-owned and must
 not be writable by the service identity or any workspace root. See ADR-014, ADR-015,
 ADR-016, and ADR-017.
+
+## Scoped development access
+
+An operator may grant an AI web client a workspace-scoped development profile. This is
+not an unrestricted shell: Phase 3.1 execution selects only operator-authored fixed
+commands, with explicit roots, bounded output, audit attribution, and no inherited
+gateway environment. Broader developer workflows require an explicit policy change and
+must not silently expand a client’s authority.
+
+Policy reload is atomic, but the current interface is an explicit internal reload API;
+there is no file watcher, public MCP reload tool, owner CLI, or control-plane UI yet.
+Deployments should run the gateway as a non-root service account with explicit OS-level
+filesystem restrictions. A full runtime sandbox is deferred; it becomes required before
+free-form execution, untrusted code, broad network access, or multi-tenant operation.
+See ADR-019.
 
 See [`ENGINEERING.md`](ENGINEERING.md) for the supported Node.js and operating-system
 matrix and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

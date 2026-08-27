@@ -94,9 +94,9 @@ export type SpawnAdapter = (
 
 /** Production spawn adapter. A test may inject a fake using {@link ExecOptions.spawnAdapter}. */
 export const defaultSpawnAdapter: SpawnAdapter = (binaryPath, argv, options) =>
-  // SAFETY: node:child_process.spawn returns a ChildProcess whose pid/on/once/kill/stdout/
-  // stderr surface satisfies SpawnedProcess at runtime; this cast is the single boundary to
-  // the test seam and does not expose any caller-controlled input to the child environment.
+  // SAFETY: child_process.spawn returns a ChildProcess satisfying SpawnedProcess at runtime.
+  // This cast is the single boundary to the test adapter and never passes caller input into
+  // the child environment; the invariant TS cannot check holds only at the runtime boundary.
   spawn(binaryPath, argv, {
     cwd: options.cwd,
     env: options.env,

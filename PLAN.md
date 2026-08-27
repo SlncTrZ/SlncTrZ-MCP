@@ -235,6 +235,8 @@ Acceptance criteria:
 
 ### Phase 4 — Policy Engine and live configuration
 
+> Architecture decision: ADR-018 (Versioned immutable policy snapshots and atomic activation).
+
 Deliverables:
 
 - Typed configuration schema.

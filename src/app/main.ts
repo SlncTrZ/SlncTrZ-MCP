@@ -2,19 +2,23 @@
  * Application Entry Point — starts the public MCP data plane.
  * Wing: app | Topic: process-entrypoint | Updated: 2026-08-27
  *
- * Provenance: PLAN Phases 1-3, ADR-012, and ADR-015.
+ * Provenance: PLAN Phases 1-3, ADR-012, ADR-015, and the Phase 4 handoff slice 3.
+ *
+ * The active policy is loaded from the operator-owned SLNCTRZ_POLICY_FILE. An absent file
+ * compiles a deny-all snapshot; a configured but unreadable/invalid file fails startup.
  */
 
-import { readFileSync } from "node:fs";
 import { OAuthService } from "../auth/oauth-service.js";
-import {
-  type ExecCommandDefinition,
-  parseExecCommandRegistry,
-  validateExecCommandRegistry
-} from "../kernel/exec.js";
 import { createJsonLineAuthAuditSink } from "../observability/auth-audit.js";
 import { createJsonLineToolAuditSink } from "../observability/tool-audit.js";
-import { createKernelPolicySnapshot } from "../policy/kernel-policy.js";
+import { compilePolicyDocument, loadPolicyDocument } from "../policy/policy-config.js";
+import { buildActivePolicySnapshot, type ActivePolicySnapshot } from "../policy/policy-snapshot.js";
+import { createPolicySnapshotStore, type PolicySnapshotLoader } from "../policy/policy-store.js";
+import { defaultApprovalHook } from "../policy/approval.js";
+import {
+  createJsonLinePolicyAuditSink,
+  type PolicyAuditSink
+} from "../observability/policy-audit.js";
 import { readRuntimeConfig } from "./config.js";
 import { createGatewayServer, listenGateway } from "./http-server.js";
 
@@ -34,32 +38,48 @@ const oauthService = new OAuthService({
   audit: createJsonLineAuthAuditSink(),
   ...(config.staticClient === undefined ? {} : { staticClient: config.staticClient })
 });
-let execRoot: string | undefined;
-let execCommands: readonly ExecCommandDefinition[] | undefined;
-if (config.execRoot !== undefined && config.execCommandsFile !== undefined) {
-  let rawRegistry: unknown;
-  try {
-    rawRegistry = JSON.parse(readFileSync(config.execCommandsFile, "utf8"));
-  } catch {
-    throw new Error(`Could not parse exec command registry: ${config.execCommandsFile}`);
-  }
-  const parsedCommands = parseExecCommandRegistry(rawRegistry);
-  const validated = await validateExecCommandRegistry(config.execRoot, parsedCommands);
-  execRoot = validated.execRootReal;
-  execCommands = validated.commands;
+
+/** Load, parse, and compile one policy file into a frozen active snapshot. */
+async function loadActivePolicy(policyFile: string): Promise<ActivePolicySnapshot> {
+  const document = await loadPolicyDocument(policyFile);
+  return buildActivePolicySnapshot(await compilePolicyDocument(document));
 }
 
-const kernelPolicy = createKernelPolicySnapshot({
-  workspaceId: "default",
-  ...(config.toolRoot === undefined ? {} : { readRoot: config.toolRoot }),
-  ...(config.writeRoot === undefined ? {} : { writeRoot: config.writeRoot }),
-  ...(execRoot === undefined ? {} : { execRoot }),
-  ...(config.execPath === undefined ? {} : { execPath: config.execPath }),
-  ...(execCommands === undefined ? {} : { execCommands })
+/** A deny-all snapshot: no workspaces means authenticated clients see core.ping only. */
+async function denyAllPolicy(): Promise<ActivePolicySnapshot> {
+  return buildActivePolicySnapshot(
+    await compilePolicyDocument({ schemaVersion: 1, workspaces: [] })
+  );
+}
+
+const policyAudit: PolicyAuditSink = createJsonLinePolicyAuditSink();
+
+const policyFile = config.policyFile;
+const loader: PolicySnapshotLoader =
+  policyFile === undefined ? denyAllPolicy : () => loadActivePolicy(policyFile);
+// Startup validates the configured file eagerly; an invalid file fails the process.
+const initial = await loader();
+const policyStore = createPolicySnapshotStore(loader, initial, {
+  approval: defaultApprovalHook,
+  audit: policyAudit
 });
+policyAudit({
+  timestamp: new Date().toISOString(),
+  eventType: "policy_compile",
+  actorKind: "startup",
+  previousVersion: initial.version,
+  candidateVersion: initial.version,
+  activeVersion: initial.version,
+  result: "activated",
+  riskIncrease: false,
+  workspaceCount: initial.normalized.workspaces.length,
+  bindingCount: initial.normalized.clientBindings.length,
+  durationMs: 0
+});
+
 const server = createGatewayServer({
   oauthService,
-  kernelPolicy,
+  policyStore,
   toolAudit: createJsonLineToolAuditSink(),
   allowedHostnames: config.allowedHostnames,
   allowedOriginHostnames: config.allowedOriginHostnames,

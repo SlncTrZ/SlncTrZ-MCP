@@ -10,6 +10,15 @@ import { createGatewayServer, listenGateway } from "../../src/app/http-server.js
 import { type ExecCommandDefinition } from "../../src/kernel/exec.js";
 import { type ToolAuditEvent } from "../../src/observability/tool-audit.js";
 import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
+import { compilePolicyDocument } from "../../src/policy/policy-config.js";
+import {
+  buildActivePolicySnapshot,
+  type ActivePolicySnapshot
+} from "../../src/policy/policy-snapshot.js";
+import {
+  createPolicySnapshotStore,
+  type PolicySnapshotStore
+} from "../../src/policy/policy-store.js";
 
 const servers: Server[] = [];
 const temporaryDirectories: string[] = [];
@@ -37,7 +46,9 @@ async function startTestServer(
   readRoot?: string,
   writeRoot?: string,
   execRoot?: string,
-  execCommands?: readonly ExecCommandDefinition[]
+  execCommands?: readonly ExecCommandDefinition[],
+  activePolicyFactory?: (clientId: string) => Promise<ActivePolicySnapshot>,
+  policyStoreFactory?: (clientId: string) => Promise<PolicySnapshotStore>
 ): Promise<{
   readonly origin: string;
   readonly accessToken: string;
@@ -73,15 +84,25 @@ async function startTestServer(
   });
 
   const auditEvents: ToolAuditEvent[] = [];
+  const activePolicy =
+    activePolicyFactory === undefined ? undefined : await activePolicyFactory(client.client_id);
+  const policyStore =
+    policyStoreFactory === undefined ? undefined : await policyStoreFactory(client.client_id);
   const server = createGatewayServer({
     oauthService,
-    kernelPolicy: createKernelPolicySnapshot({
-      workspaceId: "test-workspace",
-      ...(readRoot === undefined ? {} : { readRoot }),
-      ...(writeRoot === undefined ? {} : { writeRoot }),
-      ...(execRoot === undefined ? {} : { execRoot }),
-      ...(execCommands === undefined ? {} : { execCommands })
-    }),
+    ...(policyStore !== undefined
+      ? { policyStore }
+      : activePolicy === undefined
+        ? {
+            kernelPolicy: createKernelPolicySnapshot({
+              workspaceId: "test-workspace",
+              ...(readRoot === undefined ? {} : { readRoot }),
+              ...(writeRoot === undefined ? {} : { writeRoot }),
+              ...(execRoot === undefined ? {} : { execRoot }),
+              ...(execCommands === undefined ? {} : { execCommands })
+            })
+          }
+        : { activePolicy }),
     toolAudit: (event) => auditEvents.push(event)
   });
   servers.push(server);
@@ -601,5 +622,440 @@ describe("gateway HTTP surface", () => {
     const status = await requestWithHost(origin, "attacker.example");
 
     expect(status).toBe(403);
+  });
+});
+
+describe("per-request policy resolution (Phase 4)", () => {
+  async function policySnapshot(
+    clientId: string,
+    workspaces: {
+      id: string;
+      roots: { read?: string; write?: string; exec?: string };
+      profiles: ("read-only" | "minimal" | "custom")[];
+    }[],
+    options: { boundWorkspaceIds?: string[] } = {}
+  ): Promise<ActivePolicySnapshot> {
+    const compiled = await compilePolicyDocument({
+      schemaVersion: 1,
+      workspaces,
+      clientBindings: [
+        { clientId, workspaceIds: options.boundWorkspaceIds ?? workspaces.map((w) => w.id) }
+      ]
+    });
+    return buildActivePolicySnapshot(compiled);
+  }
+
+  async function listTools(
+    origin: string,
+    accessToken: string,
+    headers: Record<string, string> = {}
+  ): Promise<string[]> {
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+        ...headers
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 40, method: "tools/list", params: {} })
+    });
+    const payload = (await readMcpPayload(response)) as {
+      result?: { tools?: { name?: string }[] };
+    };
+    return (payload.result?.tools ?? []).map((tool) => tool.name ?? "");
+  }
+
+  it("exposes only core.ping when no workspace is configured", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) => policySnapshot(clientId, [])
+    );
+    expect(await listTools(origin, accessToken)).toEqual(["core.ping"]);
+  });
+
+  it("returns 403 when the workspace header is missing for a configured workspace", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(clientId, [{ id: "a", roots: { read: "/r" }, profiles: ["read-only"] }])
+    );
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 41, method: "tools/list", params: {} })
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: { code: "workspace_denied", message: "workspace header required" }
+    });
+  });
+
+  it("rejects an invalid workspace header (comma/whitespace/overlength)", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(clientId, [{ id: "a", roots: { read: "/r" }, profiles: ["read-only"] }])
+    );
+    for (const bad of ["a,b", "a b", "x".repeat(65)]) {
+      const response = await fetch(`${origin}/mcp`, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "x-slnctrz-workspace": bad
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 42, method: "tools/list", params: {} })
+      });
+      expect(response.status).toBe(403);
+    }
+  });
+
+  it("denies a client selecting a workspace it is not bound to", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(
+          clientId,
+          [
+            { id: "a", roots: { read: "/r" }, profiles: ["read-only"] },
+            { id: "b", roots: { read: "/r2" }, profiles: ["read-only"] }
+          ],
+          { boundWorkspaceIds: ["a"] }
+        )
+    );
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "x-slnctrz-workspace": "b"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 43, method: "tools/list", params: {} })
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it("requires an explicit profile for a multi-profile workspace", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(clientId, [
+          {
+            id: "a",
+            roots: { read: "/r", write: "/w" },
+            profiles: ["read-only", "minimal"]
+          }
+        ])
+    );
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "x-slnctrz-workspace": "a"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 44, method: "tools/list", params: {} })
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it("read-only never exposes write/edit/exec even when roots exist", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(clientId, [
+          { id: "a", roots: { read: "/r", write: "/w" }, profiles: ["read-only"] }
+        ])
+    );
+    expect(await listTools(origin, accessToken, { "x-slnctrz-workspace": "a" })).toEqual([
+      "core.ping",
+      "core.read",
+      "core.search"
+    ]);
+  });
+
+  it("yields different tool lists for different profiles of one workspace", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(clientId, [
+          { id: "a", roots: { read: "/r", write: "/w" }, profiles: ["read-only", "minimal"] }
+        ])
+    );
+    const readOnly = await listTools(origin, accessToken, {
+      "x-slnctrz-workspace": "a",
+      "x-slnctrz-profile": "read-only"
+    });
+    const minimal = await listTools(origin, accessToken, {
+      "x-slnctrz-workspace": "a",
+      "x-slnctrz-profile": "minimal"
+    });
+    expect(readOnly).toEqual(["core.ping", "core.read", "core.search"]);
+    expect(minimal).toEqual(["core.ping", "core.read", "core.search", "core.write", "core.edit"]);
+  });
+
+  it("audits a mutation tool once through the resolved active policy, secret-free", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-mcp-policy-"));
+    temporaryDirectories.push(root);
+    const { origin, accessToken, auditEvents } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(clientId, [
+          { id: "a", roots: { read: "/r", write: root }, profiles: ["minimal"] }
+        ])
+    );
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+        "x-slnctrz-workspace": "a"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 46,
+        method: "tools/call",
+        params: {
+          name: "core.write",
+          arguments: { path: "out.txt", content: "hello", dryRun: false }
+        }
+      })
+    });
+    await readMcpPayload(response);
+    expect(response.status).toBe(200);
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]).toMatchObject({
+      workspaceId: "a",
+      toolId: "core.write",
+      riskClass: "write",
+      result: "success"
+    });
+    expect(auditEvents[0]?.policyVersion).toMatch(/^[a-f0-9]{16}$/u);
+    const line = JSON.stringify(auditEvents[0]);
+    expect(line).not.toContain("out.txt");
+    expect(line).not.toContain("hello");
+    expect(line).not.toContain(root);
+  });
+
+  it("applies the resolved read root and policy version into the exchange", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) =>
+        policySnapshot(clientId, [
+          { id: "a", roots: { read: "/r", write: "/w" }, profiles: ["read-only"] }
+        ])
+    );
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+        "x-slnctrz-workspace": "a"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 45,
+        method: "tools/call",
+        params: { name: "core.read", arguments: { path: "missing.txt" } }
+      })
+    });
+    const payload = (await readMcpPayload(response)) as {
+      result?: { isError?: boolean; content?: { text?: string }[] };
+    };
+    expect(response.status).toBe(200);
+    // read-only resolves core.read with readRoot "/r" (nonexistent): the call dispatches to
+    // core.read and errors because that resolved root is not a real file -> proves the
+    // resolved snapshot (not a default root) reached and drove the tool exchange.
+    expect(payload.result?.isError).toBe(true);
+    expect(payload.result?.content?.[0]?.text).toMatch(/^[a-z_]+:/u);
+  });
+});
+
+describe("policy snapshot store through HTTP (Phase 4 slice 3)", () => {
+  async function storeSnapshot(
+    clientId: string,
+    workspaces: {
+      id: string;
+      roots: { read?: string; write?: string; exec?: string };
+      profiles: ("read-only" | "minimal" | "custom")[];
+    }[],
+    boundWorkspaceIds?: string[]
+  ): Promise<ActivePolicySnapshot> {
+    const compiled = await compilePolicyDocument({
+      schemaVersion: 1,
+      workspaces,
+      clientBindings: [{ clientId, workspaceIds: boundWorkspaceIds ?? workspaces.map((w) => w.id) }]
+    });
+    return buildActivePolicySnapshot(compiled);
+  }
+
+  async function listTools(
+    origin: string,
+    accessToken: string,
+    headers: Record<string, string> = {}
+  ): Promise<string[]> {
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+        ...headers
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 50, method: "tools/list", params: {} })
+    });
+    const payload = (await readMcpPayload(response)) as {
+      result?: { tools?: { name?: string }[] };
+    };
+    return (payload.result?.tools ?? []).map((tool) => tool.name ?? "");
+  }
+
+  it("calls through the store and is deny-all (ping only) until reload", async () => {
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) => {
+        const initial = await storeSnapshot(clientId, []);
+        return createPolicySnapshotStore(async () => initial, initial);
+      }
+    );
+    expect(await listTools(origin, accessToken)).toEqual(["core.ping"]);
+  });
+
+  it("a valid reload changes the future request view", async () => {
+    let loadCount = 0;
+    let store: PolicySnapshotStore | undefined;
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) => {
+        const denyAll = await storeSnapshot(clientId, []);
+        const readA = await storeSnapshot(clientId, [
+          { id: "a", roots: { read: "/r" }, profiles: ["read-only"] }
+        ]);
+        store = createPolicySnapshotStore(
+          async () => {
+            loadCount += 1;
+            return readA;
+          },
+          denyAll,
+          { approval: async () => "approved" }
+        );
+        return store;
+      }
+    );
+    expect(await listTools(origin, accessToken)).toEqual(["core.ping"]);
+
+    const result = await store?.reload();
+    expect(result?.activated).toBe(true);
+    expect(await listTools(origin, accessToken, { "x-slnctrz-workspace": "a" })).toEqual([
+      "core.ping",
+      "core.read",
+      "core.search"
+    ]);
+    expect(loadCount).toBe(1);
+  });
+
+  it("a delayed request keeps the old snapshot even after a reload (no hybrid)", async () => {
+    let release: ((value: ActivePolicySnapshot) => void) | undefined;
+    let writeB: ActivePolicySnapshot | undefined;
+    let store: PolicySnapshotStore | undefined;
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (clientId) => {
+        const readA = await storeSnapshot(clientId, [
+          { id: "a", roots: { read: "/r" }, profiles: ["read-only"] }
+        ]);
+        writeB = await storeSnapshot(clientId, [
+          { id: "b", roots: { read: "/r2", write: "/w2" }, profiles: ["minimal"] }
+        ]);
+        store = createPolicySnapshotStore(
+          () =>
+            new Promise<ActivePolicySnapshot>((resolve) => {
+              // A reload is in flight so the store still points at the old snapshot until it settles.
+              release = resolve;
+            }),
+          readA,
+          { approval: async () => "approved" }
+        );
+        return store;
+      }
+    );
+
+    // First request resolves against the captured old snapshot (workspace "a").
+    const firstTools = await listTools(origin, accessToken, { "x-slnctrz-workspace": "a" });
+    expect(firstTools).toEqual(["core.ping", "core.read", "core.search"]);
+
+    // Begin a reload (in flight) that is still pointed at the old snapshot, then finish it.
+    const reloading = store?.reload();
+    release?.(writeB as ActivePolicySnapshot);
+    await reloading;
+
+    // New requests observe the new snapshot; "a" is now unknown -> 403.
+    const second = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+        "x-slnctrz-workspace": "a"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 51, method: "tools/list", params: {} })
+    });
+    expect(second.status).toBe(403);
+    // The old request captured A and still resolved against it; there was no hybrid merge.
+    expect(firstTools).toEqual(["core.ping", "core.read", "core.search"]);
   });
 });

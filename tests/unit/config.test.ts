@@ -132,6 +132,20 @@ describe("readRuntimeConfig", () => {
     );
   });
 
+  it("parses an absolute policy file and rejects a relative one", () => {
+    const base = {
+      SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
+      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH
+    };
+    expect(
+      readRuntimeConfig({ ...base, SLNCTRZ_POLICY_FILE: "/etc/slnctrz/policy.json" }).policyFile
+    ).toBe("/etc/slnctrz/policy.json");
+    expect(readRuntimeConfig(base).policyFile).toBeUndefined();
+    expect(() => readRuntimeConfig({ ...base, SLNCTRZ_POLICY_FILE: "policy.json" })).toThrowError(
+      "SLNCTRZ_POLICY_FILE must be an absolute path"
+    );
+  });
+
   it("requires a syntactically valid owner verifier at authority construction", async () => {
     const { OAuthService } = await import("../../src/auth/oauth-service.js");
 
