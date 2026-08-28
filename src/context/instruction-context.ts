@@ -12,7 +12,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { basename, isAbsolute, posix, resolve } from "node:path";
 import {
   assertNonSecretPath,
   isContainedPath,
@@ -112,8 +112,8 @@ function normalizeTargetDirectory(value: string | undefined): string {
   ) {
     throw new RangeError("Instruction target directory must be workspace-relative");
   }
-  const normalized = normalize(value);
-  if (normalized === ".." || normalized.startsWith(`..${sep}`)) {
+  const normalized = posix.normalize(value.replaceAll("\\", "/"));
+  if (normalized === ".." || normalized.startsWith("../")) {
     throw new RangeError("Instruction target directory escapes the workspace");
   }
   const depth = normalized.split(/[\\/]+/u).filter(Boolean).length;
@@ -129,7 +129,7 @@ function directoryAncestors(target: string): readonly string[] {
   let current = target;
   for (;;) {
     ancestors.push(current);
-    const parent = dirname(current);
+    const parent = posix.dirname(current);
     if (parent === "." || parent === current) {
       ancestors.push(".");
       break;
@@ -294,7 +294,7 @@ function candidatesFor(
   const ancestors = directoryAncestors(targetDirectory);
   ancestors.forEach((directory, depthIndex) => {
     policy.directoryFileNames.forEach((name, nameIndex) => {
-      const relativePath = directory === "." ? name : join(directory, name);
+      const relativePath = directory === "." ? name : posix.join(directory, name);
       if (policy.workspaceFiles.includes(relativePath)) return;
       candidates.push({
         scope: "directory",
