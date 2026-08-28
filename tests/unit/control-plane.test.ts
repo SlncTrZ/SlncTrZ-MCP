@@ -126,6 +126,43 @@ describe("loopback control plane", () => {
     expect(body.events.length).toBeGreaterThan(0);
   });
 
+  it("returns stable errors for unknown routes, invalid audit limits and malformed bodies", async () => {
+    const { request } = await fixture();
+
+    expect((await request("/unknown")).status).toBe(404);
+    expect((await request("/audit?limit=1.5")).status).toBe(400);
+
+    const unsupportedMedia = await request("/clients/revoke", {
+      method: "POST",
+      body: JSON.stringify({ clientId: "client-7" }),
+      headers: { "content-type": "text/plain" }
+    });
+    expect(unsupportedMedia.status).toBe(415);
+
+    const malformedJson = await request("/clients/revoke", {
+      method: "POST",
+      body: "{"
+    });
+    expect(malformedJson.status).toBe(400);
+  });
+
+  it("rate-limits repeated failed owner authentication", async () => {
+    const { request } = await fixture();
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect(
+        (await request("/status", { headers: { authorization: "Bearer invalid-owner-secret" } }))
+          .status
+      ).toBe(401);
+    }
+
+    const limited = await request("/status", {
+      headers: { authorization: "Bearer invalid-owner-secret" }
+    });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBeTruthy();
+  });
+
   it("reports telemetry disabled without breaking status", async () => {
     const { request } = await fixture({ telemetry: false });
     expect((await request("/status")).status).toBe(200);

@@ -25,6 +25,30 @@ describe("bounded operational metrics", () => {
     });
   });
 
+  it("uses deterministic ceiling-rank percentiles after exact-capacity eviction", () => {
+    const metrics = createMetricsRegistry({ maxLatencySamples: 2 });
+    for (const durationMs of [10, 20]) {
+      metrics.toolStarted();
+      metrics.toolFinished({ error: false, durationMs });
+    }
+
+    expect(metrics.snapshot()).toMatchObject({
+      toolLatencyP50Ms: 10,
+      toolLatencyP95Ms: 20,
+      toolLatencyP99Ms: 20
+    });
+
+    metrics.toolStarted();
+    metrics.toolFinished({ error: false, durationMs: 30 });
+
+    expect(metrics.snapshot()).toMatchObject({
+      toolCallsTotal: 3,
+      toolLatencyP50Ms: 20,
+      toolLatencyP95Ms: 30,
+      toolLatencyP99Ms: 30
+    });
+  });
+
   it("records only real supervisor transitions and keeps queue depth balanced", () => {
     const metrics = createMetricsRegistry();
     metrics.queueChanged(1);
