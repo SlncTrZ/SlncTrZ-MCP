@@ -367,4 +367,48 @@ describe("OAuthService", () => {
       })
     ).toThrowError(OAuthError);
   });
+
+  it("supports owner-authorized grant and client revocation without returning token data", async () => {
+    const service = createService();
+    const clientId = registerTestClient(service);
+    const verifier = "z".repeat(43);
+    const pending = service.beginAuthorization({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_challenge: service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+    const redirect = service.approveAuthorization(pending.transactionId, OWNER_SECRET);
+    const issued = service.exchangeAuthorizationCode({
+      grant_type: "authorization_code",
+      code: redirect.searchParams.get("code") ?? "",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_verifier: verifier,
+      resource: RESOURCE.href
+    });
+
+    expect(service.revokeTokenByOwner(issued.refresh_token)).toBe(true);
+    expect(service.revokeTokenByOwner(issued.refresh_token)).toBe(false);
+    await expect(service.verifyAccessToken(issued.access_token)).rejects.toThrow(
+      "Invalid or expired access token"
+    );
+
+    expect(service.revokeClientByOwner(clientId)).toBe(true);
+    expect(service.revokeClientByOwner(clientId)).toBe(false);
+    expect(() =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: "https://client.example.com/oauth/callback",
+        code_challenge: service.pkceChallenge("y".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      })
+    ).toThrow("Unknown client");
+  });
 });

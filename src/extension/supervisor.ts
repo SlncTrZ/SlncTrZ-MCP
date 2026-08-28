@@ -8,6 +8,7 @@
  * restarts consume one finite budget before the provider is quarantined.
  */
 
+import type { MetricsRegistry } from "../observability/metrics.js";
 import {
   AdapterError,
   type AdapterCallOptions,
@@ -35,6 +36,7 @@ export interface ExtensionSupervisorOptions {
   readonly maxRestarts?: number;
   readonly backoffBaseMs?: number;
   readonly backoffJitterMs?: number;
+  readonly metrics?: MetricsRegistry;
 }
 
 const VALID_TRANSITIONS: Readonly<Record<SupervisorState, readonly SupervisorState[]>> = {
@@ -101,7 +103,9 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     if (!VALID_TRANSITIONS[state].includes(to)) {
       throw new Error(`Illegal supervisor transition ${state} -> ${to}`);
     }
+    const from = state;
     state = to;
+    options.metrics?.supervisorTransition(from, to);
   };
 
   const rejectEntry = (entry: QueueEntry, code: AdapterError["code"]): void => {
@@ -112,7 +116,11 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   };
 
   const rejectQueued = (code: AdapterError["code"]): void => {
-    for (const entry of queue.splice(0)) rejectEntry(entry, code);
+    const rejected = queue.splice(0);
+    for (const entry of rejected) {
+      options.metrics?.queueChanged(-1);
+      rejectEntry(entry, code);
+    }
   };
 
   const sleep = (milliseconds: number): Promise<void> =>
@@ -144,7 +152,9 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     if (activeCall !== undefined || !isRunnable(state)) return;
     while (queue.length > 0) {
       const next = queue.shift();
-      if (next === undefined || next.removed) continue;
+      if (next === undefined) continue;
+      options.metrics?.queueChanged(-1);
+      if (next.removed) continue;
       if (next.options.signal?.aborted === true) {
         rejectEntry(next, "provider_unavailable");
         continue;
@@ -256,13 +266,17 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     if (signal !== undefined) {
       const onAbort = (): void => {
         const index = queue.indexOf(entry);
-        if (index >= 0) queue.splice(index, 1);
+        if (index >= 0) {
+          queue.splice(index, 1);
+          options.metrics?.queueChanged(-1);
+        }
         rejectEntry(entry, "provider_unavailable");
       };
       signal.addEventListener("abort", onAbort, { once: true });
       entry.removeQueuedAbort = (): void => signal.removeEventListener("abort", onAbort);
     }
     queue.push(entry);
+    options.metrics?.queueChanged(1);
     drain();
   };
 

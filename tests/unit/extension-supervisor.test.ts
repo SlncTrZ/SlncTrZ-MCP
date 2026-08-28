@@ -8,6 +8,7 @@ import {
   type ExtensionToolInfo
 } from "../../src/extension/adapter.js";
 import { createExtensionSupervisor } from "../../src/extension/supervisor.js";
+import { createMetricsRegistry } from "../../src/observability/metrics.js";
 
 interface DeferredCall {
   resolve: (r: ExtensionCallResult) => void;
@@ -153,9 +154,11 @@ describe("extension supervisor: state machine (fake-first)", () => {
 
   it("restarts a crashed provider up to the finite budget, then quarantines", async () => {
     const adapter = new FakeAdapter();
+    const metrics = createMetricsRegistry();
     adapter.callBehavior = "reject";
     const supervisor = createExtensionSupervisor({
       adapter,
+      metrics,
       maxRestarts: 2,
       backoffBaseMs: 5,
       backoffJitterMs: 0
@@ -172,6 +175,11 @@ describe("extension supervisor: state machine (fake-first)", () => {
     await supervisor.invoke("p.findOne", {});
     await tick();
     expect(supervisor.state).toBe("quarantined");
+    expect(metrics.snapshot()).toMatchObject({
+      extensionRestartsTotal: 3,
+      extensionQuarantinesTotal: 1,
+      requestQueued: 0
+    });
   });
 
   it("enforces a bounded per-provider queue (excess rejected)", async () => {

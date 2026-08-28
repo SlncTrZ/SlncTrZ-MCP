@@ -538,4 +538,32 @@ describe("escalation vectors: prior snapshot retained + secret-free audit (Phase
     expect(store.capture()).toBe(prior);
     expect(JSON.stringify(events[0] ?? {})).not.toContain("/home");
   });
+
+  it("activates a risk increase only with an explicit owner-approved reload", async () => {
+    const prior = await buildSnapshot({
+      workspaces: [
+        {
+          id: "a",
+          roots: { read: "/home/a", write: "/home/w" },
+          profiles: ["custom"],
+          customCapabilities: ["core.read"]
+        }
+      ]
+    });
+    const candidate = await buildSnapshot({
+      workspaces: [
+        {
+          id: "a",
+          roots: { read: "/home/a", write: "/home/w" },
+          profiles: ["custom"],
+          customCapabilities: ["core.read", "core.write"]
+        }
+      ]
+    });
+    const store = createPolicySnapshotStore(async () => candidate, prior);
+    const result = await store.reload({ ownerApproved: true });
+
+    expect(result).toMatchObject({ activated: true, riskIncrease: true, result: "activated" });
+    expect(store.capture()).toBe(candidate);
+  });
 });

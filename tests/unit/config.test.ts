@@ -146,6 +146,31 @@ describe("readRuntimeConfig", () => {
     );
   });
 
+  it("defaults the control plane to loopback and validates telemetry settings", () => {
+    const base = {
+      SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
+      SLNCTRZ_OWNER_SECRET_HASH: OWNER_HASH
+    };
+    const config = readRuntimeConfig(base);
+    expect(config.controlHost).toBe("127.0.0.1");
+    expect(config.controlPort).toBe(3101);
+    expect(config.telemetryEnabled).toBe(true);
+    expect(
+      readRuntimeConfig({
+        ...base,
+        SLNCTRZ_CONTROL_HOST: "::1",
+        SLNCTRZ_CONTROL_PORT: "0",
+        SLNCTRZ_TELEMETRY_ENABLED: "false"
+      })
+    ).toMatchObject({ controlHost: "::1", controlPort: 0, telemetryEnabled: false });
+    expect(() => readRuntimeConfig({ ...base, SLNCTRZ_CONTROL_HOST: "0.0.0.0" })).toThrow(
+      "loopback"
+    );
+    expect(() => readRuntimeConfig({ ...base, SLNCTRZ_TELEMETRY_ENABLED: "1" })).toThrow(
+      "true or false"
+    );
+  });
+
   it("requires a syntactically valid owner verifier at authority construction", async () => {
     const { OAuthService } = await import("../../src/auth/oauth-service.js");
 

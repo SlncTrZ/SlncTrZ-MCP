@@ -32,6 +32,8 @@ export interface ActivePolicySnapshot {
   readonly hasWorkspaces: boolean;
   /** Normalized, frozen compile input retained for deterministic policy diffing. */
   readonly normalized: CompiledPolicyInput;
+  /** Redacted provider lifecycle status for the local control plane. */
+  extensionStatus?(): ReturnType<NonNullable<ExtensionRuntimeCatalog["status"]>>;
   /** Retire a captured extension runtime after a newer policy generation activates. */
   retire?(): void;
   /** Retain the runtime atomically with snapshot capture; caller must invoke release. */
@@ -173,6 +175,7 @@ export function buildActivePolicySnapshot(
     ...(extensionRuntime === undefined
       ? {}
       : {
+          extensionStatus: () => extensionRuntime.status?.() ?? [],
           retire: () => extensionRuntime.retire(),
           acquireRuntime: () => extensionRuntime.acquire()
         }),

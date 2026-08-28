@@ -50,7 +50,7 @@ export interface PolicySnapshotStore {
   /** Atomically capture a snapshot and retain its extension runtime for one exchange. */
   captureLease(): { readonly snapshot: ActivePolicySnapshot; release(): void };
   /** Build a candidate off to the side and atomically activate it, or retain the prior one. */
-  reload(): Promise<ReloadResult>;
+  reload(options?: { readonly ownerApproved?: boolean }): Promise<ReloadResult>;
 }
 
 export interface PolicySnapshotStoreOptions {
@@ -130,8 +130,22 @@ export function createPolicySnapshotStore(
       const release = snapshot.acquireRuntime?.() ?? (() => undefined);
       return Object.freeze({ snapshot, release });
     },
-    reload(): Promise<ReloadResult> {
+    reload(reloadOptions: { readonly ownerApproved?: boolean } = {}): Promise<ReloadResult> {
+      const reloadStartedAt = Date.now();
+      const durationMs = (): number => Math.max(0, Date.now() - reloadStartedAt);
       if (reloadPromise !== undefined) {
+        const counts = countsOf(active);
+        emitAudit(audit, {
+          eventType: "policy_reload",
+          actorKind,
+          previousVersion: active.version,
+          candidateVersion: active.version,
+          activeVersion: active.version,
+          result: "failed",
+          riskIncrease: false,
+          ...counts,
+          durationMs: durationMs()
+        });
         return Promise.resolve({
           activated: false,
           previousVersion: active.version,
@@ -160,7 +174,7 @@ export function createPolicySnapshotStore(
             result: "failed",
             riskIncrease: false,
             ...counts,
-            durationMs: 0
+            durationMs: durationMs()
           });
           return {
             activated: false,
@@ -188,7 +202,7 @@ export function createPolicySnapshotStore(
             result: "failed",
             riskIncrease: false,
             ...counts,
-            durationMs: 0
+            durationMs: durationMs()
           });
           return {
             activated: false,
@@ -216,7 +230,7 @@ export function createPolicySnapshotStore(
             riskIncrease: false,
             workspaceCount,
             bindingCount,
-            durationMs: 0
+            durationMs: durationMs()
           });
           return {
             activated: true,
@@ -230,7 +244,7 @@ export function createPolicySnapshotStore(
         // Risk-increasing: defer to the approval hook. Never auto-approve.
         let decision: "approved" | "rejected" | "unavailable";
         try {
-          decision = await approval(summary);
+          decision = reloadOptions.ownerApproved === true ? "approved" : await approval(summary);
         } catch {
           decision = "unavailable";
         }
@@ -249,7 +263,7 @@ export function createPolicySnapshotStore(
             riskIncrease: true,
             workspaceCount,
             bindingCount,
-            durationMs: 0
+            durationMs: durationMs()
           });
           return resultOf("activated", previousVersion, active, candidate, true);
         }
@@ -266,7 +280,7 @@ export function createPolicySnapshotStore(
           riskIncrease: true,
           workspaceCount,
           bindingCount,
-          durationMs: 0
+          durationMs: durationMs()
         });
         return resultOf(outcome, previousVersion, active, candidate, true);
       })();

@@ -13,6 +13,9 @@ export interface RuntimeConfig {
   readonly publicMcpUrl: URL;
   readonly ownerSecretHash: string;
   readonly maxDynamicClients: number;
+  readonly controlHost: "127.0.0.1" | "::1";
+  readonly controlPort: number;
+  readonly telemetryEnabled: boolean;
   readonly allowedHostnames: readonly string[];
   readonly allowedOriginHostnames: readonly string[];
   readonly toolRoot?: string;
@@ -48,6 +51,20 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
     throw new Error("SLNCTRZ_PORT must be an integer from 0 to 65535");
   }
+
+  const controlHost = environment.SLNCTRZ_CONTROL_HOST ?? "127.0.0.1";
+  if (controlHost !== "127.0.0.1" && controlHost !== "::1") {
+    throw new Error("SLNCTRZ_CONTROL_HOST must be a loopback IP literal");
+  }
+  const controlPort = Number(environment.SLNCTRZ_CONTROL_PORT ?? "3101");
+  if (!Number.isSafeInteger(controlPort) || controlPort < 0 || controlPort > 65_535) {
+    throw new Error("SLNCTRZ_CONTROL_PORT must be an integer from 0 to 65535");
+  }
+  const telemetryValue = environment.SLNCTRZ_TELEMETRY_ENABLED ?? "true";
+  if (telemetryValue !== "true" && telemetryValue !== "false") {
+    throw new Error("SLNCTRZ_TELEMETRY_ENABLED must be true or false");
+  }
+  const telemetryEnabled = telemetryValue === "true";
 
   const maxDynamicClients = Number(environment.SLNCTRZ_MAX_DYNAMIC_CLIENTS ?? "1024");
   if (!Number.isSafeInteger(maxDynamicClients) || maxDynamicClients <= 0) {
@@ -134,6 +151,9 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     publicMcpUrl,
     ownerSecretHash,
     maxDynamicClients,
+    controlHost,
+    controlPort,
+    telemetryEnabled,
     allowedHostnames,
     allowedOriginHostnames,
     ...(toolRoot === undefined || toolRoot.length === 0 ? {} : { toolRoot }),

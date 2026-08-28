@@ -15,6 +15,7 @@ import {
 } from "./adapter.js";
 import { createExtensionSupervisor, type SupervisorState } from "./supervisor.js";
 import { type CompiledExtensionRegistry } from "./registry.js";
+import type { MetricsRegistry } from "../observability/metrics.js";
 
 export interface ExtensionProviderRuntime {
   readonly state: SupervisorState;
@@ -30,6 +31,11 @@ export interface ExtensionProviderRuntime {
 
 export interface ExtensionRuntimeCatalog {
   readonly registry: CompiledExtensionRegistry;
+  status?(): readonly Readonly<{
+    providerId: string;
+    state: SupervisorState;
+    health: AdapterHealth;
+  }>[];
   provider(providerId: string): ExtensionProviderRuntime | undefined;
   isReady(providerId: string): boolean;
   /** Hold this generation until the returned release function is called. */
@@ -97,7 +103,8 @@ function attestDeclaredTools(
  * A failed or drifted provider is retained as unavailable; unrelated providers still start.
  */
 export async function createExtensionRuntimeCatalog(
-  registry: CompiledExtensionRegistry
+  registry: CompiledExtensionRegistry,
+  metrics?: MetricsRegistry
 ): Promise<ExtensionRuntimeCatalog> {
   const providers = new Map<string, ExtensionProviderRuntime>();
   let leases = 0;
@@ -128,7 +135,8 @@ export async function createExtensionRuntimeCatalog(
       startupTimeoutMs: record.manifest.startupTimeoutMs,
       requestTimeoutMs: record.manifest.requestTimeoutMs,
       maxQueue: record.manifest.maxQueue,
-      maxRestarts: record.manifest.maxRestarts
+      maxRestarts: record.manifest.maxRestarts,
+      ...(metrics === undefined ? {} : { metrics })
     });
     providers.set(record.id, supervisor);
   }
@@ -143,6 +151,13 @@ export async function createExtensionRuntimeCatalog(
 
   return Object.freeze({
     registry,
+    status() {
+      return Object.freeze(
+        [...providers.entries()].map(([providerId, provider]) =>
+          Object.freeze({ providerId, state: provider.state, health: provider.health() })
+        )
+      );
+    },
     provider(providerId: string): ExtensionProviderRuntime | undefined {
       return providers.get(providerId);
     },

@@ -585,6 +585,42 @@ export class OAuthService implements OAuthTokenVerifier {
     this.#emit("token.revoked", "success", clientId);
   }
 
+  /** Owner-authorized control-plane revocation; never logs or returns token material. */
+  revokeTokenByOwner(token: string): boolean {
+    this.#purgeExpired();
+    const record = this.#accessTokens.get(token) ?? this.#refreshTokens.get(token);
+    if (record === undefined) return false;
+    for (const [key, value] of this.#accessTokens) {
+      if (value.grantId === record.grantId) this.#accessTokens.delete(key);
+    }
+    for (const [key, value] of this.#refreshTokens) {
+      if (value.grantId === record.grantId) this.#refreshTokens.delete(key);
+    }
+    this.#emit("token.revoked", "success", record.clientId);
+    return true;
+  }
+
+  /** Revoke every ephemeral authorization artifact and grant owned by one client. */
+  revokeClientByOwner(clientId: string): boolean {
+    this.#purgeExpired();
+    const known = this.#clients.has(clientId);
+    for (const [key, value] of this.#pending) {
+      if (value.clientId === clientId) this.#pending.delete(key);
+    }
+    for (const [key, value] of this.#codes) {
+      if (value.clientId === clientId) this.#codes.delete(key);
+    }
+    for (const [key, value] of this.#accessTokens) {
+      if (value.clientId === clientId) this.#accessTokens.delete(key);
+    }
+    for (const [key, value] of this.#refreshTokens) {
+      if (value.clientId === clientId) this.#refreshTokens.delete(key);
+    }
+    if (this.#dynamicClientIds.delete(clientId)) this.#clients.delete(clientId);
+    if (known) this.#emit("token.revoked", "success", clientId);
+    return known;
+  }
+
   recordRateLimit(
     operation: "registration" | "authorization" | "token" | "owner_authentication"
   ): void {
