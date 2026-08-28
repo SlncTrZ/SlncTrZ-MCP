@@ -152,6 +152,13 @@ Acceptance criteria:
 
 ### Phase 1 — Protocol and ingress core
 
+> Implementation status: in progress — HTTP server, MCP Streamable HTTP endpoint,
+> transport adapter boundary, per-request modern context with stateless legacy session,
+> protocol/capability validation, secret-free client error model, and health/readiness
+> endpoints are implemented and covered through the HTTP dispatch tests. Two acceptance
+> gaps remain: the dedicated MCP revision conformance suite (`tests/conformance` is empty)
+> and an explicit unsupported-protocol-version rejection.
+
 Deliverables:
 
 - HTTP server and MCP endpoint.
@@ -197,7 +204,7 @@ Acceptance criteria:
 
 ### Phase 3 — Minimal Tool Kernel
 
-> Implementation status: in progress — `core.read`, `core.search`, `core.write`,
+> Implementation status: complete (2026-08-28) — `core.read`, `core.search`, `core.write`,
 > `core.edit`, and `core.exec` (POSIX fixed-command) are implemented. Filesystem tools
 > share canonical containment and intrinsic secret-path denial. Writes have a separate
 > explicit root, default to dry-run, use optimistic SHA-256 concurrency and atomic
@@ -208,7 +215,8 @@ Acceptance criteria:
 > fixed-command definitions selected by `commandId`, is POSIX-only (Windows is
 > fail-closed), never inherits the gateway environment, kills the full process group on
 > timeout/abort, and reports a non-zero exit as a result, not an error. See ADR-016 and
-> ADR-017.
+> ADR-017. `npm run check` (typecheck, lint, format, 263 tests) and `npm run build` pass on
+> Windows Node 24.18.0; `core.exec` remains POSIX-only and fail-closed on Windows.
 
 Deliverables:
 
@@ -311,8 +319,8 @@ Acceptance criteria:
 > user, workspace, and directory instruction sources plus file/context budgets. Authenticated
 > clients load provenance through an MCP resource and request content through an MCP prompt;
 > instruction text is untrusted user context and never grants capability. Linux acceptance
-> passes on Node 22.23.2 and 24.19.0. Windows evidence is deferred and not claimed. Optional
-> one-time onboarding remains deferred.
+> passes on Node 22.23.2 and 24.19.0; Windows `npm run check` and `npm run build` pass on
+> Node 24.18.0 (2026-08-28). Optional one-time onboarding remains deferred.
 
 Deliverables:
 

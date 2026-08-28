@@ -142,7 +142,9 @@ Phase 4 reload and approval boundary (2026-08-27):
 ### Extension gateway gate
 
 > Status: passed for Linux Node 22.23.2 and 24.19.0 on 2026-08-27 (ADR-020).
-> Windows execution/isolation evidence is not claimed by this checkpoint.
+> Process/protocol isolation: `npm run check` (typecheck, lint, format, 263 tests) and
+> `npm run build` pass on Windows Node 24.18.0. OS-sandbox/restricted-identity evidence
+> remains out of scope for this phase.
 
 - Manifests are strict operator-owned declarations with fixed executable/endpoint,
   canonical tools, risk ceilings, timeouts, queue/output/message caps, and restart budget.
@@ -164,7 +166,8 @@ Phase 4 reload and approval boundary (2026-08-27):
 ### Project context gate
 
 > Status: passed for Linux Node 22.23.2 and 24.19.0 on 2026-08-28 (ADR-009).
-> Windows evidence is deferred and not claimed by this checkpoint.
+> Windows acceptance (typecheck, lint, format, 263 tests) and `npm run build` pass on
+> Node 24.18.0.
 
 - Policy explicitly names user, workspace, and directory-local sources; there is no
   implicit home-directory scan or automatic context injection.

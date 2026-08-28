@@ -5,7 +5,8 @@
 > stable public endpoint.
 >
 > Status: Phase 6 explicit project context implemented · Linux Node 22/24 acceptance
-> passed · Windows gate deferred · License: Apache-2.0 · Architecture: minimal trusted
+> passed · Windows acceptance `npm run check` (typecheck, lint, format, 263 tests) and
+> `npm run build` pass on Node 24.18.0 · License: Apache-2.0 · Architecture: minimal trusted
 > kernel with isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
