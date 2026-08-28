@@ -50,41 +50,48 @@ capabilities.
 
 ## 4. Threats and required controls
 
-| Threat                    | Example                                          | Required control                                                                                      |
-| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Lexical traversal         | `../../secret`                                   | Reject absolute paths, NUL bytes, and lexical escape before I/O                                       |
-| Symlink escape            | Workspace link points outside                    | Resolve real paths and verify canonical containment                                                   |
-| TOCTOU replacement        | File changes after validation                    | Open with no-follow where supported, validate the opened handle, bound reads, fail closed             |
-| Secret disclosure         | `.env`, `.ssh`, repository internals             | Non-overridable secret path deny rules                                                                |
-| Encoding ambiguity        | Invalid UTF-8 becomes replacement text           | Fatal UTF-8 decoding; explicit encoding errors                                                        |
-| Resource exhaustion       | Huge file/tree/output                            | Byte, entry, depth, result, time, and output limits                                                   |
-| Nondeterminism            | Filesystem enumeration order changes             | Stable binary ordering and explicit truncation metadata                                               |
-| Write corruption          | Crash during overwrite                           | Same-directory temporary file, flush, atomic replacement, cleanup                                     |
-| Write/execute escalation  | Write script then execute it                     | Writable roots cannot overlap trusted executable roots                                                |
-| Shell injection           | Arguments interpreted by a shell                 | Direct spawn by default; shell is a separate denied capability                                        |
-| Environment leakage       | Child inherits host secrets                      | Explicit environment allowlist and empty/minimal inherited environment                                |
-| Network escape            | Command opens remote connection                  | Network is an independent capability and default-deny                                                 |
-| Cancellation failure      | Client disconnect leaves work running            | Request deadline and cancellation propagated to kernel operations                                     |
-| Error disclosure          | Absolute path or secret in error                 | Stable error codes and non-sensitive messages                                                         |
-| Race and platform drift   | Security behavior differs by OS                  | Platform-specific tests; unsupported guarantees fail closed                                           |
-| Namespace collision       | Provider shadows another tool                    | Fatal candidate compile; retain the prior active registry/snapshot                                    |
-| Provider discovery drift  | Runtime tool set differs from manifest           | Exact eager readiness attestation; malformed/drifted provider remains unavailable                     |
-| Provider exhaustion       | Crash loop, hung call, flood, full queue         | Bounded time/message/output/queue/restart; quarantine without terminating the gateway                 |
-| Hybrid reload             | New policy calls an old provider runtime         | Capture one immutable snapshot/runtime generation; lease old runtime through active calls             |
-| Extension secret leak     | Args, output, endpoint, credential logged        | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields           |
-| Instruction poisoning     | File claims it grants tools or overrides policy  | Return as untrusted `user` context; authorization remains exclusively in the captured policy snapshot |
-| Instruction path escape   | Declared path traverses root or follows symlink  | Strict schema, canonical containment, no-follow/open-handle validation, and intrinsic secret deny     |
-| Context exhaustion        | Many or large instruction files                  | Bounded source counts, per-file bytes, whole-context bytes, and deterministic referenced status       |
-| Provenance disclosure     | User absolute path exposed to MCP client         | Hash-based source identifier and non-sensitive display path; stable errors omit raw paths             |
-| Context policy widening   | Reload adds source or raises a budget silently   | Classify additions/reordering/budget increases as risk-increasing and require approval                |
-| Public admin exposure     | Ingress reaches a local control route            | Separate listener; loopback IP literal bind; no control routes on public server                       |
-| Local admin impersonation | Local process calls owner mutations              | Existing owner verifier on every request; bounded failed-auth rate                                    |
-| Telemetry disclosure      | Args, tokens, paths, labels enter export         | Projection-only journal and fixed metrics; no caller/provider labels or raw payloads                  |
-| Audit/metric exhaustion   | Unbounded events, labels, or latency samples     | Fixed journal/sample capacities, fixed fields, bounded bodies, no free-form Cardinality               |
-| Artifact substitution     | Manifest points to modified release bytes        | HTTPS-only strict manifest; declared size and SHA-256 verified before activation                      |
-| Interrupted update        | Download or rename fails mid-upgrade             | Same-filesystem staging cleanup; retain current activation until verified version exists              |
-| Version replacement       | Same version is republished with different bytes | Immutable version metadata; same-version mismatch fails closed                                        |
-| Activation traversal      | Corrupt metadata escapes install root            | Strict SemVer/target/filename/hash schema; validated metadata resolution without symlinks             |
+| Threat                       | Example                                          | Required control                                                                                      |
+| ---------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Lexical traversal            | `../../secret`                                   | Reject absolute paths, NUL bytes, and lexical escape before I/O                                       |
+| Symlink escape               | Workspace link points outside                    | Resolve real paths and verify canonical containment                                                   |
+| TOCTOU replacement           | File changes after validation                    | Open with no-follow where supported, validate the opened handle, bound reads, fail closed             |
+| Secret disclosure            | `.env`, `.ssh`, repository internals             | Non-overridable secret path deny rules                                                                |
+| Encoding ambiguity           | Invalid UTF-8 becomes replacement text           | Fatal UTF-8 decoding; explicit encoding errors                                                        |
+| Resource exhaustion          | Huge file/tree/output                            | Byte, entry, depth, result, time, and output limits                                                   |
+| Nondeterminism               | Filesystem enumeration order changes             | Stable binary ordering and explicit truncation metadata                                               |
+| Write corruption             | Crash during overwrite                           | Same-directory temporary file, flush, atomic replacement, cleanup                                     |
+| Write/execute escalation     | Write script then execute it                     | Writable roots cannot overlap trusted executable roots                                                |
+| Shell injection              | Arguments interpreted by a shell                 | Direct spawn by default; shell is a separate denied capability                                        |
+| Environment leakage          | Child inherits host secrets                      | Explicit environment allowlist and empty/minimal inherited environment                                |
+| Network escape               | Command opens remote connection                  | Network is an independent capability and default-deny                                                 |
+| Cancellation failure         | Client disconnect leaves work running            | Request deadline and cancellation propagated to kernel operations                                     |
+| Error disclosure             | Absolute path or secret in error                 | Stable error codes and non-sensitive messages                                                         |
+| Race and platform drift      | Security behavior differs by OS                  | Platform-specific tests; unsupported guarantees fail closed                                           |
+| Namespace collision          | Provider shadows another tool                    | Fatal candidate compile; retain the prior active registry/snapshot                                    |
+| Provider discovery drift     | Runtime tool set differs from manifest           | Exact eager readiness attestation; malformed/drifted provider remains unavailable                     |
+| Provider exhaustion          | Crash loop, hung call, flood, full queue         | Bounded time/message/output/queue/restart; quarantine without terminating the gateway                 |
+| Hybrid reload                | New policy calls an old provider runtime         | Capture one immutable snapshot/runtime generation; lease old runtime through active calls             |
+| Extension secret leak        | Args, output, endpoint, credential logged        | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields           |
+| Instruction poisoning        | File claims it grants tools or overrides policy  | Return as untrusted `user` context; authorization remains exclusively in the captured policy snapshot |
+| Instruction path escape      | Declared path traverses root or follows symlink  | Strict schema, canonical containment, no-follow/open-handle validation, and intrinsic secret deny     |
+| Context exhaustion           | Many or large instruction files                  | Bounded source counts, per-file bytes, whole-context bytes, and deterministic referenced status       |
+| Provenance disclosure        | User absolute path exposed to MCP client         | Hash-based source identifier and non-sensitive display path; stable errors omit raw paths             |
+| Context policy widening      | Reload adds source or raises a budget silently   | Classify additions/reordering/budget increases as risk-increasing and require approval                |
+| Public admin exposure        | Ingress reaches a local control route            | Separate listener; loopback IP literal bind; no control routes on public server                       |
+| Local admin impersonation    | Local process calls owner mutations              | Existing owner verifier on every request; bounded failed-auth rate                                    |
+| Telemetry disclosure         | Args, tokens, paths, labels enter export         | Projection-only journal and fixed metrics; no caller/provider labels or raw payloads                  |
+| Audit/metric exhaustion      | Unbounded events, labels, or latency samples     | Fixed journal/sample capacities, fixed fields, bounded bodies, no free-form Cardinality               |
+| Artifact substitution        | Manifest points to modified release bytes        | HTTPS-only strict manifest; declared size and SHA-256 verified before activation                      |
+| Interrupted update           | Download or rename fails mid-upgrade             | Same-filesystem staging cleanup; retain current activation until verified version exists              |
+| Version replacement          | Same version is republished with different bytes | Immutable version metadata; same-version mismatch fails closed                                        |
+| Activation traversal         | Corrupt metadata escapes install root            | Strict SemVer/target/filename/hash schema; validated metadata resolution without symlinks             |
+| Unsupported protocol version | Unknown/old MCP protocol version sent            | Reject at initialize (header or params); no session; 400/-32602                                       |
+| Malformed JSON-RPC           | Bad envelope, batch, or unknown method           | Reject before dispatch (400/-32600); method-not-found; stable codes, no internal leak                 |
+| Oversized / non-UTF-8 body   | Huge or invalid-encoding payload                 | Hard byte limit and fatal UTF-8 at HTTP boundary; 413 / 400                                           |
+| Manifest URL spoofing        | Redirect, userinfo, non-HTTPS, traversal         | Reject unsafe URL forms before request; no redirects                                                  |
+| Hostile manifest             | Duplicate target, unsafe name, mutated bytes     | Strict schema parse; deterministic hostile-mutation rejection before install                          |
+| Stream-reset update          | Connection reset mid-upgrade                     | Staging cleanup; active version retained; no activation                                               |
+| Disk/activation fault        | Write, rename, or metadata failure               | Same-filesystem staging, atomic activation; fail closed; old activation kept                          |
 
 ## 5. Capability composition rules
 
@@ -240,6 +247,30 @@ Phase 4 reload and approval boundary (2026-08-27):
   remains a separate approval-gated action.
 - Windows and macOS artifacts require native build, clean-machine runtime, and platform
   signing/notarization evidence before support is declared.
+
+### Phase 9 hardening gate
+
+> Status: core passed on Linux Node 22.23.2 / 24.19.0 and Windows Node 24.18.0 (2026-08-28).
+> `npm run check`: Windows 320 passed / 27 skipped; Linux 346 passed / 1 skipped.
+> GitHub Actions: `ci.yml` runs typecheck/lint/format/test on Node 22 + 24 with a Linux x64
+> benchmark baseline job; `standalone.yml` runs a Node 22 + 24 quality gate (`npm run check`,
+> `npm run build`, `npm audit`) that `build-linux-x64` depends on, then builds and verifies the
+> SEA. Cross-platform native builds, code signing/notarization, and OAuth-to-tool real-client
+> evidence remain follow-on scope and are not claimed by this gate.
+
+- Protocol negotiation rejects unsupported versions at `initialize` (header or params) without opening a session; malformed JSON-RPC envelopes, batches, and unknown methods fail closed before dispatch with stable codes and no internal leak.
+- Request bodies are bounded and UTF-8 strict at the HTTP boundary; oversized or invalid-encoding payloads fail closed.
+- Release manifests are rejected for unsafe URL forms, redirects, duplicates, unsafe names, and hostile deterministic mutations before any install; manifest retrieval is HTTPS-only, redirect-rejecting, bounded, and fail-closed on interrupted/oversized/malformed streams.
+- Standalone updates dependency-inject their I/O seam (`InstallerMutations`) so disk-write, rename, and activation faults are deterministic; interrupted upgrades, stream resets, and metadata/rename failures retain the active release and clean staging; rollback fails closed on missing/corrupt targets.
+- Gateway bootstrap closes the control listener when public bind fails, leaving no zombie process.
+
+Test mapping (attack → control → evidence):
+
+- `tests/conformance/mcp-initialize.test.ts` — protocol negotiation, version rejection (header + params), malformed JSON, invalid envelope, batch rejection, unknown method (method-not-found), invalid UTF-8, media type, stateless exchange isolation.
+- `tests/unit/release-manifest.test.ts` — strict manifest, unsafe declarations, duplicate/unsafe names, hostile mutations, exact target selection.
+- `tests/unit/manifest-fetch.test.ts` — bounded HTTPS no-redirect retrieval, unsafe URL rejection, interrupted/oversized/malformed streams.
+- `tests/unit/standalone-installer.test.ts` — verified activation, interrupted upgrade, stream reset, substitution, rollback, metadata/rename/activation faults.
+- `tests/unit/bootstrap.test.ts` — bootstrap bind-failure cleanup.
 
 ## 7. Residual risks
 

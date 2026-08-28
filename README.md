@@ -185,7 +185,7 @@ supports `--help`, `--version`, explicit HTTPS-manifest installation, and one-st
 without requiring system-wide Node.js, npm, Git, or a repository checkout. Updates are
 never automatic; artifact size and SHA-256 are verified before atomic activation.
 
-Only Linux x64 has local runtime evidence. Linux arm64, Windows, macOS, signing,
+Only Linux x64 has local and CI runtime evidence (`standalone.yml` SEA build/verify). Linux arm64, Windows, macOS, signing,
 notarization, release publication, and real-client OAuth-to-tool evidence remain release
 gates and are not claimed. See [`RELEASE.md`](RELEASE.md) and ADR-008.
 

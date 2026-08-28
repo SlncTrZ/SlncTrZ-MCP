@@ -412,6 +412,8 @@ Acceptance criteria:
 
 ### Phase 9 — Hardening and stable release
 
+> Implementation status: core complete (2026-08-28) — MCP conformance (initialize negotiation, unsupported-version rejection, malformed JSON-RPC/batch/unknown-method, invalid UTF-8/media-type, stateless isolation), input/body boundary (hard byte limit + fatal UTF-8), release-manifest URL/path/hostile-mutation rejection, manifest-fetch fail-closed, standalone update recovery (stream reset, disk/rename/activation faults via injected I/O seam, rollback), and gateway bootstrap cleanup are implemented and covered by `tests/conformance` plus `tests/unit/{bootstrap,standalone-installer,manifest-fetch,release-manifest}`. `npm run check`: Windows 320 passed / 27 skipped; Linux 346 passed / 1 skipped. GitHub Actions `ci.yml` (Node 22/24 + benchmark baseline) and `standalone.yml` (Node 22/24 quality gate to SEA build/verify) pass. Cross-platform native builds, signing/notarization, and OAuth-to-tool real-client remain follow-on scope, not claimed by this phase.
+
 Deliverables:
 
 - Threat model.
