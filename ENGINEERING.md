@@ -56,23 +56,32 @@ Sample configuration lives under `config/`.
 
 ## Tooling commands
 
-| Command                       | Description                            |
-| ----------------------------- | -------------------------------------- |
-| `npm run build`               | Emit compiled output to `dist/`        |
-| `npm run build:sea:linux-x64` | Build Linux x64 SEA artifact           |
-| `npm run smoke:sea:linux-x64` | Boot packaged deny-all gateway         |
-| `npm run typecheck`           | Type-check without emitting            |
-| `npm run lint`                | ESLint (type-aware)                    |
-| `npm run lint:fix`            | ESLint autofix                         |
-| `npm run format`              | Prettier write                         |
-| `npm run format:check`        | Prettier check                         |
-| `npm test`                    | Run unit tests (Vitest)                |
-| `npm run test:watch`          | Watch mode                             |
-| `npm run test:coverage`       | Coverage report                        |
-| `npm run check`               | typecheck + lint + format:check + test |
+| Command                       | Description                                       |
+| ----------------------------- | ------------------------------------------------- |
+| `npm run build`               | Emit compiled output to `dist/`                   |
+| `npm run build:sea:linux-x64` | Build Linux x64 SEA artifact                      |
+| `npm run smoke:sea:linux-x64` | Boot packaged deny-all gateway                    |
+| `npm run typecheck`           | Type-check without emitting                       |
+| `npm run lint`                | ESLint (type-aware)                               |
+| `npm run lint:fix`            | ESLint autofix                                    |
+| `npm run format`              | Prettier write                                    |
+| `npm run format:check`        | Prettier check                                    |
+| `npm test`                    | Run unit tests (Vitest)                           |
+| `npm run test:watch`          | Watch mode                                        |
+| `npm run test:coverage`       | Coverage report                                   |
+| `npm run check`               | typecheck + lint + format:check + test            |
+| `npm run benchmark`           | Build then record local performance baseline JSON |
 
 ESM-only (`"type": "module"`). Source imports must use explicit `.js` extensions for
 NodeNext resolution (e.g. `import { x } from "../kernel/tool-identity.js"`).
+
+## Performance baselines
+
+`npm run benchmark` launches clean child processes from `dist/` with an ephemeral
+owner verifier and deny-all policy. It records raw samples plus ceiling-rank p50/p95/p99 for
+CLI `--help` cold start and gateway readiness. On Linux it also records RSS at readiness.
+It does not contact external services and does not impose a failing budget before CI has a
+stable baseline. CI Node 24 uploads the JSON as `performance-baseline-linux-x64-node24`.
 
 ## Code conventions
 
