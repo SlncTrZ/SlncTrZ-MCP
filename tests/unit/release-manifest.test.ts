@@ -133,6 +133,25 @@ describe("standalone release manifest", () => {
     ).toThrow("fileName");
   });
 
+  it("fails closed under deterministic hostile manifest mutations", () => {
+    const hostile = Array.from({ length: 32 }, (_value, index) => ({
+      ...manifest(),
+      schemaVersion: index + 2,
+      artifacts: [
+        {
+          target: "linux-x64",
+          url: `https://updates.example.test/${"../".repeat(index % 4)}artifact`,
+          sha256: "a".repeat(index),
+          sizeBytes: index - 1,
+          fileName: index % 2 === 0 ? `../artifact-${index}` : `artifact/${index}`
+        }
+      ]
+    }));
+    for (const candidate of hostile) {
+      expect(() => parseReleaseManifest(candidate)).toThrow();
+    }
+  });
+
   it("selects one exact target and maps only supported host platforms", () => {
     const parsed = parseReleaseManifest(manifest());
     expect(selectReleaseArtifact(parsed, "linux-x64").fileName).toBe("slnctrz-mcp");
