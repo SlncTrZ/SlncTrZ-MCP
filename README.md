@@ -4,10 +4,7 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 8 Linux x64 standalone prototype implemented · Linux Node 22/24
-> `npm run check` (326 passed / 1 skipped) and build pass · Phase 5/6 Windows acceptance `npm run check` (typecheck, lint, format, 263 tests) and
-> `npm run build` pass on Node 24.18.0 · License: Apache-2.0 · Architecture: minimal trusted
-> kernel with isolated extensions
+> Status: Phase 9 core hardening complete · Windows Node 24 `npm run check` 320 passed / 27 skipped · Linux Node 22/24 346 passed / 1 skipped · GitHub CI and Linux x64 standalone SEA build/verify gates pass · Linux arm64, Windows/macOS standalone, signing/notarization, and OAuth-to-tool real-client evidence remain follow-on scope · License: Apache-2.0 · Architecture: minimal trusted kernel with isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
 clients and the capabilities they use, enforcing filesystem, execution, identity, and

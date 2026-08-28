@@ -152,12 +152,13 @@ Acceptance criteria:
 
 ### Phase 1 — Protocol and ingress core
 
-> Implementation status: in progress — HTTP server, MCP Streamable HTTP endpoint,
+> Implementation status: complete (2026-08-28) — HTTP server, MCP Streamable HTTP endpoint,
 > transport adapter boundary, per-request modern context with stateless legacy session,
 > protocol/capability validation, secret-free client error model, and health/readiness
-> endpoints are implemented and covered through the HTTP dispatch tests. Two acceptance
-> gaps remain: the dedicated MCP revision conformance suite (`tests/conformance` is empty)
-> and an explicit unsupported-protocol-version rejection.
+> endpoints are implemented and covered through HTTP dispatch plus the dedicated MCP
+> conformance suite. Phase 9 closed the remaining acceptance gaps by adding protocol
+> negotiation/rejection coverage in `tests/conformance` and explicit rejection of
+> unsupported MCP protocol versions without opening a session.
 
 Deliverables:
 
