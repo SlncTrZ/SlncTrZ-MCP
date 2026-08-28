@@ -29,6 +29,19 @@ import {
 
 const DEFAULT_ALLOWED_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"] as const;
 const DEFAULT_MAX_BODY_BYTES = 1_048_576;
+const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set(["2025-06-18"]);
+
+class UnsupportedMcpProtocolVersionError extends Error {
+  constructor(readonly requestId: string | number | null) {
+    super("Unsupported MCP protocol version");
+  }
+}
+
+class InvalidMcpRequestError extends Error {
+  constructor() {
+    super("Invalid MCP request");
+  }
+}
 
 export interface GatewayServerOptions {
   readonly oauthService: OAuthService;
@@ -62,6 +75,38 @@ type NormalizedIncomingMessage = IncomingMessage & {
 function normalizeRequest(req: IncomingMessage): asserts req is NormalizedIncomingMessage {
   req.method ??= "GET";
   req.url ??= "/";
+}
+
+function assertSupportedMcpProtocol(header: string | string[] | undefined, body: unknown): void {
+  if (Array.isArray(body)) throw new InvalidMcpRequestError();
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    (body as { method?: unknown }).method === "initialize"
+  ) {
+    return;
+  }
+  if (header === undefined) return;
+  if (typeof header !== "string" || !SUPPORTED_MCP_PROTOCOL_VERSIONS.has(header)) {
+    throw new UnsupportedMcpProtocolVersionError(null);
+  }
+}
+
+function assertSupportedInitializeProtocol(body: unknown): void {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return;
+  const request = body as { id?: unknown; method?: unknown; params?: unknown };
+  if (request.method !== "initialize") return;
+  const params = request.params;
+  const protocolVersion =
+    typeof params === "object" && params !== null && !Array.isArray(params)
+      ? (params as { protocolVersion?: unknown }).protocolVersion
+      : undefined;
+  if (typeof protocolVersion === "string" && SUPPORTED_MCP_PROTOCOL_VERSIONS.has(protocolVersion)) {
+    return;
+  }
+  const requestId =
+    typeof request.id === "string" || typeof request.id === "number" ? request.id : null;
+  throw new UnsupportedMcpProtocolVersionError(requestId);
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -268,6 +313,8 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
         try {
           const parsedBody =
             req.method === "POST" ? await readBoundedJson(req, maxBodyBytes) : undefined;
+          assertSupportedMcpProtocol(req.headers["mcp-protocol-version"], parsedBody);
+          assertSupportedInitializeProtocol(parsedBody);
           await requestHandleMcp(req, res, parsedBody);
         } finally {
           await requestHandler.close();
@@ -278,6 +325,24 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
 
         if (res.headersSent) {
           res.end();
+          return;
+        }
+
+        if (error instanceof UnsupportedMcpProtocolVersionError) {
+          sendJson(res, 400, {
+            jsonrpc: "2.0",
+            id: error.requestId,
+            error: { code: -32602, message: error.message }
+          });
+          return;
+        }
+
+        if (error instanceof InvalidMcpRequestError) {
+          sendJson(res, 400, {
+            jsonrpc: "2.0",
+            id: null,
+            error: { code: -32600, message: error.message }
+          });
           return;
         }
 
