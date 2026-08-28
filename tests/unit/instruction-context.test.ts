@@ -81,28 +81,43 @@ describe("project instruction context", () => {
     expect(index.sources.map((source) => source.status)).toEqual(["referenced", "referenced"]);
   });
 
-  it("fails closed for missing, malformed, oversized, and symlink-escaped sources", async () => {
+  it("fails closed for missing, malformed, and oversized sources", async () => {
+    const root = await tempWorkspace();
+    await writeFile(join(root, "invalid.md"), Buffer.from([0xff, 0xfe]));
+    await writeFile(join(root, "large.md"), "12345", "utf8");
+
+    const resolver = createInstructionContextResolver({
+      workspaceRoot: root,
+      userFiles: [],
+      workspaceFiles: ["missing.md", "invalid.md", "large.md"],
+      directoryFileNames: [],
+      maxFileBytes: 4
+    });
+    const result = await resolver.resolve();
+
+    expect(result.sources.map((source) => [source.path, source.status])).toEqual([
+      ["missing.md", "missing"],
+      ["invalid.md", "invalid_encoding"],
+      ["large.md", "oversized"]
+    ]);
+  });
+
+  it.skipIf(process.platform === "win32")("fails closed for a symlink-escaped source", async () => {
     const root = await tempWorkspace();
     const outside = await tempWorkspace();
     await mkdir(join(root, "src"), { recursive: true });
-    await writeFile(join(root, "invalid.md"), Buffer.from([0xff, 0xfe]));
-    await writeFile(join(root, "large.md"), "12345", "utf8");
     await writeFile(join(outside, "outside.md"), "must not load", "utf8");
     await symlink(join(outside, "outside.md"), join(root, "src", "INSTRUCTIONS.md"));
 
     const resolver = createInstructionContextResolver({
       workspaceRoot: root,
       userFiles: [],
-      workspaceFiles: ["missing.md", "invalid.md", "large.md"],
-      directoryFileNames: ["INSTRUCTIONS.md"],
-      maxFileBytes: 4
+      workspaceFiles: [],
+      directoryFileNames: ["INSTRUCTIONS.md"]
     });
     const result = await resolver.resolve("src");
 
     expect(result.sources.map((source) => [source.path, source.status])).toEqual([
-      ["missing.md", "missing"],
-      ["invalid.md", "invalid_encoding"],
-      ["large.md", "oversized"],
       ["src/INSTRUCTIONS.md", "denied"]
     ]);
     expect(JSON.stringify(result)).not.toContain("must not load");
