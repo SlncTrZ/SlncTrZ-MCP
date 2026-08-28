@@ -9,6 +9,7 @@ import { type ExtensionRuntimeCatalog } from "../../src/extension/runtime.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createGatewayServer, listenGateway } from "../../src/app/http-server.js";
 import { type ExecCommandDefinition } from "../../src/kernel/exec.js";
+import { createMetricsRegistry, type MetricsRegistry } from "../../src/observability/metrics.js";
 import { type ToolAuditEvent } from "../../src/observability/tool-audit.js";
 import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
 import { compilePolicyDocument } from "../../src/policy/policy-config.js";
@@ -54,6 +55,7 @@ async function startTestServer(
   readonly origin: string;
   readonly accessToken: string;
   readonly auditEvents: ToolAuditEvent[];
+  readonly metrics: MetricsRegistry;
 }> {
   const oauthService = new OAuthService({
     issuer: new URL("https://mcp.example.com"),
@@ -85,6 +87,7 @@ async function startTestServer(
   });
 
   const auditEvents: ToolAuditEvent[] = [];
+  const metrics = createMetricsRegistry();
   const activePolicy =
     activePolicyFactory === undefined ? undefined : await activePolicyFactory(client.client_id);
   const policyStore =
@@ -104,7 +107,8 @@ async function startTestServer(
             })
           }
         : { activePolicy }),
-    toolAudit: (event) => auditEvents.push(event)
+    toolAudit: (event) => auditEvents.push(event),
+    metrics
   });
   servers.push(server);
   const address = await listenGateway(server, {
@@ -114,7 +118,8 @@ async function startTestServer(
   return {
     origin: `http://127.0.0.1:${address.port}`,
     accessToken: tokens.access_token,
-    auditEvents
+    auditEvents,
+    metrics
   };
 }
 
@@ -210,7 +215,7 @@ describe("gateway HTTP surface", () => {
   });
 
   it("lists and calls the isolated core.ping tool", async () => {
-    const { origin, accessToken } = await startTestServer();
+    const { origin, accessToken, metrics } = await startTestServer();
     const headers = {
       accept: "application/json, text/event-stream",
       authorization: `Bearer ${accessToken}`,
@@ -251,6 +256,13 @@ describe("gateway HTTP surface", () => {
 
     expect(callResponse.status).toBe(200);
     expect(callPayload.result?.content?.[0]?.text).toBe("pong");
+    expect(metrics.snapshot()).toEqual(
+      expect.objectContaining({
+        requestActive: 0,
+        toolCallsTotal: 1,
+        toolErrorsTotal: 0
+      })
+    );
   });
 
   it("calls core.read and core.search through authenticated MCP dispatch", async () => {

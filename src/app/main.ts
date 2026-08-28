@@ -9,8 +9,16 @@
  */
 
 import { OAuthService } from "../auth/oauth-service.js";
-import { createJsonLineAuthAuditSink } from "../observability/auth-audit.js";
-import { createJsonLineToolAuditSink } from "../observability/tool-audit.js";
+import {
+  createJsonLineAuthAuditSink,
+  createJournalAuthAuditSink
+} from "../observability/auth-audit.js";
+import { createAuditJournal } from "../observability/audit-journal.js";
+import { createMetricsRegistry } from "../observability/metrics.js";
+import {
+  createJsonLineToolAuditSink,
+  createJournalToolAuditSink
+} from "../observability/tool-audit.js";
 import { createExtensionRuntimeCatalog } from "../extension/runtime.js";
 import { compilePolicyDocument, loadPolicyDocument } from "../policy/policy-config.js";
 import { buildActivePolicySnapshot, type ActivePolicySnapshot } from "../policy/policy-snapshot.js";
@@ -18,12 +26,16 @@ import { createPolicySnapshotStore, type PolicySnapshotLoader } from "../policy/
 import { defaultApprovalHook } from "../policy/approval.js";
 import {
   createJsonLinePolicyAuditSink,
+  createJournalPolicyAuditSink,
   type PolicyAuditSink
 } from "../observability/policy-audit.js";
 import { readRuntimeConfig } from "./config.js";
 import { createGatewayServer, listenGateway } from "./http-server.js";
+import { createControlPlaneServer, listenControlPlane } from "../control-plane/server.js";
 
 const config = readRuntimeConfig();
+const auditJournal = createAuditJournal({ capacity: 1_000 });
+const metrics = config.telemetryEnabled ? createMetricsRegistry() : undefined;
 let issuer: URL;
 try {
   issuer = new URL(config.publicMcpUrl.origin);
@@ -36,7 +48,7 @@ const oauthService = new OAuthService({
   resource: config.publicMcpUrl,
   ownerSecretHash: config.ownerSecretHash,
   maxDynamicClients: config.maxDynamicClients,
-  audit: createJsonLineAuthAuditSink(),
+  audit: createJournalAuthAuditSink(auditJournal, createJsonLineAuthAuditSink(), metrics),
   ...(config.staticClient === undefined ? {} : { staticClient: config.staticClient })
 });
 
@@ -44,7 +56,7 @@ const oauthService = new OAuthService({
 async function loadActivePolicy(policyFile: string): Promise<ActivePolicySnapshot> {
   const document = await loadPolicyDocument(policyFile);
   const compiled = await compilePolicyDocument(document);
-  const runtime = await createExtensionRuntimeCatalog(compiled.extensionRegistry);
+  const runtime = await createExtensionRuntimeCatalog(compiled.extensionRegistry, metrics);
   return buildActivePolicySnapshot(compiled, runtime);
 }
 
@@ -55,7 +67,11 @@ async function denyAllPolicy(): Promise<ActivePolicySnapshot> {
   );
 }
 
-const policyAudit: PolicyAuditSink = createJsonLinePolicyAuditSink();
+const policyAudit: PolicyAuditSink = createJournalPolicyAuditSink(
+  auditJournal,
+  createJsonLinePolicyAuditSink(),
+  metrics
+);
 
 const policyFile = config.policyFile;
 const loader: PolicySnapshotLoader =
@@ -83,7 +99,8 @@ policyAudit({
 const server = createGatewayServer({
   oauthService,
   policyStore,
-  toolAudit: createJsonLineToolAuditSink(),
+  toolAudit: createJournalToolAuditSink(auditJournal, createJsonLineToolAuditSink()),
+  ...(metrics === undefined ? {} : { metrics }),
   allowedHostnames: config.allowedHostnames,
   allowedOriginHostnames: config.allowedOriginHostnames,
   onError: (error) => {
@@ -91,9 +108,31 @@ const server = createGatewayServer({
   }
 });
 
-const address = await listenGateway(server, {
-  host: config.host,
-  port: config.port
+const controlServer = createControlPlaneServer({
+  ownerSecretHash: config.ownerSecretHash,
+  oauthService,
+  policyStore,
+  auditJournal,
+  ...(metrics === undefined ? {} : { metrics }),
+  onError: (error) => console.error(error.message)
+});
+const controlAddress = await listenControlPlane(controlServer, {
+  host: config.controlHost,
+  port: config.controlPort
 });
 
+let address;
+try {
+  address = await listenGateway(server, {
+    host: config.host,
+    port: config.port
+  });
+} catch (error) {
+  await new Promise<void>((resolve) => controlServer.close(() => resolve()));
+  throw error;
+}
+
 console.log(`SlncTrZ-MCP listening on http://${address.host}:${address.port}/mcp`);
+console.log(
+  `SlncTrZ-MCP control plane listening on http://${controlAddress.host}:${controlAddress.port}`
+);

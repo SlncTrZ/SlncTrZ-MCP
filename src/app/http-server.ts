@@ -15,6 +15,7 @@ import {
 import { OAuthHttpRouter } from "../auth/oauth-http-router.js";
 import { type OAuthService } from "../auth/oauth-service.js";
 import { type ToolAuditSink } from "../observability/tool-audit.js";
+import type { MetricsRegistry } from "../observability/metrics.js";
 import { createKernelPolicySnapshot, type KernelPolicySnapshot } from "../policy/kernel-policy.js";
 import { PolicyConfigError, type ProfileName } from "../policy/policy-config.js";
 import { type ActivePolicySnapshot } from "../policy/policy-snapshot.js";
@@ -38,6 +39,7 @@ export interface GatewayServerOptions {
   readonly activePolicy?: ActivePolicySnapshot;
   readonly policyStore?: PolicySnapshotStore;
   readonly toolAudit?: ToolAuditSink;
+  readonly metrics?: MetricsRegistry;
   readonly onError?: (error: Error) => void;
 }
 
@@ -256,7 +258,8 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
         const requestHandler = createGatewayMcpHandler({
           ...errorOptions,
           kernelPolicy: resolution.snapshot,
-          ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit })
+          ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
+          ...(options.metrics === undefined ? {} : { metrics: options.metrics })
         });
         const requestHandleMcp = toNodeHandler(
           requestHandler,

@@ -8,6 +8,7 @@
 
 import { createMcpHandler, type McpHttpHandler } from "@modelcontextprotocol/server";
 import { type ToolAuditSink } from "../observability/tool-audit.js";
+import type { MetricsRegistry } from "../observability/metrics.js";
 import { createKernelPolicySnapshot, type KernelPolicySnapshot } from "../policy/kernel-policy.js";
 import { createMcpServer } from "./mcp-server.js";
 
@@ -15,6 +16,7 @@ export interface McpHandlerOptions {
   readonly onError?: (error: Error) => void;
   readonly kernelPolicy?: KernelPolicySnapshot;
   readonly toolAudit?: ToolAuditSink;
+  readonly metrics?: MetricsRegistry;
 }
 
 /** Create one handler whose factory isolates every modern and legacy exchange. */
@@ -37,7 +39,8 @@ export function createGatewayMcpHandler(options: McpHandlerOptions = {}): McpHtt
                 scopes: context.authInfo.scopes
               }
             }),
-        ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit })
+        ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
+        ...(options.metrics === undefined ? {} : { metrics: options.metrics })
       }),
     {
       legacy: "stateless",
