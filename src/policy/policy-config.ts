@@ -14,6 +14,14 @@ import { EXTENSION_ID_PATTERN, type ExtensionManifestV1 } from "../extension/man
 import { compileExtensionRegistry, type CompiledExtensionRegistry } from "../extension/registry.js";
 import * as z from "zod/v4";
 import { isValidCanonicalId } from "../kernel/tool-identity.js";
+import { assertNonSecretPath, assertRelativePath, BoundaryError } from "../kernel/fs-boundary.js";
+import {
+  createInstructionContextResolver,
+  DEFAULT_MAX_INSTRUCTION_CONTEXT_BYTES,
+  DEFAULT_MAX_INSTRUCTION_FILE_BYTES,
+  DEFAULT_MAX_INSTRUCTION_FILES,
+  type InstructionContextResolver
+} from "../context/instruction-context.js";
 import {
   parseExecCommandRegistry,
   validateExecCommandRegistry,
@@ -52,6 +60,12 @@ export const MAX_WORKSPACE_IDS_PER_BINDING = 32;
 export const MAX_PROFILES_PER_WORKSPACE = 16;
 export const MAX_EXTENSION_GRANTS_PER_WORKSPACE = 64;
 export const MAX_TOOL_IDS_PER_GRANT = 256;
+export const MAX_USER_INSTRUCTION_FILES = 8;
+export const MAX_WORKSPACE_INSTRUCTION_FILES = 8;
+export const MAX_DIRECTORY_INSTRUCTION_NAMES = 4;
+export const MAX_INSTRUCTION_FILES = 64;
+export const MAX_INSTRUCTION_FILE_BYTES = 1_048_576;
+export const MAX_INSTRUCTION_CONTEXT_BYTES = 262_144;
 
 export const PROFILE_NAMES = ["read-only", "minimal", "custom"] as const;
 export type ProfileName = (typeof PROFILE_NAMES)[number];
@@ -71,6 +85,16 @@ export interface WorkspaceDefinition {
   readonly profiles: readonly ProfileName[];
   readonly customCapabilities?: readonly KernelCapability[];
   readonly extensionGrants?: readonly ExtensionGrant[];
+  readonly instructions?: InstructionDefinition;
+}
+
+export interface InstructionDefinition {
+  readonly userFiles?: readonly string[];
+  readonly workspaceFiles?: readonly string[];
+  readonly directoryFileNames?: readonly string[];
+  readonly maxFiles?: number;
+  readonly maxFileBytes?: number;
+  readonly maxContextBytes?: number;
 }
 
 export interface ExtensionGrant {
@@ -99,6 +123,17 @@ export interface CompiledWorkspace {
   readonly customCapabilities: readonly KernelCapability[];
   readonly kernelPolicy: KernelPolicySnapshot;
   readonly extensionGrants: readonly CompiledExtensionGrant[];
+  readonly instructions?: CompiledInstructionDefinition;
+  readonly instructionContext?: InstructionContextResolver;
+}
+
+export interface CompiledInstructionDefinition {
+  readonly userFiles: readonly string[];
+  readonly workspaceFiles: readonly string[];
+  readonly directoryFileNames: readonly string[];
+  readonly maxFiles: number;
+  readonly maxFileBytes: number;
+  readonly maxContextBytes: number;
 }
 
 export interface CompiledExtensionGrant {
@@ -136,6 +171,17 @@ const extensionGrantSchema = z
   })
   .strict();
 
+const instructionSchema = z
+  .object({
+    userFiles: z.array(z.string().min(1)).max(MAX_USER_INSTRUCTION_FILES).optional(),
+    workspaceFiles: z.array(z.string().min(1)).max(MAX_WORKSPACE_INSTRUCTION_FILES).optional(),
+    directoryFileNames: z.array(z.string().min(1)).max(MAX_DIRECTORY_INSTRUCTION_NAMES).optional(),
+    maxFiles: z.number().int().positive().max(MAX_INSTRUCTION_FILES).optional(),
+    maxFileBytes: z.number().int().positive().max(MAX_INSTRUCTION_FILE_BYTES).optional(),
+    maxContextBytes: z.number().int().positive().max(MAX_INSTRUCTION_CONTEXT_BYTES).optional()
+  })
+  .strict();
+
 const workspaceSchema = z
   .object({
     id: z.string().regex(WORKSPACE_ID_PATTERN),
@@ -149,7 +195,8 @@ const workspaceSchema = z
     extensionGrants: z
       .array(extensionGrantSchema)
       .max(MAX_EXTENSION_GRANTS_PER_WORKSPACE)
-      .optional()
+      .optional(),
+    instructions: instructionSchema.optional()
   })
   .strict();
 
@@ -288,13 +335,125 @@ async function compileWorkspace(workspace: WorkspaceDefinition): Promise<Compile
   });
 
   const extensionGrants = compileExtensionGrants(workspace.extensionGrants ?? [], profileSet);
+  const instructions = compileInstructionContext(workspace, roots.read);
 
   return Object.freeze({
     id: workspace.id,
     profiles: Object.freeze([...workspace.profiles]),
     customCapabilities: Object.freeze([...(workspace.customCapabilities ?? [])]),
     kernelPolicy,
-    extensionGrants
+    extensionGrants,
+    ...(instructions === undefined
+      ? {}
+      : { instructions: instructions.policy, instructionContext: instructions.resolver })
+  });
+}
+
+function assertUnique(values: readonly string[], label: string): void {
+  if (new Set(values).size !== values.length) {
+    throw new PolicyConfigError("policy_invalid", `${label} contains duplicates`);
+  }
+}
+
+function compileInstructionContext(
+  workspace: WorkspaceDefinition,
+  readRoot: string | undefined
+):
+  | {
+      readonly policy: CompiledInstructionDefinition;
+      readonly resolver: InstructionContextResolver;
+    }
+  | undefined {
+  const definition = workspace.instructions;
+  if (definition === undefined) return undefined;
+  if (readRoot === undefined) {
+    throw new PolicyConfigError(
+      "policy_invalid",
+      `Workspace ${workspace.id} instructions require a read root`
+    );
+  }
+
+  const userFiles = [...(definition.userFiles ?? [])];
+  const workspaceFiles = [...(definition.workspaceFiles ?? [])];
+  const directoryFileNames = [...(definition.directoryFileNames ?? [])];
+  if (
+    userFiles.length > MAX_USER_INSTRUCTION_FILES ||
+    workspaceFiles.length > MAX_WORKSPACE_INSTRUCTION_FILES ||
+    directoryFileNames.length > MAX_DIRECTORY_INSTRUCTION_NAMES
+  ) {
+    throw new PolicyConfigError("policy_invalid", "Workspace instruction source ceiling exceeded");
+  }
+  for (const [value, ceiling, label] of [
+    [definition.maxFiles, MAX_INSTRUCTION_FILES, "maxFiles"],
+    [definition.maxFileBytes, MAX_INSTRUCTION_FILE_BYTES, "maxFileBytes"],
+    [definition.maxContextBytes, MAX_INSTRUCTION_CONTEXT_BYTES, "maxContextBytes"]
+  ] as const) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || value > ceiling)) {
+      throw new PolicyConfigError("policy_invalid", `Instruction ${label} is invalid`);
+    }
+  }
+  if (userFiles.length + workspaceFiles.length + directoryFileNames.length === 0) {
+    throw new PolicyConfigError(
+      "policy_invalid",
+      `Workspace ${workspace.id} instructions declare no sources`
+    );
+  }
+  assertUnique(userFiles, "User instruction files");
+  assertUnique(workspaceFiles, "Workspace instruction files");
+  assertUnique(directoryFileNames, "Directory instruction names");
+
+  for (const path of userFiles) {
+    assertAbsolute(path, "user instruction file");
+    try {
+      assertNonSecretPath(path);
+    } catch (error) {
+      if (error instanceof BoundaryError) {
+        throw new PolicyConfigError("policy_invalid", "User instruction path is protected");
+      }
+      throw error;
+    }
+  }
+  for (const path of workspaceFiles) {
+    if (path.split(/[\\/]+/u).some((segment) => segment === ".." || segment === ".")) {
+      throw new PolicyConfigError("policy_invalid", "Workspace instruction path is invalid");
+    }
+    try {
+      assertRelativePath(path);
+    } catch (error) {
+      if (error instanceof BoundaryError) {
+        throw new PolicyConfigError("policy_invalid", "Workspace instruction path is invalid");
+      }
+      throw error;
+    }
+  }
+  for (const name of directoryFileNames) {
+    try {
+      assertRelativePath(name);
+    } catch (error) {
+      if (error instanceof BoundaryError) {
+        throw new PolicyConfigError("policy_invalid", "Directory instruction name is invalid");
+      }
+      throw error;
+    }
+    if (name.includes("/") || name.includes("\\")) {
+      throw new PolicyConfigError(
+        "policy_invalid",
+        "Directory instruction name must be a basename"
+      );
+    }
+  }
+
+  const policy = Object.freeze({
+    userFiles: Object.freeze(userFiles),
+    workspaceFiles: Object.freeze(workspaceFiles),
+    directoryFileNames: Object.freeze(directoryFileNames),
+    maxFiles: definition.maxFiles ?? DEFAULT_MAX_INSTRUCTION_FILES,
+    maxFileBytes: definition.maxFileBytes ?? DEFAULT_MAX_INSTRUCTION_FILE_BYTES,
+    maxContextBytes: definition.maxContextBytes ?? DEFAULT_MAX_INSTRUCTION_CONTEXT_BYTES
+  });
+  return Object.freeze({
+    policy,
+    resolver: createInstructionContextResolver({ workspaceRoot: readRoot, ...policy })
   });
 }
 

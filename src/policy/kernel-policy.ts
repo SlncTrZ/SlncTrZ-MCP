@@ -12,6 +12,7 @@ import { isContainedPath } from "../kernel/fs-boundary.js";
 import { type ExecCommandDefinition } from "../kernel/exec.js";
 import { type RiskClass } from "../kernel/tool-identity.js";
 import { type ExtensionRuntimeCatalog } from "../extension/runtime.js";
+import { type InstructionContextResolver } from "../context/instruction-context.js";
 
 export type KernelCapability =
   "core.read" | "core.search" | "core.write" | "core.edit" | "core.exec";
@@ -43,6 +44,8 @@ export interface KernelPolicySnapshot {
   readonly extensions: readonly ResolvedExtensionTool[];
   /** Runtime catalog captured with this policy generation; never read from global state. */
   readonly extensionRuntime?: ExtensionRuntimeCatalog;
+  /** Explicit project context resolver; its text cannot change authorization fields. */
+  readonly instructionContext?: InstructionContextResolver;
 }
 
 /** An extension tool authorized on a resolved snapshot. */

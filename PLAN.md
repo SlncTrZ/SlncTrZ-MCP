@@ -273,10 +273,10 @@ Acceptance criteria:
 
 ### Phase 5 — Universal MCP Extension Gateway
 
-> Implementation checkpoint: complete on `feat/phase-5-extension-gateway` (2026-08-27),
-> pending final review/merge. Strict manifests, canonical registry, stdio/HTTPS adapters,
-> bounded supervision, policy-only workspace/profile grants, request-scoped discovery and
-> dispatch, runtime-generation leases, and secret-free extension audit are implemented.
+> Implementation status: complete (2026-08-27). Strict manifests, canonical registry,
+> stdio/HTTPS adapters, bounded supervision, policy-only workspace/profile grants,
+> request-scoped discovery and dispatch, runtime-generation leases, and secret-free
+> extension audit are implemented.
 > Linux `npm run check` and `npm run build` pass on Node 22.23.2 and 24.19.0. This phase
 > claims process/protocol isolation only, not an OS sandbox, dynamic installation, public
 > control plane, remote credential fetching, or discovery-change notifications.
@@ -306,6 +306,13 @@ Acceptance criteria:
   environment data, credential references, or raw provider errors.
 
 ### Phase 6 — Project context and instruction system
+
+> Implementation status: complete (2026-08-28). Operator policy explicitly declares
+> user, workspace, and directory instruction sources plus file/context budgets. Authenticated
+> clients load provenance through an MCP resource and request content through an MCP prompt;
+> instruction text is untrusted user context and never grants capability. Linux acceptance
+> passes on Node 22.23.2 and 24.19.0. Windows evidence is deferred and not claimed. Optional
+> one-time onboarding remains deferred.
 
 Deliverables:
 

@@ -1,8 +1,9 @@
 # Gateway Threat Model
 
-> Scope: Phase 3 kernel, Phase 4 policy snapshots, and Phase 5 extension gateway
+> Scope: Phase 3 kernel, Phase 4 policy snapshots, Phase 5 extension gateway, and
+> Phase 6 explicit project context
 > Status: active implementation gate
-> Updated: 2026-08-27
+> Updated: 2026-08-28
 
 ## 1. Security objective
 
@@ -23,6 +24,7 @@ data and permits no mutation or command execution.
 - Integrity of existing files, permissions, ownership, and line endings.
 - Availability of the gateway process, filesystem, and child-process capacity.
 - Audit attribution and deterministic tool results.
+- Confidentiality and integrity of explicitly declared instruction sources and their provenance.
 
 ## 3. Trust boundaries
 
@@ -34,35 +36,42 @@ data and permits no mutation or command execution.
 6. The extension registry binds canonical names to operator-declared providers; workspace
    and profile grants remain exclusively in the policy snapshot.
 7. An extension runtime executes out-of-process through a fixed stdio or HTTPS transport.
-8. Output is truncated/redacted before it becomes model-visible.
+8. The instruction resolver loads only policy-declared sources through bounded,
+   symlink-aware reads; MCP exposes provenance and content only on explicit client requests.
+9. Output is truncated/redacted before it becomes model-visible.
 
 Workspace instructions, tool descriptions, prompts, and client annotations cannot grant
 capabilities.
 
 ## 4. Threats and required controls
 
-| Threat                   | Example                                   | Required control                                                                            |
-| ------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Lexical traversal        | `../../secret`                            | Reject absolute paths, NUL bytes, and lexical escape before I/O                             |
-| Symlink escape           | Workspace link points outside             | Resolve real paths and verify canonical containment                                         |
-| TOCTOU replacement       | File changes after validation             | Open with no-follow where supported, validate the opened handle, bound reads, fail closed   |
-| Secret disclosure        | `.env`, `.ssh`, repository internals      | Non-overridable secret path deny rules                                                      |
-| Encoding ambiguity       | Invalid UTF-8 becomes replacement text    | Fatal UTF-8 decoding; explicit encoding errors                                              |
-| Resource exhaustion      | Huge file/tree/output                     | Byte, entry, depth, result, time, and output limits                                         |
-| Nondeterminism           | Filesystem enumeration order changes      | Stable binary ordering and explicit truncation metadata                                     |
-| Write corruption         | Crash during overwrite                    | Same-directory temporary file, flush, atomic replacement, cleanup                           |
-| Write/execute escalation | Write script then execute it              | Writable roots cannot overlap trusted executable roots                                      |
-| Shell injection          | Arguments interpreted by a shell          | Direct spawn by default; shell is a separate denied capability                              |
-| Environment leakage      | Child inherits host secrets               | Explicit environment allowlist and empty/minimal inherited environment                      |
-| Network escape           | Command opens remote connection           | Network is an independent capability and default-deny                                       |
-| Cancellation failure     | Client disconnect leaves work running     | Request deadline and cancellation propagated to kernel operations                           |
-| Error disclosure         | Absolute path or secret in error          | Stable error codes and non-sensitive messages                                               |
-| Race and platform drift  | Security behavior differs by OS           | Platform-specific tests; unsupported guarantees fail closed                                 |
-| Namespace collision      | Provider shadows another tool             | Fatal candidate compile; retain the prior active registry/snapshot                          |
-| Provider discovery drift | Runtime tool set differs from manifest    | Exact eager readiness attestation; malformed/drifted provider remains unavailable           |
-| Provider exhaustion      | Crash loop, hung call, flood, full queue  | Bounded time/message/output/queue/restart; quarantine without terminating the gateway       |
-| Hybrid reload            | New policy calls an old provider runtime  | Capture one immutable snapshot/runtime generation; lease old runtime through active calls   |
-| Extension secret leak    | Args, output, endpoint, credential logged | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields |
+| Threat                   | Example                                         | Required control                                                                                      |
+| ------------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Lexical traversal        | `../../secret`                                  | Reject absolute paths, NUL bytes, and lexical escape before I/O                                       |
+| Symlink escape           | Workspace link points outside                   | Resolve real paths and verify canonical containment                                                   |
+| TOCTOU replacement       | File changes after validation                   | Open with no-follow where supported, validate the opened handle, bound reads, fail closed             |
+| Secret disclosure        | `.env`, `.ssh`, repository internals            | Non-overridable secret path deny rules                                                                |
+| Encoding ambiguity       | Invalid UTF-8 becomes replacement text          | Fatal UTF-8 decoding; explicit encoding errors                                                        |
+| Resource exhaustion      | Huge file/tree/output                           | Byte, entry, depth, result, time, and output limits                                                   |
+| Nondeterminism           | Filesystem enumeration order changes            | Stable binary ordering and explicit truncation metadata                                               |
+| Write corruption         | Crash during overwrite                          | Same-directory temporary file, flush, atomic replacement, cleanup                                     |
+| Write/execute escalation | Write script then execute it                    | Writable roots cannot overlap trusted executable roots                                                |
+| Shell injection          | Arguments interpreted by a shell                | Direct spawn by default; shell is a separate denied capability                                        |
+| Environment leakage      | Child inherits host secrets                     | Explicit environment allowlist and empty/minimal inherited environment                                |
+| Network escape           | Command opens remote connection                 | Network is an independent capability and default-deny                                                 |
+| Cancellation failure     | Client disconnect leaves work running           | Request deadline and cancellation propagated to kernel operations                                     |
+| Error disclosure         | Absolute path or secret in error                | Stable error codes and non-sensitive messages                                                         |
+| Race and platform drift  | Security behavior differs by OS                 | Platform-specific tests; unsupported guarantees fail closed                                           |
+| Namespace collision      | Provider shadows another tool                   | Fatal candidate compile; retain the prior active registry/snapshot                                    |
+| Provider discovery drift | Runtime tool set differs from manifest          | Exact eager readiness attestation; malformed/drifted provider remains unavailable                     |
+| Provider exhaustion      | Crash loop, hung call, flood, full queue        | Bounded time/message/output/queue/restart; quarantine without terminating the gateway                 |
+| Hybrid reload            | New policy calls an old provider runtime        | Capture one immutable snapshot/runtime generation; lease old runtime through active calls             |
+| Extension secret leak    | Args, output, endpoint, credential logged       | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields           |
+| Instruction poisoning    | File claims it grants tools or overrides policy | Return as untrusted `user` context; authorization remains exclusively in the captured policy snapshot |
+| Instruction path escape  | Declared path traverses root or follows symlink | Strict schema, canonical containment, no-follow/open-handle validation, and intrinsic secret deny     |
+| Context exhaustion       | Many or large instruction files                 | Bounded source counts, per-file bytes, whole-context bytes, and deterministic referenced status       |
+| Provenance disclosure    | User absolute path exposed to MCP client        | Hash-based source identifier and non-sensitive display path; stable errors omit raw paths             |
+| Context policy widening  | Reload adds source or raises a budget silently  | Classify additions/reordering/budget increases as risk-increasing and require approval                |
 
 ## 5. Capability composition rules
 
@@ -152,6 +161,26 @@ Phase 4 reload and approval boundary (2026-08-27):
   and duration only; no args, provider output, endpoint, env, credential ref, manifest
   text, or raw provider error is recordable by the schema.
 
+### Project context gate
+
+> Status: passed for Linux Node 22.23.2 and 24.19.0 on 2026-08-28 (ADR-009).
+> Windows evidence is deferred and not claimed by this checkpoint.
+
+- Policy explicitly names user, workspace, and directory-local sources; there is no
+  implicit home-directory scan or automatic context injection.
+- Provenance-only discovery and explicit prompt loading are workspace/profile scoped to
+  the captured immutable snapshot.
+- Instruction content is returned only as untrusted MCP `user` content and cannot add
+  kernel capabilities, extension grants, or policy authority.
+- Precedence, source order, hashes, sizes, estimated tokens, and loaded/referenced/error
+  states are deterministic and client-visible without exposing absolute user paths.
+- Workspace/directory reads reuse the hardened filesystem boundary. Traversal, symlinks,
+  secrets, invalid UTF-8, oversized sources, and non-directory targets fail closed.
+- Source counts, per-file bytes, total context bytes, and directory traversal depth are
+  bounded. Files that do not fit remain referenced; content is never partially injected.
+- Source addition/reordering and budget widening are approval-gated policy increases.
+- Optional onboarding state remains out of scope for this checkpoint.
+
 ## 7. Residual risks
 
 Portable Node.js APIs cannot provide identical race-free path semantics on every target.
@@ -159,6 +188,12 @@ The implementation therefore combines lexical checks, canonical containment, no-
 opening where supported, opened-handle validation, and platform-specific tests. A target
 that cannot meet the documented guarantee must fail closed or be excluded from the
 supported matrix.
+
+Phase 6 instruction files remain attacker-controlled model input. Explicit provenance,
+user-role delivery, and bounded loading prevent them from becoming gateway authority, but
+they cannot eliminate model-level prompt-injection risk; clients must preserve the
+context/policy distinction. Optional onboarding and Windows runtime evidence remain
+deferred.
 
 Phase 5 adds process and protocol isolation, not an OS sandbox. A stdio provider still
 has the filesystem and network authority of the gateway service identity, while an HTTPS

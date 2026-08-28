@@ -82,6 +82,34 @@ function setSubset(previous: ReadonlySet<string>, candidate: ReadonlySet<string>
   return true;
 }
 
+function orderedSubset(previous: readonly string[], candidate: readonly string[]): boolean {
+  let previousIndex = 0;
+  for (const value of candidate) {
+    const found = previous.indexOf(value, previousIndex);
+    if (found < 0) return false;
+    previousIndex = found + 1;
+  }
+  return true;
+}
+
+function instructionContextRiskIncrease(
+  previous: CompiledWorkspace,
+  candidate: CompiledWorkspace
+): boolean {
+  const next = candidate.instructions;
+  if (next === undefined) return false;
+  const prior = previous.instructions;
+  if (prior === undefined) return true;
+  if (!orderedSubset(prior.userFiles, next.userFiles)) return true;
+  if (!orderedSubset(prior.workspaceFiles, next.workspaceFiles)) return true;
+  if (!orderedSubset(prior.directoryFileNames, next.directoryFileNames)) return true;
+  return (
+    next.maxFiles > prior.maxFiles ||
+    next.maxFileBytes > prior.maxFileBytes ||
+    next.maxContextBytes > prior.maxContextBytes
+  );
+}
+
 function rootsBroadened(previous: CompiledWorkspace, candidate: CompiledWorkspace): boolean {
   const pairs: [string | undefined, string | undefined][] = [
     [previous.kernelPolicy.readRoot, candidate.kernelPolicy.readRoot],
@@ -137,6 +165,7 @@ function workspaceRiskIncrease(previous: CompiledWorkspace, candidate: CompiledW
   if (!setSubset(effectiveCapabilities(previous), effectiveCapabilities(candidate))) return true;
   if (rootsBroadened(previous, candidate)) return true;
   if (execChanged(previous, candidate)) return true;
+  if (instructionContextRiskIncrease(previous, candidate)) return true;
   return false;
 }
 

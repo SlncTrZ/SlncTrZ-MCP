@@ -475,28 +475,32 @@ accepting untrusted code or broad filesystem/network authority.
 
 ### 4.12 Project Instructions
 
-Project instructions are context, not authority.
+Project instructions are explicit, untrusted context—not authority. Operator policy names
+every eligible source and its bounds; the gateway never scans the home directory or
+implicitly discovers arbitrary files.
 
-Precedence:
+Precedence is safety policy, administrator policy, user files, workspace files, then
+directory-local files. Within the directory tier, the deepest target directory is applied
+first while walking toward the workspace root. Lower tiers cannot override authorization
+or add kernel/extension capability.
 
-1. Product safety rules.
-2. Administrator policy.
-3. User configuration.
-4. Workspace instructions.
-5. Directory-local instructions.
+Each authenticated MCP exchange captures one immutable policy snapshot. If its workspace
+declares instruction context, the server exposes:
 
-Higher-level safety and policy cannot be overridden by lower-level files.
+- `slnctrz://context/index`, a provenance-only resource; and
+- `project-context`, an explicit prompt returning selected content as a `user` message.
 
-Each context contribution records:
+Context is never injected automatically or emitted as a system message. Every contribution
+records a non-sensitive source identifier and display path, SHA-256, byte and estimated
+token counts, precedence, status, and modification time where available. Absolute user
+paths are not client-visible.
 
-- Source path.
-- Content hash.
-- Version or modification time.
-- Applied precedence.
-- Loaded or referenced status.
-- Token cost.
-
-Large content should be selectively loaded or referenced. The system must not repeatedly inject the same document without a context-budget decision.
+The resolver uses the hardened filesystem boundary for workspace/directory sources,
+strict UTF-8, no-follow/open-handle validation, intrinsic secret-path denial, and
+deterministic whole-file budgets. Content that does not fit is referenced rather than
+partially truncated. Adding/reordering sources or increasing a budget is a risk-increasing
+policy reload that requires approval. Optional onboarding state is not part of the current
+implementation.
 
 ### 4.13 Audit and Observability
 

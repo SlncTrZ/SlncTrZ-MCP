@@ -61,7 +61,8 @@ function canonicalHash(compiled: CompiledPolicyInput): string {
             ].join(":")
           )
           .sort()
-          .join(";")
+          .join(";"),
+        w.instructionContext?.policyHash ?? ""
       ].join("|")
     );
   const bindings = [...compiled.clientBindings]
@@ -114,6 +115,9 @@ function buildResolvedSnapshot(
     capabilities: Object.freeze([...enabled]),
     extensions: Object.freeze(extensions),
     ...(extensionRuntime === undefined ? {} : { extensionRuntime }),
+    ...(workspace.instructionContext === undefined
+      ? {}
+      : { instructionContext: workspace.instructionContext }),
     ...(readRoot === undefined ? {} : { readRoot }),
     ...(writeRoot === undefined ? {} : { writeRoot }),
     ...(execEnabled && workspace.kernelPolicy.execRoot !== undefined

@@ -4,9 +4,9 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 5 extension gateway implemented on the feature branch · Linux Node 22/24
-> acceptance passed · License: Apache-2.0 · Architecture: minimal trusted kernel with
-> isolated extensions
+> Status: Phase 6 explicit project context implemented · Linux Node 22/24 acceptance
+> passed · Windows gate deferred · License: Apache-2.0 · Architecture: minimal trusted
+> kernel with isolated extensions
 
 SlncTrZ-MCP is an **infrastructure gateway**, not a script. It sits between AI web
 clients and the capabilities they use, enforcing filesystem, execution, identity, and
@@ -22,6 +22,8 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 - **Universal extension gateway** — operator-declared third-party MCP servers run
   out-of-process over fixed stdio or HTTPS transports under bounded supervision.
 - **Policy engine** as the single authorization authority with live, atomic reload.
+- **Explicit project context** — bounded, provenance-visible instruction files requested
+  through MCP resources/prompts and treated as untrusted user context.
 - **Planned local control plane** for workspace, capability, extension, and token management.
 - **Audit and redaction pipeline** with privacy-preserving observability.
 
@@ -80,8 +82,9 @@ to reconnect. See ADR-011, ADR-012, and ADR-013.
 
 Machine authorization is default-deny. One operator-owned JSON policy
 (`SLNCTRZ_POLICY_FILE`) declares workspace roots, client bindings, capability profiles,
-fixed exec registries, extension manifests, and workspace/profile extension grants. An
-absent file compiles a deny-all snapshot, so an authenticated client sees only
+fixed exec registries, extension manifests, workspace/profile extension grants, and
+explicit instruction sources/budgets. An absent file compiles a deny-all snapshot, so an
+authenticated client sees only
 `core.ping`. Each request selects an explicit workspace (and profile for multi-profile
 workspaces) after authentication; unknown or unauthorized selectors return 403. Reload
 compiles a complete candidate off-side and activates it atomically; invalid manifests,
@@ -114,6 +117,38 @@ minimal explicit environment, and bounded protocol/output handling. Streamable H
 providers use a fixed HTTPS endpoint with same-origin redirects only. This is process and
 protocol isolation, not an OS sandbox; run the gateway with a restricted service identity.
 See ADR-020.
+
+## Project context
+
+Workspace policy may explicitly declare bounded user, workspace, and directory-local
+instruction files:
+
+```json
+{
+  "instructions": {
+    "userFiles": ["/absolute/path/to/user-guidance.md"],
+    "workspaceFiles": ["AGENTS.md"],
+    "directoryFileNames": ["AGENTS.local.md"],
+    "maxFiles": 32,
+    "maxFileBytes": 65536,
+    "maxContextBytes": 32768
+  }
+}
+```
+
+The gateway does not scan home directories or auto-inject contents. Authenticated clients
+can inspect provenance at `slnctrz://context/index` and explicitly request the
+`project-context` prompt for a workspace-relative directory. Returned instruction text
+has the MCP `user` role and a warning that it cannot override product safety or
+authorization policy.
+
+Resolution is deterministic: user files precede workspace files, followed by
+directory-local files from the deepest directory toward the workspace root. Each source
+reports a non-sensitive identifier/display path, SHA-256, size, estimated token count,
+precedence, and loaded/referenced/error status. Whole-file and total-context budgets avoid
+partial instruction injection; non-fitting content remains referenced. Secret paths,
+escapes, symlinks, malformed UTF-8, and oversized files fail closed. Adding sources,
+reordering them, or widening budgets requires policy approval. See ADR-009.
 
 ## Scoped development access
 

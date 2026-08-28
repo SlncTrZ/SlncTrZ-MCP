@@ -138,16 +138,19 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
   it("attests the exact declared tool set before marking a provider ready", async () => {
     const dir = await makeTempDir();
     const provider = await writeMockProvider(dir, "ok");
-    const manifest = await compileExtensionManifest({
-      id: "mock",
-      transport: "stdio",
-      version: "1.0.0",
-      command: process.execPath,
-      args: [provider],
-      tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
-      maxRestarts: 0
-    });
-    const runtime = await createExtensionRuntimeCatalog(await compileExtensionRegistry([manifest]));
+    const runtime = await createExtensionRuntimeCatalog(
+      await compileExtensionRegistry([
+        {
+          id: "mock",
+          transport: "stdio",
+          version: "1.0.0",
+          command: process.execPath,
+          args: [provider],
+          tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
+          maxRestarts: 0
+        }
+      ])
+    );
     expect(runtime.isReady("mock")).toBe(true);
     await runtime.stop();
   });
@@ -156,17 +159,18 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
     for (const behavior of ["malformed", "drift"] as const) {
       const dir = await makeTempDir();
       const provider = await writeDiscoveryFailureProvider(dir, behavior);
-      const manifest = await compileExtensionManifest({
-        id: "mock",
-        transport: "stdio",
-        version: "1.0.0",
-        command: process.execPath,
-        args: [provider],
-        tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
-        maxRestarts: 0
-      });
       const runtime = await createExtensionRuntimeCatalog(
-        await compileExtensionRegistry([manifest])
+        await compileExtensionRegistry([
+          {
+            id: "mock",
+            transport: "stdio",
+            version: "1.0.0",
+            command: process.execPath,
+            args: [provider],
+            tools: [{ canonicalId: "mock.echo", riskClass: "read" }],
+            maxRestarts: 0
+          }
+        ])
       );
       expect(runtime.isReady("mock")).toBe(false);
       await runtime.stop();
