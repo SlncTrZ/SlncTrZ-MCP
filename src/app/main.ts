@@ -27,12 +27,20 @@ import {
   type PolicyAuditSink
 } from "../observability/policy-audit.js";
 import { createControlPlaneServer, listenControlPlane } from "../control-plane/server.js";
-import { readRuntimeConfig } from "./config.js";
+import { readRuntimeConfig, type RuntimeConfig } from "./config.js";
 import { createGatewayServer, listenGateway } from "./http-server.js";
 
+export interface BootstrapDependencies {
+  readonly config?: RuntimeConfig;
+  readonly listenControlPlane?: typeof listenControlPlane;
+  readonly listenGateway?: typeof listenGateway;
+}
+
 /** Compose and start both listeners. Importing this module has no startup side effect. */
-export async function bootstrap(): Promise<void> {
-  const config = readRuntimeConfig();
+export async function bootstrap(dependencies: BootstrapDependencies = {}): Promise<void> {
+  const config = dependencies.config ?? readRuntimeConfig();
+  const startControlPlane = dependencies.listenControlPlane ?? listenControlPlane;
+  const startGateway = dependencies.listenGateway ?? listenGateway;
   const auditJournal = createAuditJournal({ capacity: 1_000 });
   const metrics = config.telemetryEnabled ? createMetricsRegistry() : undefined;
   let issuer: URL;
@@ -100,13 +108,13 @@ export async function bootstrap(): Promise<void> {
     ...(metrics === undefined ? {} : { metrics }),
     onError: (error) => console.error(error.message)
   });
-  const controlAddress = await listenControlPlane(controlServer, {
+  const controlAddress = await startControlPlane(controlServer, {
     host: config.controlHost,
     port: config.controlPort
   });
   let address;
   try {
-    address = await listenGateway(server, { host: config.host, port: config.port });
+    address = await startGateway(server, { host: config.host, port: config.port });
   } catch (error) {
     await new Promise<void>((resolve) => controlServer.close(() => resolve()));
     throw error;
