@@ -11,7 +11,9 @@
   "packageManager": "npm@11.16.0",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/app/main.js",
+    "build:sea:linux-x64": "node scripts/build-sea.mjs",
+    "smoke:sea:linux-x64": "node scripts/smoke-sea.mjs",
+    "start": "node dist/app/entry.js",
     "dev": "npm run build && npm start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
@@ -26,7 +28,9 @@
   "devDependencies": {
     "@types/node": "^26.3.0",
     "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
     "eslint": "^10.9.1",
+    "postject": "^1.0.0-alpha.6",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.68.0",
