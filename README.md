@@ -4,8 +4,8 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 7 local control plane and observability implemented · Linux Node 22/24
-> acceptance passed · Phase 5/6 Windows acceptance `npm run check` (typecheck, lint, format, 263 tests) and
+> Status: Phase 8 Linux x64 standalone prototype implemented · Linux Node 22/24
+> `npm run check` (326 passed / 1 skipped) and build pass · Phase 5/6 Windows acceptance `npm run check` (typecheck, lint, format, 263 tests) and
 > `npm run build` pass on Node 24.18.0 · License: Apache-2.0 · Architecture: minimal trusted
 > kernel with isolated extensions
 
@@ -28,6 +28,8 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 - **Loopback owner control plane** for redacted policy/capability views, extension health,
   atomic reload, revocation, metrics, and audit export.
 - **Audit and redaction pipeline** with privacy-preserving observability.
+- **Linux x64 standalone prototype** with verified HTTPS manifests, versioned installs,
+  atomic activation/rollback, and a self-contained Node SEA binary.
 
 > SlncTrZ-MCP is an **independent, clean-room implementation**. Reference repository
 > material is kept outside tracked source (see `PROVENANCE.md` and PLAN §2.1).
@@ -42,6 +44,7 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 | [`CONTRIBUTING.md`](CONTRIBUTING.md)           | Build, test, and contribution workflow                                 |
 | [`SECURITY.md`](SECURITY.md)                   | Security policy and vulnerability reporting                            |
 | [`PROVENANCE.md`](PROVENANCE.md)               | Dependency license inventory and provenance rules                      |
+| [`RELEASE.md`](RELEASE.md)                     | Standalone build, verification, upgrade, and rollback                  |
 | [`docs/adr/`](docs/adr/)                       | Architecture Decision Records                                          |
 | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Kernel, policy, and extension-gateway threat gates                     |
 
@@ -174,6 +177,17 @@ Deployments should run the gateway as a non-root service account with explicit O
 filesystem restrictions. A full runtime sandbox is deferred; it becomes required before
 free-form execution, untrusted code, broad network access, or multi-tenant operation.
 See ADR-019.
+
+## Standalone Linux x64 prototype
+
+The Linux x64 build bundles the same application entry into a Node 24 SEA executable. It
+supports `--help`, `--version`, explicit HTTPS-manifest installation, and one-step rollback
+without requiring system-wide Node.js, npm, Git, or a repository checkout. Updates are
+never automatic; artifact size and SHA-256 are verified before atomic activation.
+
+Only Linux x64 has local runtime evidence. Linux arm64, Windows, macOS, signing,
+notarization, release publication, and real-client OAuth-to-tool evidence remain release
+gates and are not claimed. See [`RELEASE.md`](RELEASE.md) and ADR-008.
 
 See [`ENGINEERING.md`](ENGINEERING.md) for the supported Node.js and operating-system
 matrix and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

@@ -1,7 +1,8 @@
 # Gateway Threat Model
 
 > Scope: Phase 3 kernel, Phase 4 policy snapshots, Phase 5 extension gateway,
-> Phase 6 explicit project context, and Phase 7 local control plane/observability
+> Phase 6 explicit project context, Phase 7 local control plane/observability,
+> and Phase 8 standalone distribution
 > Status: active implementation gate
 > Updated: 2026-08-28
 
@@ -41,43 +42,49 @@ data and permits no mutation or command execution.
 9. Output is truncated/redacted before it becomes model-visible.
 10. The owner control plane is a separate loopback-only listener; it is not routed through
     public ingress and does not trust loopback without owner authentication.
+11. Standalone manifests and artifacts cross a release supply-chain boundary before
+    verified bytes can enter an immutable version directory or become active.
 
 Workspace instructions, tool descriptions, prompts, and client annotations cannot grant
 capabilities.
 
 ## 4. Threats and required controls
 
-| Threat                    | Example                                         | Required control                                                                                      |
-| ------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Lexical traversal         | `../../secret`                                  | Reject absolute paths, NUL bytes, and lexical escape before I/O                                       |
-| Symlink escape            | Workspace link points outside                   | Resolve real paths and verify canonical containment                                                   |
-| TOCTOU replacement        | File changes after validation                   | Open with no-follow where supported, validate the opened handle, bound reads, fail closed             |
-| Secret disclosure         | `.env`, `.ssh`, repository internals            | Non-overridable secret path deny rules                                                                |
-| Encoding ambiguity        | Invalid UTF-8 becomes replacement text          | Fatal UTF-8 decoding; explicit encoding errors                                                        |
-| Resource exhaustion       | Huge file/tree/output                           | Byte, entry, depth, result, time, and output limits                                                   |
-| Nondeterminism            | Filesystem enumeration order changes            | Stable binary ordering and explicit truncation metadata                                               |
-| Write corruption          | Crash during overwrite                          | Same-directory temporary file, flush, atomic replacement, cleanup                                     |
-| Write/execute escalation  | Write script then execute it                    | Writable roots cannot overlap trusted executable roots                                                |
-| Shell injection           | Arguments interpreted by a shell                | Direct spawn by default; shell is a separate denied capability                                        |
-| Environment leakage       | Child inherits host secrets                     | Explicit environment allowlist and empty/minimal inherited environment                                |
-| Network escape            | Command opens remote connection                 | Network is an independent capability and default-deny                                                 |
-| Cancellation failure      | Client disconnect leaves work running           | Request deadline and cancellation propagated to kernel operations                                     |
-| Error disclosure          | Absolute path or secret in error                | Stable error codes and non-sensitive messages                                                         |
-| Race and platform drift   | Security behavior differs by OS                 | Platform-specific tests; unsupported guarantees fail closed                                           |
-| Namespace collision       | Provider shadows another tool                   | Fatal candidate compile; retain the prior active registry/snapshot                                    |
-| Provider discovery drift  | Runtime tool set differs from manifest          | Exact eager readiness attestation; malformed/drifted provider remains unavailable                     |
-| Provider exhaustion       | Crash loop, hung call, flood, full queue        | Bounded time/message/output/queue/restart; quarantine without terminating the gateway                 |
-| Hybrid reload             | New policy calls an old provider runtime        | Capture one immutable snapshot/runtime generation; lease old runtime through active calls             |
-| Extension secret leak     | Args, output, endpoint, credential logged       | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields           |
-| Instruction poisoning     | File claims it grants tools or overrides policy | Return as untrusted `user` context; authorization remains exclusively in the captured policy snapshot |
-| Instruction path escape   | Declared path traverses root or follows symlink | Strict schema, canonical containment, no-follow/open-handle validation, and intrinsic secret deny     |
-| Context exhaustion        | Many or large instruction files                 | Bounded source counts, per-file bytes, whole-context bytes, and deterministic referenced status       |
-| Provenance disclosure     | User absolute path exposed to MCP client        | Hash-based source identifier and non-sensitive display path; stable errors omit raw paths             |
-| Context policy widening   | Reload adds source or raises a budget silently  | Classify additions/reordering/budget increases as risk-increasing and require approval                |
-| Public admin exposure     | Ingress reaches a local control route           | Separate listener; loopback IP literal bind; no control routes on public server                       |
-| Local admin impersonation | Local process calls owner mutations             | Existing owner verifier on every request; bounded failed-auth rate                                    |
-| Telemetry disclosure      | Args, tokens, paths, labels enter export        | Projection-only journal and fixed metrics; no caller/provider labels or raw payloads                  |
-| Audit/metric exhaustion   | Unbounded events, labels, or latency samples    | Fixed journal/sample capacities, fixed fields, bounded bodies, no free-form Cardinality               |
+| Threat                    | Example                                          | Required control                                                                                      |
+| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Lexical traversal         | `../../secret`                                   | Reject absolute paths, NUL bytes, and lexical escape before I/O                                       |
+| Symlink escape            | Workspace link points outside                    | Resolve real paths and verify canonical containment                                                   |
+| TOCTOU replacement        | File changes after validation                    | Open with no-follow where supported, validate the opened handle, bound reads, fail closed             |
+| Secret disclosure         | `.env`, `.ssh`, repository internals             | Non-overridable secret path deny rules                                                                |
+| Encoding ambiguity        | Invalid UTF-8 becomes replacement text           | Fatal UTF-8 decoding; explicit encoding errors                                                        |
+| Resource exhaustion       | Huge file/tree/output                            | Byte, entry, depth, result, time, and output limits                                                   |
+| Nondeterminism            | Filesystem enumeration order changes             | Stable binary ordering and explicit truncation metadata                                               |
+| Write corruption          | Crash during overwrite                           | Same-directory temporary file, flush, atomic replacement, cleanup                                     |
+| Write/execute escalation  | Write script then execute it                     | Writable roots cannot overlap trusted executable roots                                                |
+| Shell injection           | Arguments interpreted by a shell                 | Direct spawn by default; shell is a separate denied capability                                        |
+| Environment leakage       | Child inherits host secrets                      | Explicit environment allowlist and empty/minimal inherited environment                                |
+| Network escape            | Command opens remote connection                  | Network is an independent capability and default-deny                                                 |
+| Cancellation failure      | Client disconnect leaves work running            | Request deadline and cancellation propagated to kernel operations                                     |
+| Error disclosure          | Absolute path or secret in error                 | Stable error codes and non-sensitive messages                                                         |
+| Race and platform drift   | Security behavior differs by OS                  | Platform-specific tests; unsupported guarantees fail closed                                           |
+| Namespace collision       | Provider shadows another tool                    | Fatal candidate compile; retain the prior active registry/snapshot                                    |
+| Provider discovery drift  | Runtime tool set differs from manifest           | Exact eager readiness attestation; malformed/drifted provider remains unavailable                     |
+| Provider exhaustion       | Crash loop, hung call, flood, full queue         | Bounded time/message/output/queue/restart; quarantine without terminating the gateway                 |
+| Hybrid reload             | New policy calls an old provider runtime         | Capture one immutable snapshot/runtime generation; lease old runtime through active calls             |
+| Extension secret leak     | Args, output, endpoint, credential logged        | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields           |
+| Instruction poisoning     | File claims it grants tools or overrides policy  | Return as untrusted `user` context; authorization remains exclusively in the captured policy snapshot |
+| Instruction path escape   | Declared path traverses root or follows symlink  | Strict schema, canonical containment, no-follow/open-handle validation, and intrinsic secret deny     |
+| Context exhaustion        | Many or large instruction files                  | Bounded source counts, per-file bytes, whole-context bytes, and deterministic referenced status       |
+| Provenance disclosure     | User absolute path exposed to MCP client         | Hash-based source identifier and non-sensitive display path; stable errors omit raw paths             |
+| Context policy widening   | Reload adds source or raises a budget silently   | Classify additions/reordering/budget increases as risk-increasing and require approval                |
+| Public admin exposure     | Ingress reaches a local control route            | Separate listener; loopback IP literal bind; no control routes on public server                       |
+| Local admin impersonation | Local process calls owner mutations              | Existing owner verifier on every request; bounded failed-auth rate                                    |
+| Telemetry disclosure      | Args, tokens, paths, labels enter export         | Projection-only journal and fixed metrics; no caller/provider labels or raw payloads                  |
+| Audit/metric exhaustion   | Unbounded events, labels, or latency samples     | Fixed journal/sample capacities, fixed fields, bounded bodies, no free-form Cardinality               |
+| Artifact substitution     | Manifest points to modified release bytes        | HTTPS-only strict manifest; declared size and SHA-256 verified before activation                      |
+| Interrupted update        | Download or rename fails mid-upgrade             | Same-filesystem staging cleanup; retain current activation until verified version exists              |
+| Version replacement       | Same version is republished with different bytes | Immutable version metadata; same-version mismatch fails closed                                        |
+| Activation traversal      | Corrupt metadata escapes install root            | Strict SemVer/target/filename/hash schema; validated metadata resolution without symlinks             |
 
 ## 5. Capability composition rules
 
@@ -212,6 +219,27 @@ Phase 4 reload and approval boundary (2026-08-27):
   restart, and quarantine values change only at real supervisor transitions.
 - `SLNCTRZ_TELEMETRY_ENABLED=false` removes metrics without disabling policy, MCP, audit,
   OAuth, extension supervision, or the control plane status/revocation functions.
+
+### Standalone distribution gate
+
+> Status: Linux x64 prototype verified locally; Node 22/24 check/build gates pass.
+> Cross-target and real-client
+> OAuth-to-tool evidence remain pending and are not claimed.
+
+- Manifest retrieval is HTTPS-only, redirect-rejecting, bounded, strict JSON, and strict
+  release-schema parsing.
+- Artifact bytes are streamed into staging and must match declared size and SHA-256 before
+  version metadata or activation can be committed.
+- Existing version directories are immutable. Identical reinstalls are idempotent and a
+  conflicting same-version artifact fails closed.
+- Activation metadata is atomically replaced, schema-validated, and resolved without
+  symlink dependence. Corrupt metadata and unavailable rollback targets fail closed.
+- Failed downloads, verification failures, and interrupted staging retain the active
+  version and clean temporary state.
+- CI may build, upload, download, checksum, and smoke-test release inputs; publication
+  remains a separate approval-gated action.
+- Windows and macOS artifacts require native build, clean-machine runtime, and platform
+  signing/notarization evidence before support is declared.
 
 ## 7. Residual risks
 

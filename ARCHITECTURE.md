@@ -683,7 +683,18 @@ Standalone mode:
 - Atomic activation and rollback.
 - No system-wide runtime installation.
 
-Node SEA is an implementation candidate, not an architectural dependency. The prototype must prove asset loading, ESM behavior, external provider spawning, signing, update, and cross-platform operation.
+Node SEA is an implementation candidate, not an architectural dependency. The Linux
+x64 prototype bundles the ESM source graph into CommonJS because Node 22/24 SEA dispatches
+the injected entry through its CommonJS embedder path. Application startup is an explicit
+async bootstrap, so CLI inspection does not bind listeners or require runtime configuration.
+
+A strict HTTPS manifest selects one exact host target and pins filename, byte length, and
+SHA-256. Installation streams into a same-filesystem staging directory, verifies bytes
+before an immutable version directory is created, and atomically replaces `current.json`.
+The launcher resolution path validates metadata rather than relying on symlinks. Interrupted
+updates retain the active version; identical reinstalls are idempotent; same-version
+substitution fails closed. CI builds/uploads/verifies artifacts but does not publish a
+release. Other targets still require native runtime and signing/notarization evidence.
 
 ## 9. Failure model
 

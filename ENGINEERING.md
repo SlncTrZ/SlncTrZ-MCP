@@ -19,17 +19,18 @@ Current development environment: Node `v24.18.0`, npm `11.16.0`. TypeScript
 
 ### Operating systems (target matrix, PLAN Phase 8)
 
-| OS      | Arch  | Status    |
-| ------- | ----- | --------- |
-| Linux   | x64   | Supported |
-| Linux   | arm64 | Supported |
-| Windows | x64   | Supported |
-| macOS   | x64   | Supported |
-| macOS   | arm64 | Supported |
+| OS      | Arch  | Developer Node runtime | Standalone SEA evidence |
+| ------- | ----- | ---------------------- | ----------------------- |
+| Linux   | x64   | Supported              | Verified prototype      |
+| Linux   | arm64 | Supported              | Not yet verified        |
+| Windows | x64   | Supported              | Not yet verified        |
+| macOS   | x64   | Supported              | Not yet verified        |
+| macOS   | arm64 | Supported              | Not yet verified        |
 
-The runtime currently targets Node.js as its platform. Standalone packaging (Node SEA)
-is a separate workstream and does not change this support matrix until proven
-per-target.
+The developer runtime support matrix and standalone release evidence are separate. Linux
+x64 SEA help/version and deny-all gateway bootstrap pass on Node 24. Other standalone
+targets remain unsupported until native build, clean-machine boot, and required
+signing/notarization evidence exists.
 
 ## Module layout
 
@@ -48,24 +49,27 @@ Source lives under `src/`, mapping to ARCHITECTURE components:
 | `src/protocol`      | Protocol compatibility adapters     |
 | `src/router`        | Request router                      |
 | `src/shared`        | Shared contracts and utilities      |
+| `src/standalone`    | Verified manifest/install/rollback  |
 
 Tests mirror this under `tests/` (`unit`, `integration`, `conformance`, `e2e`).
 Sample configuration lives under `config/`.
 
 ## Tooling commands
 
-| Command                 | Description                            |
-| ----------------------- | -------------------------------------- |
-| `npm run build`         | Emit compiled output to `dist/`        |
-| `npm run typecheck`     | Type-check without emitting            |
-| `npm run lint`          | ESLint (type-aware)                    |
-| `npm run lint:fix`      | ESLint autofix                         |
-| `npm run format`        | Prettier write                         |
-| `npm run format:check`  | Prettier check                         |
-| `npm test`              | Run unit tests (Vitest)                |
-| `npm run test:watch`    | Watch mode                             |
-| `npm run test:coverage` | Coverage report                        |
-| `npm run check`         | typecheck + lint + format:check + test |
+| Command                       | Description                            |
+| ----------------------------- | -------------------------------------- |
+| `npm run build`               | Emit compiled output to `dist/`        |
+| `npm run build:sea:linux-x64` | Build Linux x64 SEA artifact           |
+| `npm run smoke:sea:linux-x64` | Boot packaged deny-all gateway         |
+| `npm run typecheck`           | Type-check without emitting            |
+| `npm run lint`                | ESLint (type-aware)                    |
+| `npm run lint:fix`            | ESLint autofix                         |
+| `npm run format`              | Prettier write                         |
+| `npm run format:check`        | Prettier check                         |
+| `npm test`                    | Run unit tests (Vitest)                |
+| `npm run test:watch`          | Watch mode                             |
+| `npm run test:coverage`       | Coverage report                        |
+| `npm run check`               | typecheck + lint + format:check + test |
 
 ESM-only (`"type": "module"`). Source imports must use explicit `.js` extensions for
 NodeNext resolution (e.g. `import { x } from "../kernel/tool-identity.js"`).

@@ -368,6 +368,12 @@ Acceptance criteria:
 
 ### Phase 8 — Standalone distribution
 
+> Implementation status: Linux x64 SEA prototype, verified manifest fetch, versioned
+> install, atomic activation/rollback, and CI artifact verification are implemented.
+> Node 22/24 gates pass with 326 tests passed / 1 skipped; Linux x64 SEA help,
+> version, checksum, and deny-all bootstrap smoke pass. Cross-target native evidence and real-client OAuth-to-tool verification remain release
+> gates; unsupported targets are not claimed.
+
 The standalone objective is a self-contained user experience, not a promise that the application has no internal dependencies.
 
 Workstream A — non-developer runtime:

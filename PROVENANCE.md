@@ -39,15 +39,17 @@ remain governed by their respective licenses and are inventoried before release.
 
 ### Development (current)
 
-| Package               | Version | License    | Purpose                  |
-| --------------------- | ------- | ---------- | ------------------------ |
-| `typescript`          | 6.0.3   | Apache-2.0 | TypeScript compiler      |
-| `@types/node`         | 26.3.0  | MIT        | Node.js type definitions |
-| `vitest`              | 4.1.11  | MIT        | Unit test runner         |
-| `@vitest/coverage-v8` | 4.1.11  | MIT        | Coverage provider        |
-| `eslint`              | 10.9.1  | MIT        | Linter                   |
-| `typescript-eslint`   | 8.68.0  | MIT        | TypeScript ESLint rules  |
-| `prettier`            | 3.9.6   | MIT        | Code formatter           |
+| Package               | Version       | License    | Purpose                  |
+| --------------------- | ------------- | ---------- | ------------------------ |
+| `typescript`          | 6.0.3         | Apache-2.0 | TypeScript compiler      |
+| `@types/node`         | 26.3.0        | MIT        | Node.js type definitions |
+| `vitest`              | 4.1.11        | MIT        | Unit test runner         |
+| `@vitest/coverage-v8` | 4.1.11        | MIT        | Coverage provider        |
+| `eslint`              | 10.9.1        | MIT        | Linter                   |
+| `typescript-eslint`   | 8.68.0        | MIT        | TypeScript ESLint rules  |
+| `prettier`            | 3.9.6         | MIT        | Code formatter           |
+| `esbuild`             | 0.28.2        | MIT        | Standalone bundle        |
+| `postject`            | 1.0.0-alpha.6 | MIT        | Node SEA blob injection  |
 
 > This table is a snapshot. Regenerate the authoritative inventory with a license
 > scanner (e.g. `license-checker` / SPDX SBOM) before release; update this file to match.
