@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -107,6 +107,38 @@ describe("standalone installer", () => {
     await expect(readdir(join(installRoot, ".staging"))).resolves.toEqual([]);
   });
 
+  it("keeps the active release and cleans staging after a download stream reset", async () => {
+    const installRoot = await root();
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+    const reset = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(Buffer.from("partial artifact"));
+            controller.error(new Error("simulated connection reset"));
+          }
+        }),
+        { status: 200 }
+      )) as typeof fetch;
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest: release("1.1.0", Buffer.from("expected artifact")),
+        target: "linux-x64",
+        fetch: reset
+      })
+    ).rejects.toThrow("simulated connection reset");
+
+    await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
+    await expect(readdir(join(installRoot, ".staging"))).resolves.toEqual([]);
+  });
+
   it("is idempotent for the same verified version and rejects artifact substitution", async () => {
     const installRoot = await root();
     const bytes = Buffer.from("one");
@@ -157,6 +189,156 @@ describe("standalone installer", () => {
 
     expect(await rollbackStandaloneRelease({ installRoot })).toMatchObject({ version: "1.0.0" });
     await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
+  });
+
+  it("retains the active release and cleans staging when metadata publication is denied", async () => {
+    const installRoot = await root();
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest: release("1.1.0", Buffer.from("two")),
+        target: "linux-x64",
+        fetch: fetchBytes(Buffer.from("two")),
+        mutations: {
+          writeFile: (async (path, ...args) => {
+            if (String(path).endsWith("release.json")) {
+              throw Object.assign(new Error("simulated permission denial"), { code: "EACCES" });
+            }
+            return writeFile(path, ...args);
+          }) as typeof writeFile
+        }
+      })
+    ).rejects.toThrow("simulated permission denial");
+    await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
+    await expect(readdir(join(installRoot, ".staging"))).resolves.toEqual([]);
+    await expect(readdir(join(installRoot, "versions"))).resolves.toEqual(["1.0.0"]);
+  });
+
+  it("retains the active release when version publication rename fails", async () => {
+    const installRoot = await root();
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest: release("1.1.0", Buffer.from("two")),
+        target: "linux-x64",
+        fetch: fetchBytes(Buffer.from("two")),
+        mutations: {
+          rename: (async (source, destination) => {
+            if (String(destination).endsWith(join("versions", "1.1.0"))) {
+              throw Object.assign(new Error("simulated rename failure"), { code: "EIO" });
+            }
+            await rename(source, destination);
+          }) as typeof rename
+        }
+      })
+    ).rejects.toThrow("simulated rename failure");
+    await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
+    await expect(readdir(join(installRoot, ".staging"))).resolves.toEqual([]);
+    await expect(readdir(join(installRoot, "versions"))).resolves.toEqual(["1.0.0"]);
+  });
+
+  it("keeps the old activation when current metadata rename fails", async () => {
+    const installRoot = await root();
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest: release("1.1.0", Buffer.from("two")),
+        target: "linux-x64",
+        fetch: fetchBytes(Buffer.from("two")),
+        mutations: {
+          rename: (async (source, destination) => {
+            if (String(destination).endsWith("current.json")) {
+              throw Object.assign(new Error("simulated activation failure"), { code: "EIO" });
+            }
+            await rename(source, destination);
+          }) as typeof rename
+        }
+      })
+    ).rejects.toThrow("simulated activation failure");
+    await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
+    await expect(readdir(installRoot)).resolves.not.toContainEqual(
+      expect.stringMatching(/^\.current\.json\..+\.tmp$/u)
+    );
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest: release("1.1.0", Buffer.from("two")),
+        target: "linux-x64",
+        fetch: fetchBytes(Buffer.from("unused"))
+      })
+    ).resolves.toMatchObject({ version: "1.1.0", previousVersion: "1.0.0" });
+  });
+
+  it("preserves activation when rollback metadata write fails", async () => {
+    const installRoot = await root();
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.1.0", Buffer.from("two")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("two"))
+    });
+
+    await expect(
+      rollbackStandaloneRelease({
+        installRoot,
+        mutations: {
+          writeFile: (async () => {
+            throw Object.assign(new Error("simulated disk write failure"), { code: "ENOSPC" });
+          }) as typeof writeFile
+        }
+      })
+    ).rejects.toThrow("simulated disk write failure");
+    await expect(currentVersion(installRoot)).resolves.toBe("1.1.0");
+  });
+
+  it("fails closed when the rollback target disappears after activation", async () => {
+    const installRoot = await root();
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.1.0", Buffer.from("two")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("two"))
+    });
+    await rm(join(installRoot, "versions", "1.0.0", "release.json"));
+
+    await expect(rollbackStandaloneRelease({ installRoot })).rejects.toThrow(
+      "target is unavailable"
+    );
+    await expect(currentVersion(installRoot)).resolves.toBe("1.1.0");
   });
 
   it("fails closed on corrupt activation metadata and unsafe roots", async () => {

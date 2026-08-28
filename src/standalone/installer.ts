@@ -45,12 +45,29 @@ export interface ActivationRecord extends InstalledRelease {
   readonly previousVersion?: string;
 }
 
+interface InstallerMutations {
+  readonly createWriteStream: typeof createWriteStream;
+  readonly mkdir: typeof mkdir;
+  readonly rename: typeof rename;
+  readonly rm: typeof rm;
+  readonly writeFile: typeof writeFile;
+}
+
+const NODE_INSTALLER_MUTATIONS: InstallerMutations = {
+  createWriteStream,
+  mkdir,
+  rename,
+  rm,
+  writeFile
+};
+
 export interface InstallStandaloneReleaseOptions {
   readonly installRoot: string;
   readonly manifest: ReleaseManifest;
   readonly target: ReleaseTarget;
   readonly fetch?: typeof fetch;
   readonly signal?: AbortSignal;
+  readonly mutations?: Partial<InstallerMutations>;
 }
 
 function versionPath(installRoot: string, version: string): string {
@@ -116,17 +133,21 @@ function parseInstalledRelease(value: unknown, allowPreviousVersion = false): Ac
   };
 }
 
-async function writeActivation(installRoot: string, record: ActivationRecord): Promise<void> {
+async function writeActivation(
+  installRoot: string,
+  record: ActivationRecord,
+  mutations: InstallerMutations
+): Promise<void> {
   const temporary = join(installRoot, `.${CURRENT_FILE}.${randomUUID()}.tmp`);
-  await writeFile(temporary, `${JSON.stringify(record)}\n`, {
+  await mutations.writeFile(temporary, `${JSON.stringify(record)}\n`, {
     encoding: "utf8",
     mode: 0o600,
     flag: "wx"
   });
   try {
-    await rename(temporary, join(installRoot, CURRENT_FILE));
+    await mutations.rename(temporary, join(installRoot, CURRENT_FILE));
   } finally {
-    await rm(temporary, { force: true });
+    await mutations.rm(temporary, { force: true });
   }
 }
 
@@ -174,7 +195,8 @@ function sameRelease(left: InstalledRelease, right: InstalledRelease): boolean {
 
 async function activateRelease(
   installRoot: string,
-  installed: InstalledRelease
+  installed: InstalledRelease,
+  mutations: InstallerMutations
 ): Promise<ActivationRecord> {
   const current = await readActivation(installRoot);
   if (current !== undefined && sameRelease(current, installed)) return current;
@@ -182,7 +204,7 @@ async function activateRelease(
     ...installed,
     ...(current === undefined ? {} : { previousVersion: current.version })
   };
-  await writeActivation(installRoot, activated);
+  await writeActivation(installRoot, activated, mutations);
   return activated;
 }
 
@@ -192,6 +214,7 @@ async function downloadVerified(
   expectedSize: number,
   destination: string,
   fetchImpl: typeof fetch,
+  mutations: InstallerMutations,
   signal?: AbortSignal
 ): Promise<void> {
   const response = await fetchImpl(url, {
@@ -217,7 +240,7 @@ async function downloadVerified(
   await pipeline(
     Readable.fromWeb(response.body as NodeReadableStream),
     verifier,
-    createWriteStream(destination, { flags: "wx", mode: 0o700 })
+    mutations.createWriteStream(destination, { flags: "wx", mode: 0o700 })
   );
   if (bytes !== expectedSize) {
     throw new Error("Standalone artifact size does not match manifest");
@@ -231,6 +254,7 @@ export async function installStandaloneRelease(
   options: InstallStandaloneReleaseOptions
 ): Promise<ActivationRecord> {
   validateInstallRoot(options.installRoot);
+  const mutations: InstallerMutations = { ...NODE_INSTALLER_MUTATIONS, ...options.mutations };
   const manifest = parseReleaseManifest(options.manifest);
   const artifact = selectReleaseArtifact(manifest, options.target);
   const installed: InstalledRelease = {
@@ -245,31 +269,32 @@ export async function installStandaloneRelease(
     if (!sameRelease(existing, installed)) {
       throw new Error("Standalone version already exists with a different artifact");
     }
-    return activateRelease(options.installRoot, existing);
+    return activateRelease(options.installRoot, existing, mutations);
   }
 
   const versionsRoot = join(options.installRoot, "versions");
   const stagingRoot = join(options.installRoot, ".staging");
-  await mkdir(versionsRoot, { recursive: true, mode: 0o700 });
-  await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
+  await mutations.mkdir(versionsRoot, { recursive: true, mode: 0o700 });
+  await mutations.mkdir(stagingRoot, { recursive: true, mode: 0o700 });
   const stage = join(stagingRoot, randomUUID());
   try {
-    await mkdir(stage, { mode: 0o700 });
+    await mutations.mkdir(stage, { mode: 0o700 });
     await downloadVerified(
       artifact.url,
       artifact.sha256,
       artifact.sizeBytes,
       join(stage, artifact.fileName),
       options.fetch ?? fetch,
+      mutations,
       options.signal
     );
-    await writeFile(join(stage, VERSION_METADATA), `${JSON.stringify(installed)}\n`, {
+    await mutations.writeFile(join(stage, VERSION_METADATA), `${JSON.stringify(installed)}\n`, {
       encoding: "utf8",
       mode: 0o600,
       flag: "wx"
     });
     try {
-      await rename(stage, versionPath(options.installRoot, installed.version));
+      await mutations.rename(stage, versionPath(options.installRoot, installed.version));
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EEXIST" && code !== "ENOTEMPTY") throw error;
@@ -278,16 +303,18 @@ export async function installStandaloneRelease(
         throw new Error("Standalone version already exists with a different artifact");
       }
     }
-    return activateRelease(options.installRoot, installed);
+    return activateRelease(options.installRoot, installed, mutations);
   } finally {
-    await rm(stage, { recursive: true, force: true });
+    await mutations.rm(stage, { recursive: true, force: true });
   }
 }
 
 export async function rollbackStandaloneRelease(options: {
   readonly installRoot: string;
+  readonly mutations?: Partial<InstallerMutations>;
 }): Promise<ActivationRecord> {
   validateInstallRoot(options.installRoot);
+  const mutations: InstallerMutations = { ...NODE_INSTALLER_MUTATIONS, ...options.mutations };
   const current = await readActivation(options.installRoot);
   if (current?.previousVersion === undefined) {
     throw new Error("Standalone rollback is unavailable");
@@ -295,7 +322,7 @@ export async function rollbackStandaloneRelease(options: {
   const previous = await readInstalledVersion(options.installRoot, current.previousVersion);
   if (previous === undefined) throw new Error("Standalone rollback target is unavailable");
   const activated: ActivationRecord = { ...previous };
-  await writeActivation(options.installRoot, activated);
+  await writeActivation(options.installRoot, activated, mutations);
   return activated;
 }
 

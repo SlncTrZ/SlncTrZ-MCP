@@ -40,6 +40,41 @@ describe("release manifest retrieval", () => {
     ).toThrow("userinfo");
   });
 
+  it("propagates abort signals and rejects interrupted or invalid-UTF-8 streams", async () => {
+    const controller = new AbortController();
+    const aborting = (async (_url: URL, options?: RequestInit) => {
+      expect(options?.redirect).toBe("error");
+      expect(options?.signal).toBe(controller.signal);
+      throw new DOMException("aborted", "AbortError");
+    }) as typeof fetch;
+    await expect(
+      fetchReleaseManifest("https://updates.example.test/stable.json", {
+        fetch: aborting,
+        signal: controller.signal
+      })
+    ).rejects.toThrow("aborted");
+
+    const interrupted = (async () =>
+      new Response(
+        new ReadableStream({
+          start(stream) {
+            stream.enqueue(new TextEncoder().encode('{"schemaVersion":'));
+            stream.error(new Error("simulated manifest stream reset"));
+          }
+        }),
+        { status: 200 }
+      )) as typeof fetch;
+    await expect(
+      fetchReleaseManifest("https://updates.example.test/stable.json", { fetch: interrupted })
+    ).rejects.toThrow("simulated manifest stream reset");
+
+    await expect(
+      fetchReleaseManifest("https://updates.example.test/stable.json", {
+        fetch: responder(new Uint8Array([0xff]))
+      })
+    ).rejects.toThrow("valid UTF-8");
+  });
+
   it("rejects failed, oversized and malformed responses", async () => {
     await expect(
       fetchReleaseManifest("https://updates.example.test/stable.json", {
