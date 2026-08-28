@@ -1,0 +1,84 @@
+name: Standalone artifact
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-x64:
+    name: build Linux x64 SEA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build standalone artifact
+        env:
+          SLNCTRZ_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+        run: npm run build:sea:linux-x64
+
+      - name: Smoke-test self-contained CLI and gateway
+        run: |
+          dist/standalone/linux-x64/slnctrz-mcp --help
+          test "$(dist/standalone/linux-x64/slnctrz-mcp --version)" = "$(node -p "require('./package.json').version")"
+          npm run smoke:sea:linux-x64
+
+      - name: Upload verified release inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: slnctrz-mcp-linux-x64
+          path: |
+            dist/standalone/linux-x64/slnctrz-mcp
+            dist/standalone/linux-x64/manifest.json
+            dist/standalone/linux-x64/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  verify-linux-x64:
+    name: verify Linux x64 SEA
+    needs: build-linux-x64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: slnctrz-mcp-linux-x64
+          path: artifact
+
+      - name: Verify checksum and manifest projection
+        working-directory: artifact
+        run: |
+          sha256sum --check SHA256SUMS
+          node --input-type=module -e '
+            import { createHash } from "node:crypto";
+            import { readFileSync, statSync } from "node:fs";
+            const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
+            const artifact = manifest.artifacts.find(({ target }) => target === "linux-x64");
+            if (!artifact) throw new Error("linux-x64 artifact missing");
+            const binary = readFileSync("slnctrz-mcp");
+            const hash = createHash("sha256").update(binary).digest("hex");
+            if (artifact.sha256 !== hash || artifact.sizeBytes !== statSync("slnctrz-mcp").size) {
+              throw new Error("manifest does not project emitted binary");
+            }
+          '
+
+      - name: Smoke-test downloaded binary
+        working-directory: artifact
+        run: |
+          chmod 0755 slnctrz-mcp
+          ./slnctrz-mcp --help
+          ./slnctrz-mcp --version
