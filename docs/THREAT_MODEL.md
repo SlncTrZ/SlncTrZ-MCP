@@ -1,7 +1,7 @@
 # Gateway Threat Model
 
-> Scope: Phase 3 kernel, Phase 4 policy snapshots, Phase 5 extension gateway, and
-> Phase 6 explicit project context
+> Scope: Phase 3 kernel, Phase 4 policy snapshots, Phase 5 extension gateway,
+> Phase 6 explicit project context, and Phase 7 local control plane/observability
 > Status: active implementation gate
 > Updated: 2026-08-28
 
@@ -39,39 +39,45 @@ data and permits no mutation or command execution.
 8. The instruction resolver loads only policy-declared sources through bounded,
    symlink-aware reads; MCP exposes provenance and content only on explicit client requests.
 9. Output is truncated/redacted before it becomes model-visible.
+10. The owner control plane is a separate loopback-only listener; it is not routed through
+    public ingress and does not trust loopback without owner authentication.
 
 Workspace instructions, tool descriptions, prompts, and client annotations cannot grant
 capabilities.
 
 ## 4. Threats and required controls
 
-| Threat                   | Example                                         | Required control                                                                                      |
-| ------------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Lexical traversal        | `../../secret`                                  | Reject absolute paths, NUL bytes, and lexical escape before I/O                                       |
-| Symlink escape           | Workspace link points outside                   | Resolve real paths and verify canonical containment                                                   |
-| TOCTOU replacement       | File changes after validation                   | Open with no-follow where supported, validate the opened handle, bound reads, fail closed             |
-| Secret disclosure        | `.env`, `.ssh`, repository internals            | Non-overridable secret path deny rules                                                                |
-| Encoding ambiguity       | Invalid UTF-8 becomes replacement text          | Fatal UTF-8 decoding; explicit encoding errors                                                        |
-| Resource exhaustion      | Huge file/tree/output                           | Byte, entry, depth, result, time, and output limits                                                   |
-| Nondeterminism           | Filesystem enumeration order changes            | Stable binary ordering and explicit truncation metadata                                               |
-| Write corruption         | Crash during overwrite                          | Same-directory temporary file, flush, atomic replacement, cleanup                                     |
-| Write/execute escalation | Write script then execute it                    | Writable roots cannot overlap trusted executable roots                                                |
-| Shell injection          | Arguments interpreted by a shell                | Direct spawn by default; shell is a separate denied capability                                        |
-| Environment leakage      | Child inherits host secrets                     | Explicit environment allowlist and empty/minimal inherited environment                                |
-| Network escape           | Command opens remote connection                 | Network is an independent capability and default-deny                                                 |
-| Cancellation failure     | Client disconnect leaves work running           | Request deadline and cancellation propagated to kernel operations                                     |
-| Error disclosure         | Absolute path or secret in error                | Stable error codes and non-sensitive messages                                                         |
-| Race and platform drift  | Security behavior differs by OS                 | Platform-specific tests; unsupported guarantees fail closed                                           |
-| Namespace collision      | Provider shadows another tool                   | Fatal candidate compile; retain the prior active registry/snapshot                                    |
-| Provider discovery drift | Runtime tool set differs from manifest          | Exact eager readiness attestation; malformed/drifted provider remains unavailable                     |
-| Provider exhaustion      | Crash loop, hung call, flood, full queue        | Bounded time/message/output/queue/restart; quarantine without terminating the gateway                 |
-| Hybrid reload            | New policy calls an old provider runtime        | Capture one immutable snapshot/runtime generation; lease old runtime through active calls             |
-| Extension secret leak    | Args, output, endpoint, credential logged       | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields           |
-| Instruction poisoning    | File claims it grants tools or overrides policy | Return as untrusted `user` context; authorization remains exclusively in the captured policy snapshot |
-| Instruction path escape  | Declared path traverses root or follows symlink | Strict schema, canonical containment, no-follow/open-handle validation, and intrinsic secret deny     |
-| Context exhaustion       | Many or large instruction files                 | Bounded source counts, per-file bytes, whole-context bytes, and deterministic referenced status       |
-| Provenance disclosure    | User absolute path exposed to MCP client        | Hash-based source identifier and non-sensitive display path; stable errors omit raw paths             |
-| Context policy widening  | Reload adds source or raises a budget silently  | Classify additions/reordering/budget increases as risk-increasing and require approval                |
+| Threat                    | Example                                         | Required control                                                                                      |
+| ------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Lexical traversal         | `../../secret`                                  | Reject absolute paths, NUL bytes, and lexical escape before I/O                                       |
+| Symlink escape            | Workspace link points outside                   | Resolve real paths and verify canonical containment                                                   |
+| TOCTOU replacement        | File changes after validation                   | Open with no-follow where supported, validate the opened handle, bound reads, fail closed             |
+| Secret disclosure         | `.env`, `.ssh`, repository internals            | Non-overridable secret path deny rules                                                                |
+| Encoding ambiguity        | Invalid UTF-8 becomes replacement text          | Fatal UTF-8 decoding; explicit encoding errors                                                        |
+| Resource exhaustion       | Huge file/tree/output                           | Byte, entry, depth, result, time, and output limits                                                   |
+| Nondeterminism            | Filesystem enumeration order changes            | Stable binary ordering and explicit truncation metadata                                               |
+| Write corruption          | Crash during overwrite                          | Same-directory temporary file, flush, atomic replacement, cleanup                                     |
+| Write/execute escalation  | Write script then execute it                    | Writable roots cannot overlap trusted executable roots                                                |
+| Shell injection           | Arguments interpreted by a shell                | Direct spawn by default; shell is a separate denied capability                                        |
+| Environment leakage       | Child inherits host secrets                     | Explicit environment allowlist and empty/minimal inherited environment                                |
+| Network escape            | Command opens remote connection                 | Network is an independent capability and default-deny                                                 |
+| Cancellation failure      | Client disconnect leaves work running           | Request deadline and cancellation propagated to kernel operations                                     |
+| Error disclosure          | Absolute path or secret in error                | Stable error codes and non-sensitive messages                                                         |
+| Race and platform drift   | Security behavior differs by OS                 | Platform-specific tests; unsupported guarantees fail closed                                           |
+| Namespace collision       | Provider shadows another tool                   | Fatal candidate compile; retain the prior active registry/snapshot                                    |
+| Provider discovery drift  | Runtime tool set differs from manifest          | Exact eager readiness attestation; malformed/drifted provider remains unavailable                     |
+| Provider exhaustion       | Crash loop, hung call, flood, full queue        | Bounded time/message/output/queue/restart; quarantine without terminating the gateway                 |
+| Hybrid reload             | New policy calls an old provider runtime        | Capture one immutable snapshot/runtime generation; lease old runtime through active calls             |
+| Extension secret leak     | Args, output, endpoint, credential logged       | Stable errors and fixed audit schema excluding provider-controlled or secret-bearing fields           |
+| Instruction poisoning     | File claims it grants tools or overrides policy | Return as untrusted `user` context; authorization remains exclusively in the captured policy snapshot |
+| Instruction path escape   | Declared path traverses root or follows symlink | Strict schema, canonical containment, no-follow/open-handle validation, and intrinsic secret deny     |
+| Context exhaustion        | Many or large instruction files                 | Bounded source counts, per-file bytes, whole-context bytes, and deterministic referenced status       |
+| Provenance disclosure     | User absolute path exposed to MCP client        | Hash-based source identifier and non-sensitive display path; stable errors omit raw paths             |
+| Context policy widening   | Reload adds source or raises a budget silently  | Classify additions/reordering/budget increases as risk-increasing and require approval                |
+| Public admin exposure     | Ingress reaches a local control route           | Separate listener; loopback IP literal bind; no control routes on public server                       |
+| Local admin impersonation | Local process calls owner mutations             | Existing owner verifier on every request; bounded failed-auth rate                                    |
+| Telemetry disclosure      | Args, tokens, paths, labels enter export        | Projection-only journal and fixed metrics; no caller/provider labels or raw payloads                  |
+| Audit/metric exhaustion   | Unbounded events, labels, or latency samples    | Fixed journal/sample capacities, fixed fields, bounded bodies, no free-form Cardinality               |
 
 ## 5. Capability composition rules
 
@@ -183,6 +189,29 @@ Phase 4 reload and approval boundary (2026-08-27):
   bounded. Files that do not fit remain referenced; content is never partially injected.
 - Source addition/reordering and budget widening are approval-gated policy increases.
 - Optional onboarding state remains out of scope for this checkpoint.
+
+### Control plane and observability gate
+
+> Status: passed for Linux Node 22.23.2 and 24.19.0 on 2026-08-28 (ADR-021).
+> `npm run check` reported 307 passed / 1 skipped (308 total); `npm run build` passed.
+> Phase 7 Windows runtime evidence is not claimed by this checkpoint.
+
+- The control plane is a separate server and rejects non-loopback bind addresses. Public
+  HTTP routes cannot dispatch control operations.
+- Every route uses the owner verifier, bounded bodies, no-store JSON, generic failures, and
+  failed-auth rate limiting; credentials are never reflected or journaled.
+- Policy/workspace/capability and extension views omit roots, commands, endpoints,
+  credential refs, client bindings, args, output, and environment data.
+- Owner-approved reload still compiles one complete candidate through validation, risk
+  classification, immutable snapshot construction, and atomic activation.
+- Client revocation removes ephemeral client state and grants; token revocation removes the
+  full grant family. Token values exist only in the bounded request body.
+- Auth, policy, tool, and control events enter the journal through fixed runtime projections;
+  export is chronological and bounded.
+- Tool latency samples and audit retention are finite; metric names/fields are fixed. Queue,
+  restart, and quarantine values change only at real supervisor transitions.
+- `SLNCTRZ_TELEMETRY_ENABLED=false` removes metrics without disabling policy, MCP, audit,
+  OAuth, extension supervision, or the control plane status/revocation functions.
 
 ## 7. Residual risks
 

@@ -4,8 +4,8 @@
 > gateway that connects AI web clients to controlled local capabilities through one
 > stable public endpoint.
 >
-> Status: Phase 6 explicit project context implemented · Linux Node 22/24 acceptance
-> passed · Windows acceptance `npm run check` (typecheck, lint, format, 263 tests) and
+> Status: Phase 7 local control plane and observability implemented · Linux Node 22/24
+> acceptance passed · Phase 5/6 Windows acceptance `npm run check` (typecheck, lint, format, 263 tests) and
 > `npm run build` pass on Node 24.18.0 · License: Apache-2.0 · Architecture: minimal trusted
 > kernel with isolated extensions
 
@@ -25,7 +25,8 @@ secret boundaries by _mechanism_ rather than by prompt instruction.
 - **Policy engine** as the single authorization authority with live, atomic reload.
 - **Explicit project context** — bounded, provenance-visible instruction files requested
   through MCP resources/prompts and treated as untrusted user context.
-- **Planned local control plane** for workspace, capability, extension, and token management.
+- **Loopback owner control plane** for redacted policy/capability views, extension health,
+  atomic reload, revocation, metrics, and audit export.
 - **Audit and redaction pipeline** with privacy-preserving observability.
 
 > SlncTrZ-MCP is an **independent, clean-room implementation**. Reference repository
@@ -57,6 +58,7 @@ The local endpoints are:
 - MCP Streamable HTTP: `http://127.0.0.1:3100/mcp`
 - Liveness: `http://127.0.0.1:3100/healthz`
 - Readiness: `http://127.0.0.1:3100/readyz`
+- Owner control plane: `http://127.0.0.1:3101`
 
 Remote ingress must supply an explicit public URL, hostname allowlist, and an
 owner-secret scrypt verifier from a secret store or protected runtime environment:
@@ -64,6 +66,9 @@ owner-secret scrypt verifier from a secret store or protected runtime environmen
 ```bash
 SLNCTRZ_HOST=0.0.0.0 \
 SLNCTRZ_PORT=3100 \
+SLNCTRZ_CONTROL_HOST=127.0.0.1 \
+SLNCTRZ_CONTROL_PORT=3101 \
+SLNCTRZ_TELEMETRY_ENABLED=true \
 SLNCTRZ_MAX_DYNAMIC_CLIENTS=1024 \
 SLNCTRZ_PUBLIC_URL=https://mcp.example.com/mcp \
 SLNCTRZ_ALLOWED_HOSTS=mcp.example.com \
@@ -159,8 +164,12 @@ commands, with explicit roots, bounded output, audit attribution, and no inherit
 gateway environment. Broader developer workflows require an explicit policy change and
 must not silently expand a client’s authority.
 
-Policy reload is atomic, but the current interface is an explicit internal reload API;
-there is no file watcher, public MCP reload tool, owner CLI, or control-plane UI yet.
+Policy reload is atomic. The separate loopback control plane can inspect the redacted
+policy and owner-approve a complete reload, but there is no file watcher, public MCP reload
+tool, direct policy editor, owner CLI, or browser UI. It also exposes redacted status,
+extension health, bounded audit/metrics, and owner-authorized client/token revocation.
+Every request requires the owner secret as an Authorization bearer value; never place it
+in a URL or log. See ADR-021.
 Deployments should run the gateway as a non-root service account with explicit OS-level
 filesystem restrictions. A full runtime sandbox is deferred; it becomes required before
 free-form execution, untrusted code, broad network access, or multi-tenant operation.

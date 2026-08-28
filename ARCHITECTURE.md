@@ -541,6 +541,13 @@ Metrics:
 - Output truncation.
 - Authentication and authorization failures.
 
+Phase 7 implementation checkpoint (2026-08-28): metrics have fixed fields and bounded
+latency samples; no API accepts caller/provider labels. Every MCP tool is measured at the
+common registration seam, policy reload duration at the outer transaction, and extension
+queue/restart/quarantine only on real supervisor transitions. Auth, policy, tool, and
+control audit events fan out to JSONL and a bounded projection-only journal. Telemetry may
+be disabled independently without changing gateway behavior.
+
 ### 4.14 Local Control Plane
 
 The control plane binds to loopback by default.
@@ -557,6 +564,15 @@ Functions:
 - Export diagnostics without secrets.
 
 The data-plane public endpoint must not route to control-plane assets or APIs.
+
+Phase 7 uses a physically separate HTTP server that accepts only `127.0.0.1` or `::1` as
+bind addresses. Every route requires the existing owner verifier, returns bounded no-store
+JSON, and rate-limits failed owner authentication. The API exposes redacted status, policy
+workspace/profile/capability/grant views, extension health, metrics, bounded audit export,
+owner-approved atomic policy reload, and client/token revocation. The operator-owned policy
+file remains the configuration source; the control plane cannot patch policy fragments or
+bypass complete validation/risk classification. Persistent audit storage, remote admin, and
+a browser UI remain out of scope. See ADR-021.
 
 ## 5. Runtime data flow
 

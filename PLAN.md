@@ -341,6 +341,14 @@ Acceptance criteria:
 
 ### Phase 7 — Control plane and observability
 
+> Implementation status: complete (2026-08-28). A distinct owner-authenticated control
+> listener is restricted to loopback IP literals; the public MCP router has no control
+> routes. It provides redacted policy/workspace/capability and extension-health views,
+> owner-approved atomic reload, client/token revocation, bounded audit export, and fixed-name
+> operational metrics. Telemetry is independently disableable. Linux `npm run check` and
+> `npm run build` pass on Node 22.23.2 and 24.19.0 with 307 passed / 1 skipped (308 total).
+> Phase 7 Windows evidence is not claimed by this checkpoint. See ADR-021.
+
 Deliverables:
 
 - Loopback-only local control plane by default.

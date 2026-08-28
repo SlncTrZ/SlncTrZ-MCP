@@ -29,6 +29,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-018 | Versioned immutable policy snapshots and atomic activation          | Accepted |
 | ADR-019 | Scoped developer access and sandbox escalation criteria             | Accepted |
 | ADR-020 | Bounded isolated MCP extension transports                           | Accepted |
+| ADR-021 | Separate loopback owner control plane and bounded telemetry         | Accepted |
 
 ## How to add an ADR
 
