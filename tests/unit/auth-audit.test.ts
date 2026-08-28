@@ -3,7 +3,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createJsonLineAuthAuditSink } from "../../src/observability/auth-audit.js";
+import { createAuditJournal } from "../../src/observability/audit-journal.js";
+import {
+  createJournalAuthAuditSink,
+  createJsonLineAuthAuditSink
+} from "../../src/observability/auth-audit.js";
+import { createMetricsRegistry } from "../../src/observability/metrics.js";
 
 describe("authentication audit", () => {
   it("writes one structured JSON line without inventing sensitive fields", () => {
@@ -26,5 +31,31 @@ describe("authentication audit", () => {
       clientId: "client_public"
     });
     expect(lines[0]).not.toMatch(/token_value|client_secret|passphrase|authorization/iu);
+
+    const journal = createAuditJournal({ capacity: 2 });
+    const metrics = createMetricsRegistry();
+    const fanOut = createJournalAuthAuditSink(journal, sink, metrics);
+    fanOut({
+      timestamp: "2026-08-28T00:00:00.000Z",
+      type: "authorization.failed",
+      outcome: "failure",
+      clientId: "client_public",
+      reason: "invalid_owner",
+      operation: "owner_authentication"
+    });
+
+    expect(journal.export()).toEqual([
+      {
+        timestamp: "2026-08-28T00:00:00.000Z",
+        category: "auth",
+        clientId: "client_public",
+        capabilityId: "authorization.failed",
+        result: "error"
+      }
+    ]);
+    expect(metrics.snapshot().authFailuresTotal).toBe(1);
+    expect(JSON.stringify(journal.export())).not.toMatch(
+      /invalid_owner|owner_authentication|token_value|client_secret|passphrase/iu
+    );
   });
 });

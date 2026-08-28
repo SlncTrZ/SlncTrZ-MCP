@@ -5,6 +5,8 @@
  * Provenance: ARCHITECTURE §4.13 and THREAT_MODEL mutation gate.
  */
 
+import type { AuditJournal } from "./audit-journal.js";
+
 export interface ToolAuditEvent {
   readonly timestamp: string;
   readonly requestId: string;
@@ -23,6 +25,26 @@ export interface ToolAuditEvent {
 }
 
 export type ToolAuditSink = (event: ToolAuditEvent) => void;
+
+export function createJournalToolAuditSink(
+  journal: AuditJournal,
+  next?: ToolAuditSink
+): ToolAuditSink {
+  return (event) => {
+    journal.append({
+      timestamp: event.timestamp,
+      category: "tool",
+      requestId: event.requestId,
+      clientId: event.clientId,
+      workspaceId: event.workspaceId,
+      capabilityId: event.canonicalToolId ?? event.toolId,
+      policyVersion: event.policyVersion,
+      result: event.decision === "deny" ? "denied" : event.result,
+      durationMs: event.durationMs
+    });
+    next?.(event);
+  };
+}
 
 /** Create a JSON-lines sink; event schema cannot carry paths, content, or credentials. */
 export function createJsonLineToolAuditSink(

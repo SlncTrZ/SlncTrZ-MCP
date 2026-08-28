@@ -5,6 +5,9 @@
  * Provenance: PLAN Phase 2 acceptance criteria and SECURITY invariant 10.
  */
 
+import type { AuditJournal } from "./audit-journal.js";
+import type { MetricsRegistry } from "./metrics.js";
+
 export type AuthAuditEventType =
   | "client.registered"
   | "client.evicted"
@@ -29,6 +32,25 @@ export interface AuthAuditEvent {
 }
 
 export type AuthAuditSink = (event: AuthAuditEvent) => void;
+
+export function createJournalAuthAuditSink(
+  journal: AuditJournal,
+  next?: AuthAuditSink,
+  metrics?: MetricsRegistry
+): AuthAuditSink {
+  return (event) => {
+    const denied = event.type === "authorization.denied";
+    journal.append({
+      timestamp: event.timestamp,
+      category: "auth",
+      ...(event.clientId === undefined ? {} : { clientId: event.clientId }),
+      capabilityId: event.type,
+      result: denied ? "denied" : event.outcome === "success" ? "success" : "error"
+    });
+    if (event.outcome === "failure") metrics?.authFailed();
+    next?.(event);
+  };
+}
 
 /** Create a JSON-lines sink. Callers own destination permissions and rotation. */
 export function createJsonLineAuthAuditSink(

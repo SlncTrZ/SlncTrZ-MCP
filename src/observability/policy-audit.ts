@@ -9,6 +9,9 @@
  * A sink failure never undoes an already-completed activation.
  */
 
+import type { AuditJournal } from "./audit-journal.js";
+import type { MetricsRegistry } from "./metrics.js";
+
 export type PolicyAuditResult = "activated" | "rejected" | "approval_required" | "failed";
 export type PolicyAuditActorKind = "startup" | "internal_reload";
 
@@ -27,6 +30,29 @@ export interface PolicyAuditEvent {
 }
 
 export type PolicyAuditSink = (event: PolicyAuditEvent) => void;
+
+export function createJournalPolicyAuditSink(
+  journal: AuditJournal,
+  next?: PolicyAuditSink,
+  metrics?: MetricsRegistry
+): PolicyAuditSink {
+  return (event) => {
+    journal.append({
+      timestamp: event.timestamp,
+      category: "policy",
+      policyVersion: event.activeVersion,
+      result:
+        event.result === "activated"
+          ? "success"
+          : event.result === "approval_required"
+            ? "denied"
+            : "error",
+      durationMs: event.durationMs
+    });
+    metrics?.policyReloadCompleted(event.durationMs);
+    next?.(event);
+  };
+}
 
 /** Serialize one audit event to a single JSON line; the value content is non-secret by schema. */
 export function serializePolicyAuditEvent(event: PolicyAuditEvent): string {
