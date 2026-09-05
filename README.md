@@ -9,6 +9,12 @@ The owner decides how much authority the gateway has:
 
 Restricted mode is intentionally conservative, but it is **not an OS sandbox**. If you allow Bash, Python, Node, PowerShell, Docker, or another general-purpose interpreter/admin tool, that process can use the OS permissions of the gateway account.
 
+## Setup video
+
+[▶ Watch the guided setup video](docs/SlncTrZ-MCP.mp4)
+
+> The video walks through installing and configuring SlncTrZ-MCP. If the inline player does not load, open the raw file directly or save it locally.
+
 ## What it is for
 
 SlncTrZ-MCP is designed for:
@@ -215,6 +221,8 @@ MCP provider tools are exposed under the canonical namespace:
 ```
 
 ## Operate the installed product
+
+For a step-by-step walkthrough of adding workspace Paths and MCP servers from the Owner Console (plus the virtual Provider-ID best practice), see [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
 
 ### Status
 

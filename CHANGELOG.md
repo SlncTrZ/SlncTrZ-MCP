@@ -9,6 +9,7 @@ Date: 2026-09-05
 ### Added
 
 - Auto-provision a static confidential OAuth client on install. Setup now writes `<configRoot>/client.env` with `SLNCTRZ_CLIENT_ID=slnctrz-mcp` and a randomly generated `SLNCTRZ_CLIENT_SECRET`, returning the secret once on first setup. The file is mode-0600 and is **preserved** across reinstall/update (operators may edit it and restart the gateway). `config show` now surfaces `staticClientId` and `staticClientFile`.
+- Add `docs/USER_GUIDE.md` — an end-user guide for the Owner Console: adding workspace Paths, adding/discovering MCP servers, and the virtual Provider-ID (prefix ảo) best practice to avoid leaking real path/URL/server names. See `MCP_PROVIDER_STANDARD.md`.
 
 ### Compatibility / behavior notes
 
