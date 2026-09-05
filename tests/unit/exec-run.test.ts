@@ -125,6 +125,57 @@ describe("executeRunCommand", () => {
     }
   );
 
+  it.skipIf(process.platform !== "win32")(
+    "managed cancellation terminates the Windows descendant process tree",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "slnctrz-run-tree-"));
+      cleanup.push(root);
+      const pidFile = join(root, "child.pid");
+      const script = [
+        "const { spawn } = require('node:child_process');",
+        "const { writeFileSync } = require('node:fs');",
+        "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+        `writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+        "setInterval(() => {}, 1000);"
+      ].join("\n");
+      const handle = await startRunCommand(process.execPath, ["-e", script], root, {
+        timeoutMs: 5_000
+      });
+
+      let descendantPid: number | undefined;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          descendantPid = Number.parseInt(await readFile(pidFile, "utf8"), 10);
+          if (Number.isSafeInteger(descendantPid) && descendantPid > 0) break;
+        } catch {
+          // Parent has not written the descendant PID yet.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(descendantPid).toBeDefined();
+
+      handle.cancel();
+      const result = await handle.completion;
+      expect(result.cancelled).toBe(true);
+      expect(result.timedOut).toBe(false);
+
+      let descendantAlive = true;
+      for (let attempt = 0; attempt < 150; attempt += 1) {
+        try {
+          process.kill(descendantPid ?? 0, 0);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+            descendantAlive = false;
+            break;
+          }
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(descendantAlive).toBe(false);
+    }
+  );
+
   it("marks AbortSignal cancellation without treating it as a timeout", async () => {
     const root = await mkdtemp(join(tmpdir(), "slnctrz-run-"));
     cleanup.push(root);
