@@ -89,6 +89,7 @@ interface MutableRunnerTask {
   failureCode?: string;
   handle?: ManagedRunCommandHandle;
   settled?: Promise<void>;
+  cancelRequested: boolean;
 }
 
 interface MutableCoordinationTask {
@@ -220,6 +221,11 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
     }
   };
 
+  const requestRunnerCancel = (task: MutableRunnerTask): void => {
+    task.cancelRequested = true;
+    task.handle?.cancel();
+  };
+
   const activeCount = (): number =>
     [...runnerTasks.values()].filter((task) => task.state === "running").length;
 
@@ -324,27 +330,37 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
         createdByClientId: actor.clientId,
         policyVersion,
         state: "running",
-        createdAt: now().toISOString()
+        createdAt: now().toISOString(),
+        cancelRequested: false
       };
+      const launchPromise = Promise.resolve()
+        .then(launch)
+        .then((handle) => {
+          task.handle = handle;
+          if (task.cancelRequested) handle.cancel();
+          return handle;
+        });
+      task.settled = (async () => {
+        try {
+          const handle = await launchPromise;
+          const result = await handle.completion;
+          task.result = copyExecResult(result);
+          task.state = stateFromResult(result);
+          task.completedAt = now().toISOString();
+        } catch (error) {
+          task.state = "failed";
+          task.failureCode = error instanceof ExecError ? error.code : "execution_failed";
+          task.completedAt = now().toISOString();
+        }
+      })();
       runnerTasks.set(taskId, task);
 
       try {
-        const handle = await launch();
-        task.handle = handle;
-        task.settled = handle.completion.then(
-          (result) => {
-            task.result = copyExecResult(result);
-            task.state = stateFromResult(result);
-            task.completedAt = now().toISOString();
-          },
-          (error: unknown) => {
-            task.state = "failed";
-            task.failureCode = error instanceof ExecError ? error.code : "execution_failed";
-            task.completedAt = now().toISOString();
-          }
-        );
+        await launchPromise;
+        if (task.cancelRequested) await task.settled;
         return runnerSnapshot(task);
       } catch (error) {
+        await task.settled;
         runnerTasks.delete(taskId);
         throw error;
       }
@@ -518,7 +534,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
       if (runner !== undefined) {
         const task = lookupRunner(actor, taskId);
         if (task.state !== "running") return runnerSnapshot(task);
-        task.handle?.cancel();
+        requestRunnerCancel(task);
         await task.settled;
         return runnerSnapshot(task);
       }
@@ -544,7 +560,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
       }
       shutdownPromise = (async () => {
         const running = [...runnerTasks.values()].filter((task) => task.state === "running");
-        for (const task of running) task.handle?.cancel();
+        for (const task of running) requestRunnerCancel(task);
         const settlements = running
           .map((task) => task.settled)
           .filter((settled): settled is Promise<void> => settled !== undefined);

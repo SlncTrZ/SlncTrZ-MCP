@@ -1,5 +1,12 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ExecResult, ManagedRunCommandHandle } from "../../src/kernel/exec.js";
+import {
+  startRunCommand,
+  type ExecResult,
+  type ManagedRunCommandHandle
+} from "../../src/kernel/exec.js";
 import {
   createTaskRuntime,
   type RunnerTaskActor,
@@ -16,6 +23,32 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+async function waitForPid(path: string): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      const pid = Number.parseInt(await readFile(path, "utf8"), 10);
+      if (Number.isSafeInteger(pid) && pid > 0) return pid;
+    } catch {
+      // Child has not written its PID yet.
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  }
+  throw new Error("late launch did not write PID");
+}
+
+async function expectProcessGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  }
+  throw new Error(`late launched process ${pid} survived cancellation`);
 }
 
 function result(overrides: Partial<ExecResult> = {}): ExecResult {
@@ -142,6 +175,107 @@ describe("in-process task runtime", () => {
     expect(() => runtime.create(ACTOR, "Nope", "Runtime is stopping.")).toThrowError(
       expect.objectContaining({ code: "task_invalid_state" })
     );
+  });
+
+  it("waits for a pending launch and cancels it when shutdown begins", async () => {
+    const runtime = createTaskRuntime({ id: () => "pending-launch" });
+    const entered = deferred<undefined>();
+    const release = deferred<undefined>();
+    const late = handle();
+    const starting = runtime.start(ACTOR, "policy-1", async () => {
+      entered.resolve(undefined);
+      await release.promise;
+      return late.managed;
+    });
+    await entered.promise;
+
+    let shutdownResolved = false;
+    const shuttingDown = runtime.shutdown({ timeoutMs: 1_000 }).then(() => {
+      shutdownResolved = true;
+    });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    expect(shutdownResolved).toBe(false);
+
+    release.resolve(undefined);
+    await expect(shuttingDown).resolves.toBeUndefined();
+    await expect(starting).resolves.toMatchObject({ state: "cancelled" });
+    expect(late.cancelCalls()).toBe(1);
+    expect(runtime.get(ACTOR, "pending-launch")).toMatchObject({ state: "cancelled" });
+  });
+
+  it("settles shutdown when a pending launch rejects", async () => {
+    const runtime = createTaskRuntime({ id: () => "rejected-launch" });
+    const entered = deferred<undefined>();
+    const release = deferred<undefined>();
+    const starting = runtime.start(ACTOR, "policy-1", async () => {
+      entered.resolve(undefined);
+      await release.promise;
+      throw new Error("launch_failed");
+    });
+    await entered.promise;
+    const shuttingDown = runtime.shutdown({ timeoutMs: 1_000 });
+    release.resolve(undefined);
+
+    await expect(starting).rejects.toThrow("launch_failed");
+    await expect(shuttingDown).resolves.toBeUndefined();
+    expect(() => runtime.get(ACTOR, "rejected-launch")).toThrowError(
+      expect.objectContaining({ code: "task_not_found" })
+    );
+  });
+
+  it("self-cancels a launch that resolves after the shutdown deadline", async () => {
+    const runtime = createTaskRuntime({ id: () => "late-launch" });
+    const entered = deferred<undefined>();
+    const release = deferred<undefined>();
+    const late = handle();
+    const starting = runtime.start(ACTOR, "policy-1", async () => {
+      entered.resolve(undefined);
+      await release.promise;
+      return late.managed;
+    });
+    await entered.promise;
+
+    await expect(runtime.shutdown({ timeoutMs: 20 })).resolves.toBeUndefined();
+    expect(late.cancelCalls()).toBe(0);
+    release.resolve(undefined);
+
+    await expect(starting).resolves.toMatchObject({ state: "cancelled" });
+    expect(late.cancelCalls()).toBe(1);
+    expect(runtime.get(ACTOR, "late-launch")).toMatchObject({ state: "cancelled" });
+  });
+
+  it("reaps a real process launched only after the shutdown deadline", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-task-late-launch-"));
+    try {
+      const pidFile = join(root, "late.pid");
+      const runtime = createTaskRuntime({ id: () => "late-real" });
+      const entered = deferred<undefined>();
+      const release = deferred<undefined>();
+      const starting = runtime.start(ACTOR, "policy-1", async () => {
+        entered.resolve(undefined);
+        await release.promise;
+        const managed = await startRunCommand(
+          process.execPath,
+          [
+            "-e",
+            `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`
+          ],
+          root,
+          { timeoutMs: 10_000 }
+        );
+        await waitForPid(pidFile);
+        return managed;
+      });
+      await entered.promise;
+
+      await expect(runtime.shutdown({ timeoutMs: 20 })).resolves.toBeUndefined();
+      release.resolve(undefined);
+      const pid = await waitForPid(pidFile);
+      await expect(starting).resolves.toMatchObject({ state: "cancelled" });
+      await expect(expectProcessGone(pid)).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("enforces creator/workspace isolation and active-task capacity", async () => {
