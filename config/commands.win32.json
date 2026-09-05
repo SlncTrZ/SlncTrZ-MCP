@@ -1,0 +1,18 @@
+{
+  "shell": {
+    "allowlist": {
+      "added": [
+        "cmd",
+        "powershell",
+        "node",
+        "npm",
+        "npx",
+        "where",
+        "whoami",
+        "hostname",
+        "tasklist",
+        "taskkill"
+      ]
+    }
+  }
+}

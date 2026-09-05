@@ -1,0 +1,298 @@
+name: Standalone release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    name: Node ${{ matrix.node-version }} release gate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run conformance, hardening, and static gates
+        run: npm run check
+
+      - name: Verify public documentation contract
+        run: npm run docs:check
+
+      - name: Build developer runtime
+        run: npm run build
+
+      - name: Audit production dependencies
+        if: matrix.node-version == 24
+        run: npm audit --omit=dev
+
+  build-linux-x64:
+    name: build Linux x64 SEA
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build standalone artifact
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+          SLNCTRZ_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+        run: npm run build:sea:linux-x64
+
+      - name: Smoke-test Linux SEA
+        run: npm run smoke:sea:linux-x64
+
+      - name: Upload Linux release inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: slnctrz-mcp-linux-x64
+          path: |
+            dist/standalone/linux-x64/slnctrz-mcp
+            dist/standalone/linux-x64/manifest.json
+            dist/standalone/linux-x64/manifest-fragment.json
+            dist/standalone/linux-x64/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  build-win32-x64:
+    name: build Windows x64 SEA
+    needs: quality
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows standalone artifact
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+          SLNCTRZ_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+        run: npm run build:sea:win32-x64
+
+      - name: Smoke-test Windows SEA
+        run: npm run smoke:sea:win32-x64
+
+      - name: Upload Windows release inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: slnctrz-mcp-win32-x64
+          path: |
+            dist/standalone/win32-x64/slnctrz-mcp.exe
+            dist/standalone/win32-x64/manifest.json
+            dist/standalone/win32-x64/manifest-fragment.json
+            dist/standalone/win32-x64/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  verify-linux-x64:
+    name: verify Linux x64 SEA + identity
+    needs: build-linux-x64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: slnctrz-mcp-linux-x64
+          path: artifact
+
+      - name: Restore Linux executable mode
+        run: chmod 0755 artifact/slnctrz-mcp
+
+      - name: Verify Linux release identity
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+          SLNCTRZ_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: npm run release:gate -- artifact linux-x64
+
+  verify-win32-x64:
+    name: verify Windows x64 SEA + identity
+    needs: build-win32-x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: slnctrz-mcp-win32-x64
+          path: artifact
+
+      - name: Verify Windows release identity
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+          SLNCTRZ_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: npm run release:gate -- artifact win32-x64
+
+  aggregate-release:
+    name: aggregate multi-target release
+    needs: [verify-linux-x64, verify-win32-x64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: slnctrz-mcp-linux-x64
+          path: artifact/linux-x64
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: slnctrz-mcp-win32-x64
+          path: artifact/win32-x64
+
+      - name: Aggregate manifest and release checksums
+        run: |
+          node scripts/aggregate-release-manifest.mjs artifact/release artifact/linux-x64 artifact/win32-x64
+          cp scripts/install.sh artifact/release/install.sh
+          chmod 0755 artifact/release/install.sh
+          cd artifact/release
+          sha256sum --check SHA256SUMS
+          node -e 'const m=require("./manifest.json"); const t=m.artifacts.map(x=>x.target).sort().join(","); if(t!=="linux-x64,win32-x64") throw new Error("release targets incomplete")'
+
+      - name: Upload canonical release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: slnctrz-mcp-release-bundle
+          path: |
+            artifact/release/slnctrz-mcp
+            artifact/release/slnctrz-mcp.exe
+            artifact/release/manifest.json
+            artifact/release/SHA256SUMS
+            artifact/release/install.sh
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-candidate:
+    name: publish prerelease candidate
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: aggregate-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download canonical release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: slnctrz-mcp-release-bundle
+          path: artifact
+
+      - name: Create or refresh prerelease candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=(
+            artifact/slnctrz-mcp
+            artifact/slnctrz-mcp.exe
+            artifact/manifest.json
+            artifact/SHA256SUMS
+            artifact/install.sh
+          )
+
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "SlncTrZ-MCP ${GITHUB_REF_NAME}" \
+              --prerelease
+
+            gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "SlncTrZ-MCP ${GITHUB_REF_NAME}" \
+              --generate-notes \
+              --prerelease \
+              --verify-tag
+          fi
+
+  clean-linux-user-install:
+    name: clean public Linux User Install
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish-candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run clean Linux User Install from exact public release
+        run: scripts/clean-release-user-e2e.sh "${GITHUB_REF_NAME}"
+
+  clean-windows-user-install:
+    name: clean public Windows User Install
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish-candidate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run clean Windows Git Bash User Install from exact public release
+        shell: pwsh
+        run: ./scripts/clean-release-windows-user-e2e.ps1 -Tag "${env:GITHUB_REF_NAME}"
+
+  promote-release:
+    name: promote verified public release
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    needs: [clean-linux-user-install, clean-windows-user-install]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Promote stable release after all public target evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "${GITHUB_REF_NAME}"             --repo "${GITHUB_REPOSITORY}"             --prerelease=false             --latest

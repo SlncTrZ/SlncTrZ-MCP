@@ -1,0 +1,47 @@
+# Architecture Decision Records
+
+This directory records **significant** architecture decisions for SlncTrZ-MCP.
+
+An ADR is written when a decision is non-obvious, hard to reverse, or affects multiple
+components. Routine choices belong in code comments or commit messages, not here.
+
+## Register
+
+| ID      | Title                                                               | Status                                                           |
+| ------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| ADR-001 | TypeScript and Node.js for the gateway core                         | Accepted                                                         |
+| ADR-002 | Apache-2.0 project license                                          | Accepted                                                         |
+| ADR-003 | Trusted kernel runs in-process                                      | Accepted                                                         |
+| ADR-004 | Third-party MCP servers run in isolated child processes by default  | Accepted                                                         |
+| ADR-005 | Policy Engine is the single source of authorization truth           | Accepted                                                         |
+| ADR-006 | Isolated modern MCP with stateless legacy compatibility             | Accepted                                                         |
+| ADR-007 | Tool registry uses canonical names independent of runtime topology  | Accepted                                                         |
+| ADR-008 | Standalone packaging is separated from runtime architecture         | Accepted                                                         |
+| ADR-009 | Project instructions are explicit context, not a security mechanism | Accepted                                                         |
+| ADR-010 | No home-directory access by default                                 | Accepted                                                         |
+| ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood                       | Accepted                                                         |
+| ADR-012 | Grant-family token revocation and redacted authentication audit     | Accepted                                                         |
+| ADR-013 | Bound ephemeral OAuth allocations                                   | Accepted                                                         |
+| ADR-014 | Non-overridable secret-path denial in the kernel                    | Accepted                                                         |
+| ADR-015 | Policy-bound atomic filesystem writes                               | Accepted; dry-run default superseded                             |
+| ADR-016 | Deterministic exact-match filesystem edits                          | Accepted; dry-run default superseded                             |
+| ADR-017 | Policy-bound direct process execution                               | Superseded by ADR-024                                            |
+| ADR-018 | Versioned immutable policy snapshots and atomic activation          | Accepted                                                         |
+| ADR-019 | Scoped developer access and sandbox escalation criteria             | Accepted                                                         |
+| ADR-020 | Bounded isolated MCP extension transports                           | Accepted                                                         |
+| ADR-021 | Separate loopback owner control plane and bounded telemetry         | Accepted                                                         |
+| ADR-022 | Owner managed state write path under systemd hardening              | Partially superseded                                             |
+| ADR-023 | Optional Owner Web Console                                          | Accepted                                                         |
+| ADR-024 | Root-path command-catalog execution                                 | Partially superseded by current Autonomy/cross-platform contract |
+| ADR-025 | Loopback HTTP exception for streamable-http MCP endpoints           | Accepted                                                         |
+| ADR-026 | Provider tool namespacing                                           | Accepted                                                         |
+
+## How to add an ADR
+
+1. Copy `_template.md` to the next number, e.g. `adr-011-title.md`.
+2. Fill in Status, Context, Decision, Consequences.
+3. Add the row to the register above.
+4. Keep it short and decision-focused.
+
+> ADRs are tracked alongside the code. For the full rationale behind the accepted
+> decisions, see PLAN §5 (Architecture decision records) and ARCHITECTURE.md.

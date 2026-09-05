@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  verify:
+    name: typecheck, lint, format, test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Public docs contract
+        run: npm run docs:check
+
+  verify-windows:
+    name: Windows native security/runtime gate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Windows tests
+        run: npm test
+
+      - name: Build Windows x64 SEA
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+          SLNCTRZ_RELEASE_BASE_URL: https://example.invalid/slnctrz-ci/
+        run: npm run build:sea:win32-x64
+
+      - name: Smoke Windows x64 SEA
+        run: npm run smoke:sea:win32-x64
+
+      - name: Verify Windows x64 release identity
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+        run: npm run release:gate -- dist/standalone/win32-x64 win32-x64
+
+  provenance:
+    name: dependency license inventory
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate locked dependency/license inventory
+        run: npm run provenance:inventory -- --out /tmp/dependency-license-inventory.json
+
+      - name: Upload inventory artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-license-inventory
+          path: /tmp/dependency-license-inventory.json
+          if-no-files-found: error
+
+  benchmark:
+    name: Linux x64 performance baseline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Record cold-start and memory baseline
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+        run: npm run benchmark -- --iterations 5 --warmup 1 --out /tmp/benchmark.json
+
+      - name: Upload performance baseline
+        uses: actions/upload-artifact@v7
+        with:
+          name: performance-baseline-linux-x64-node24
+          path: /tmp/benchmark.json
+          if-no-files-found: error

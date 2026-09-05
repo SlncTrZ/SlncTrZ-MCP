@@ -1,0 +1,52 @@
+[Unit]
+Description=SlncTrZ-MCP gateway (OAuth-protected MCP data plane)
+Documentation=https://github.com/SlncTrZ/SlncTrZ-MCP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=slnctrz
+Group=slnctrz
+WorkingDirectory=/opt/slnctrz-mcp
+
+# Runtime-specific hostnames and ports stay outside version control.
+EnvironmentFile=/etc/slnctrz-mcp/gateway.env
+# Owner authentication uses the managed recovery passphrase under StateDirectory.
+# Legacy SLNCTRZ_OWNER_SECRET_HASH may still be supplied through an explicit compatibility env.
+# Optional pre-registered confidential client credentials.
+EnvironmentFile=-/etc/slnctrz-mcp/client.env
+# Optional build provenance injected by deployment tooling, for example:
+# SLNCTRZ_BUILD_COMMIT=<full-git-commit-sha>
+EnvironmentFile=-/etc/slnctrz-mcp/build.env
+
+# Production service launches the active verified SEA release; no system Node runtime is required.
+ExecStart=/opt/slnctrz-mcp/slnctrz-mcp-launcher
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Owner-managed state lives in the systemd-provided state directory. Workspace write authority
+# is enforced by the SlncTrZ policy engine; the service must not impose a second static read-only
+# filesystem boundary because Add Path is dynamic and may authorize paths under home, /mnt, or
+# other user-writable locations.
+StateDirectory=slnctrz-mcp
+
+# Process hardening that does not conflict with policy-authorized workspace writes.
+# No MemoryDenyWriteExecute: it breaks the V8 JIT.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target
