@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { ProviderCredential } from "../../src/extension/adapter.js";
 import type { ExtensionManifestV1 } from "../../src/extension/manifest.js";
 import { createMcpOwnerOrchestrator } from "../../src/owner/mcp-owner-orchestrator.js";
-import type { McpProviderService } from "../../src/owner/mcp-provider-service.js";
+import {
+  McpProviderMutationError,
+  type McpProviderService
+} from "../../src/owner/mcp-provider-service.js";
 import type { ManagedMcpProvider } from "../../src/owner/mcp-provider-store.js";
 
 const manifest = {
@@ -232,6 +235,55 @@ describe("MCP owner orchestrator without workspace grants", () => {
     expect(result.recovery?.safeToRetry).toBe(true);
     expect(secrets).toEqual(new Map([[oldRef, "OLD"]]));
     expect(existing.manifest.credentialRefs).toEqual([oldRef]);
+  });
+
+  it("keeps the staged credential and reports partial failure when provider rollback is incomplete", async () => {
+    const oldRef = "demo-credential";
+    const existing: ManagedMcpProvider = {
+      id: "demo",
+      enabled: true,
+      manifest: { ...manifest, credentialRefs: [oldRef] },
+      updatedAt: new Date(0).toISOString()
+    };
+    const service = providers({
+      list: vi.fn(async () => [existing]),
+      discoverCandidate: vi.fn(async () => ({
+        providerId: "demo",
+        declaredTools: [],
+        discoveredTools: ["demo.echo"],
+        matchesDeclaration: true
+      })),
+      addOrUpdate: vi.fn(async () => {
+        throw new McpProviderMutationError({
+          code: "mcp_provider_rollback_failed",
+          providerId: "demo",
+          rollbackComplete: false,
+          cause: Object.assign(new Error("restore failed"), { code: "EIO" })
+        });
+      })
+    });
+    const remove = vi.fn(async () => true);
+    const set = vi.fn(async (ref: string, credential: ProviderCredential) => ({
+      ref,
+      kind: credential.kind,
+      ...(credential.kind === "env" ? { name: credential.name } : {})
+    }));
+    const orchestrator = createMcpOwnerOrchestrator({
+      credentials: { set, remove },
+      providers: service
+    });
+
+    const result = await orchestrator.updateAuth({
+      providerId: "demo",
+      auth: { kind: "bearer", value: "NEW" }
+    });
+    expect(result).toMatchObject({
+      status: "partial_failure",
+      failedStep: "mcp_provider_rollback_failed",
+      recovery: { action: "repair_provider_state", safeToRetry: false }
+    });
+    expect(set).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("does not remove an old credential still referenced by another provider", async () => {

@@ -49,7 +49,11 @@ describe("MCP provider enabled-state authority", () => {
       riskIncrease: false as const,
       result: "activated" as const
     }));
-    const service = createMcpProviderService({ store, policyStore: { reload } });
+    const service = createMcpProviderService({
+      store,
+      policyStore: { reload },
+      isActiveProviderReady: () => true
+    });
     const result = await service.setEnabled("demo", true);
     expect(result.provider?.enabled).toBe(true);
     expect(reload).toHaveBeenCalledOnce();
@@ -69,7 +73,11 @@ describe("MCP provider enabled-state authority", () => {
       riskIncrease: false as const,
       result: "activated" as const
     }));
-    const service = createMcpProviderService({ store, policyStore: { reload } });
+    const service = createMcpProviderService({
+      store,
+      policyStore: { reload },
+      isActiveProviderReady: () => true
+    });
     const result = await service.remove("demo");
     expect(result.removed).toBe(true);
     expect(store.remove).toHaveBeenCalledWith("demo");
@@ -86,6 +94,7 @@ describe("MCP provider enabled-state authority", () => {
       let reloadCount = 0;
       const service = createMcpProviderService({
         store,
+        isActiveProviderReady: () => true,
         policyStore: {
           async reload() {
             reloadCount += 1;
@@ -141,6 +150,7 @@ describe("MCP provider enabled-state authority", () => {
       let reloadCount = 0;
       const service = createMcpProviderService({
         store,
+        isActiveProviderReady: () => true,
         policyStore: {
           async reload() {
             reloadCount += 1;
@@ -200,6 +210,7 @@ describe("MCP provider enabled-state authority", () => {
     };
     const service = createMcpProviderService({
       store,
+      isActiveProviderReady: () => true,
       policyStore: {
         async reload() {
           throw new Error("reload_boom");
@@ -209,6 +220,54 @@ describe("MCP provider enabled-state authority", () => {
 
     await expect(service.setEnabled("demo", true)).rejects.toThrow("reload_boom");
     expect(current.enabled).toBe(false);
+  });
+
+  it("restores and reactivates the prior provider when the new active generation is unavailable", async () => {
+    let current = provider();
+    let reloadCount = 0;
+    const upsert: McpProviderStore["upsert"] = async (input) => {
+      current = {
+        ...current,
+        manifest: input.manifest,
+        enabled: input.enabled ?? current.enabled
+      };
+      return current;
+    };
+    const store: McpProviderStore = {
+      list: vi.fn(async () => [current]),
+      get: vi.fn(async () => current),
+      upsert: vi.fn(upsert),
+      remove: vi.fn(async () => true)
+    };
+    const service = createMcpProviderService({
+      store,
+      isActiveProviderReady: (_providerId, activeVersion) => activeVersion === "restored",
+      policyStore: {
+        async reload() {
+          reloadCount += 1;
+          return {
+            activated: true,
+            previousVersion: reloadCount === 1 ? "prior" : "candidate",
+            activeVersion: reloadCount === 1 ? "candidate" : "restored",
+            riskIncrease: false,
+            result: "activated"
+          } as const;
+        }
+      }
+    });
+    const candidate = { ...manifest, version: "2" } as ExtensionManifestV1;
+
+    const error = await service
+      .addOrUpdate({ manifest: candidate })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(McpProviderMutationError);
+    expect(error).toMatchObject({
+      code: "mcp_provider_activation_unavailable",
+      providerId: "demo",
+      rollbackComplete: true
+    });
+    expect(current.manifest.version).toBe(manifest.version);
+    expect(reloadCount).toBe(2);
   });
 
   it("surfaces rollback failure explicitly after a candidate was durably written", async () => {
@@ -233,6 +292,7 @@ describe("MCP provider enabled-state authority", () => {
     };
     const service = createMcpProviderService({
       store,
+      isActiveProviderReady: () => true,
       policyStore: {
         async reload() {
           return {
@@ -284,7 +344,11 @@ describe("MCP provider enabled-state authority", () => {
       riskIncrease: false as const,
       result: "activated" as const
     }));
-    const service = createMcpProviderService({ store, policyStore: { reload } });
+    const service = createMcpProviderService({
+      store,
+      policyStore: { reload },
+      isActiveProviderReady: () => true
+    });
     await service.addOrUpdate({
       manifest: {
         id: "demo",

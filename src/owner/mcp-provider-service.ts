@@ -25,15 +25,30 @@ export interface McpProviderMutationResult {
   readonly reload: ReloadResult;
 }
 
-export class McpProviderMutationError extends Error {
-  readonly code = "mcp_provider_rollback_failed";
-  readonly providerId: string;
-  readonly rollbackComplete = false;
+export type McpProviderMutationErrorCode =
+  "mcp_provider_activation_unavailable" | "mcp_provider_rollback_failed";
 
-  constructor(providerId: string, cause: unknown) {
-    super("Provider mutation failed and prior durable state could not be restored", { cause });
+export class McpProviderMutationError extends Error {
+  readonly code: McpProviderMutationErrorCode;
+  readonly providerId: string;
+  readonly rollbackComplete: boolean;
+
+  constructor(options: {
+    readonly code: McpProviderMutationErrorCode;
+    readonly providerId: string;
+    readonly rollbackComplete: boolean;
+    readonly cause?: unknown;
+  }) {
+    super(
+      options.rollbackComplete
+        ? "Provider candidate was rejected and prior state was restored"
+        : "Provider mutation failed and prior state could not be fully restored",
+      ...(options.cause === undefined ? [] : [{ cause: options.cause }])
+    );
     this.name = "McpProviderMutationError";
-    this.providerId = providerId;
+    this.code = options.code;
+    this.providerId = options.providerId;
+    this.rollbackComplete = options.rollbackComplete;
   }
 }
 
@@ -78,6 +93,7 @@ export interface McpProviderService {
 export function createMcpProviderService(options: {
   readonly store: McpProviderStore;
   readonly policyStore: Pick<PolicySnapshotStore, "reload">;
+  readonly isActiveProviderReady: (providerId: string, activeVersion: string) => boolean;
   readonly resolveCredentials?: (refs: readonly string[]) => Promise<readonly ProviderCredential[]>;
 }): McpProviderService {
   const activate = async (): Promise<ReloadResult> =>
@@ -199,6 +215,50 @@ export function createMcpProviderService(options: {
     });
   };
 
+  const rollbackFailure = (providerId: string, cause: unknown): McpProviderMutationError =>
+    new McpProviderMutationError({
+      code: "mcp_provider_rollback_failed",
+      providerId,
+      rollbackComplete: false,
+      cause
+    });
+
+  const recoverActivatedCandidate = async (
+    prior: ManagedMcpProvider | undefined,
+    providerId: string
+  ): Promise<void> => {
+    try {
+      await restoreProvider(prior, providerId);
+      const recoveryReload = await activate();
+      if (!recoveryReload.activated) {
+        throw new Error("mcp_provider_recovery_activation_failed");
+      }
+      if (
+        prior?.enabled === true &&
+        !options.isActiveProviderReady(prior.id, recoveryReload.activeVersion)
+      ) {
+        throw new Error("mcp_provider_recovery_unavailable");
+      }
+    } catch (error) {
+      throw rollbackFailure(providerId, error);
+    }
+  };
+
+  const assertActivatedProviderReady = async (
+    provider: ManagedMcpProvider,
+    reload: ReloadResult,
+    prior: ManagedMcpProvider | undefined
+  ): Promise<void> => {
+    if (!provider.enabled || options.isActiveProviderReady(provider.id, reload.activeVersion))
+      return;
+    await recoverActivatedCandidate(prior, provider.id);
+    throw new McpProviderMutationError({
+      code: "mcp_provider_activation_unavailable",
+      providerId: provider.id,
+      rollbackComplete: true
+    });
+  };
+
   const addOrUpdateUnsafe = async (input: {
     readonly manifest: ExtensionManifestV1;
     readonly name?: string;
@@ -214,15 +274,18 @@ export function createMcpProviderService(options: {
       try {
         await restoreProvider(prior, provider.id);
       } catch (rollbackError) {
-        throw new McpProviderMutationError(provider.id, rollbackError);
+        throw rollbackFailure(provider.id, rollbackError);
       }
       throw error;
     }
-    if (reload.activated) return { provider, reload };
+    if (reload.activated) {
+      await assertActivatedProviderReady(provider, reload, prior);
+      return { provider, reload };
+    }
     try {
       await restoreProvider(prior, provider.id);
     } catch (rollbackError) {
-      throw new McpProviderMutationError(provider.id, rollbackError);
+      throw rollbackFailure(provider.id, rollbackError);
     }
     return { provider, reload };
   };
@@ -269,15 +332,18 @@ export function createMcpProviderService(options: {
           try {
             await restoreProvider(prior, providerId);
           } catch (rollbackError) {
-            throw new McpProviderMutationError(providerId, rollbackError);
+            throw rollbackFailure(providerId, rollbackError);
           }
           throw error;
         }
-        if (reload.activated) return { provider, reload };
+        if (reload.activated) {
+          await assertActivatedProviderReady(provider, reload, prior);
+          return { provider, reload };
+        }
         try {
           await restoreProvider(prior, providerId);
         } catch (rollbackError) {
-          throw new McpProviderMutationError(providerId, rollbackError);
+          throw rollbackFailure(providerId, rollbackError);
         }
         return { provider, reload };
       });
@@ -294,7 +360,7 @@ export function createMcpProviderService(options: {
           try {
             await restoreProvider(prior, providerId);
           } catch (rollbackError) {
-            throw new McpProviderMutationError(providerId, rollbackError);
+            throw rollbackFailure(providerId, rollbackError);
           }
           throw error;
         }
@@ -302,7 +368,7 @@ export function createMcpProviderService(options: {
         try {
           await restoreProvider(prior, providerId);
         } catch (rollbackError) {
-          throw new McpProviderMutationError(providerId, rollbackError);
+          throw rollbackFailure(providerId, rollbackError);
         }
         return { removed: false, reload };
       });

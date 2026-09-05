@@ -13,7 +13,7 @@ import type { ProviderCredential } from "../extension/adapter.js";
 import type { ExtensionManifestV1, ExtensionToolSchemaRecord } from "../extension/manifest.js";
 import { discoverRiskClass } from "./mcp-presentation.js";
 import type { McpCredentialStore } from "./mcp-credential-store.js";
-import type { McpProviderService } from "./mcp-provider-service.js";
+import { McpProviderMutationError, type McpProviderService } from "./mcp-provider-service.js";
 
 export type McpCompositeStatus = "committed" | "rolled_back" | "partial_failure";
 
@@ -101,6 +101,9 @@ export function createMcpOwnerOrchestrator(options: {
     }
   };
 
+  const isIncompleteProviderRollback = (error: unknown): error is McpProviderMutationError =>
+    error instanceof McpProviderMutationError && !error.rollbackComplete;
+
   const activeFail = (
     providerId: string,
     completed: readonly string[],
@@ -175,15 +178,15 @@ export function createMcpOwnerOrchestrator(options: {
             };
           }
           return { status: "committed", providerId, completedSteps: completed };
-        } catch {
+        } catch (error) {
           const failedStep = currentStep;
-          if (activated) {
+          if (activated || isIncompleteProviderRollback(error)) {
             return {
               status: "partial_failure",
               providerId,
               completedSteps: completed,
-              failedStep,
-              recovery: { action: "verify_provider", safeToRetry: false }
+              failedStep: isIncompleteProviderRollback(error) ? error.code : failedStep,
+              recovery: { action: "repair_provider_state", safeToRetry: false }
             };
           }
           try {
@@ -192,7 +195,7 @@ export function createMcpOwnerOrchestrator(options: {
               status: "rolled_back",
               providerId,
               completedSteps: completed,
-              failedStep,
+              failedStep: error instanceof McpProviderMutationError ? error.code : failedStep,
               recovery: { action: "retry_add", safeToRetry: true }
             };
           } catch {
@@ -267,6 +270,15 @@ export function createMcpOwnerOrchestrator(options: {
             completedSteps: completed
           };
         } catch (error) {
+          if (isIncompleteProviderRollback(error)) {
+            return {
+              status: "partial_failure",
+              providerId: input.providerId,
+              completedSteps: completed,
+              failedStep: error.code,
+              recovery: { action: "repair_provider_state", safeToRetry: false }
+            };
+          }
           try {
             await options.credentials.remove(stagedRef);
           } catch {
@@ -282,7 +294,12 @@ export function createMcpOwnerOrchestrator(options: {
             status: "rolled_back",
             providerId: input.providerId,
             completedSteps: completed,
-            failedStep: stepFor(error) === "provider_unavailable" ? "provider_probed" : currentStep,
+            failedStep:
+              error instanceof McpProviderMutationError
+                ? error.code
+                : stepFor(error) === "provider_unavailable"
+                  ? "provider_probed"
+                  : currentStep,
             recovery: { action: "retry_auth_update", safeToRetry: true }
           };
         }
@@ -302,6 +319,15 @@ export function createMcpOwnerOrchestrator(options: {
           }
           return activeFail(input.providerId, [], "provider_sync", "retry_sync", true);
         } catch (error) {
+          if (isIncompleteProviderRollback(error)) {
+            return {
+              status: "partial_failure",
+              providerId: input.providerId,
+              completedSteps: [],
+              failedStep: error.code,
+              recovery: { action: "repair_provider_state", safeToRetry: false }
+            };
+          }
           return activeFail(input.providerId, [], stepFor(error), "retry_sync", true);
         }
       });
@@ -326,7 +352,12 @@ export function createMcpOwnerOrchestrator(options: {
             providerId: input.providerId,
             completedSteps: completed,
             failedStep: stepFor(error),
-            recovery: { action: "retry_remove", safeToRetry: true }
+            recovery: {
+              action: isIncompleteProviderRollback(error)
+                ? "repair_provider_state"
+                : "retry_remove",
+              safeToRetry: !isIncompleteProviderRollback(error)
+            }
           };
         }
       });

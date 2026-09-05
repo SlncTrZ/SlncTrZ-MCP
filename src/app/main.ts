@@ -228,6 +228,12 @@ export async function bootstrap(
   const mcpProviderService = createMcpProviderService({
     store: mcpProviderStore,
     policyStore,
+    isActiveProviderReady: (providerId, activeVersion) => {
+      const active = policyStore.capture();
+      if (active.version !== activeVersion) return false;
+      const status = active.extensionStatus?.().find((entry) => entry.providerId === providerId);
+      return status?.state === "ready" && status.health === "ready";
+    },
     resolveCredentials: (refs) => mcpCredentialStore.resolve(refs)
   });
   const mcpOrchestrator = createMcpOwnerOrchestrator({
