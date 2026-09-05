@@ -121,6 +121,29 @@ describe("in-process task runtime", () => {
     await runtime.wait(ACTOR, "task-wait", { timeoutMs: 1_000 });
   });
 
+  it("shutdown is idempotent, cancels active runners, and rejects new work", async () => {
+    const ids = ["one", "two"];
+    const runtime = createTaskRuntime({
+      id: () => ids.shift() ?? "unexpected",
+      coordinationId: () => "coord"
+    });
+    const first = handle();
+    await runtime.start(ACTOR, "policy-1", async () => first.managed);
+
+    const left = runtime.shutdown({ timeoutMs: 1_000 });
+    const right = runtime.shutdown({ timeoutMs: 1_000 });
+    expect(left).toBe(right);
+    await expect(left).resolves.toBeUndefined();
+    expect(first.cancelCalls()).toBe(1);
+    expect(runtime.get(ACTOR, "one")).toMatchObject({ state: "cancelled" });
+    await expect(
+      runtime.start(ACTOR, "policy-1", async () => handle().managed)
+    ).rejects.toMatchObject({ code: "task_invalid_state" });
+    expect(() => runtime.create(ACTOR, "Nope", "Runtime is stopping.")).toThrowError(
+      expect.objectContaining({ code: "task_invalid_state" })
+    );
+  });
+
   it("enforces creator/workspace isolation and active-task capacity", async () => {
     const ids = ["one", "two"];
     const runtime = createTaskRuntime({

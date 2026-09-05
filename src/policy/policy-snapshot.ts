@@ -19,6 +19,7 @@ export interface ActivePolicySnapshot {
   readonly toolCatalogFingerprint: string;
   extensionStatus?(): ReturnType<NonNullable<ExtensionRuntimeCatalog["status"]>>;
   retire?(): void;
+  stop?(): Promise<void>;
   acquireRuntime?(): () => void;
   resolve(principal: AuthenticatedPrincipal): KernelPolicySnapshot;
 }
@@ -89,6 +90,7 @@ export function buildActivePolicySnapshot(
       : {
           extensionStatus: () => extensionRuntime.status?.() ?? [],
           retire: () => extensionRuntime.retire(),
+          stop: () => extensionRuntime.stop(),
           acquireRuntime: () => extensionRuntime.acquire()
         }),
     resolve(principal: AuthenticatedPrincipal): KernelPolicySnapshot {

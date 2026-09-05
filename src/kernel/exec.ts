@@ -413,6 +413,12 @@ export async function startRunCommand(
     child.once("close", (code, signal) => {
       const exitCode = code === null ? null : (code as number);
       const exitSignal = signal === null ? null : (signal as NodeJS.Signals);
+      if (terminalCause !== undefined && process.platform !== "win32") {
+        // The process-group leader may exit before descendants that ignored SIGTERM. Escalate
+        // the group before settling the managed handle so cleanup cannot cancel the grace timer
+        // and strand a managed grandchild.
+        killTree("SIGKILL");
+      }
       finish(
         terminalCause === undefined ? exitCode : null,
         exitSignal ?? (terminalCause === undefined ? null : "SIGTERM")

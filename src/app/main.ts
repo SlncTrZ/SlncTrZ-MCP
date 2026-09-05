@@ -6,6 +6,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import type { Server } from "node:http";
 import { join } from "node:path";
 import { InMemoryServerEventBus } from "@modelcontextprotocol/server";
 import { createDynamicClientFileStore } from "../auth/dynamic-client-store.js";
@@ -56,16 +57,70 @@ export interface BootstrapDependencies {
   readonly config?: RuntimeConfig;
   readonly listenControlPlane?: typeof listenControlPlane;
   readonly listenGateway?: typeof listenGateway;
+  readonly shutdownTimeoutMs?: number;
+}
+
+export interface ApplicationLifecycle {
+  shutdown(): Promise<void>;
+}
+
+const DEFAULT_APPLICATION_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+function closeServerBounded(server: Server, timeoutMs: number): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      server.closeAllConnections();
+      finish();
+    }, timeoutMs);
+    timer.unref();
+    server.close(() => finish());
+  });
+}
+
+async function boundedCleanup(work: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      work.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+        timer.unref();
+      })
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /** Compose and start both listeners. Importing this module has no startup side effect. */
-export async function bootstrap(dependencies: BootstrapDependencies = {}): Promise<void> {
+export async function bootstrap(
+  dependencies: BootstrapDependencies = {}
+): Promise<ApplicationLifecycle> {
   const config = dependencies.config ?? readRuntimeConfig();
+  const shutdownTimeoutMs =
+    dependencies.shutdownTimeoutMs ?? DEFAULT_APPLICATION_SHUTDOWN_TIMEOUT_MS;
+  if (!Number.isSafeInteger(shutdownTimeoutMs) || shutdownTimeoutMs <= 0) {
+    throw new RangeError("Application shutdown timeout must be a positive safe integer");
+  }
   const startControlPlane = dependencies.listenControlPlane ?? listenControlPlane;
   const startGateway = dependencies.listenGateway ?? listenGateway;
   const statePaths = managedStatePaths(config.stateRoot);
   await ensureManagedStateLayout(statePaths);
   const sqliteAudit = createSqliteAuditSink(statePaths.auditDatabaseFile);
+  let sqliteClosed = false;
+  const closeAudit = (): void => {
+    if (sqliteClosed) return;
+    sqliteClosed = true;
+    sqliteAudit.close();
+  };
   const auditJournal = createAuditJournal({
     capacity: 1_000,
     persist: (event) => sqliteAudit.append(event),
@@ -243,19 +298,45 @@ export async function bootstrap(dependencies: BootstrapDependencies = {}): Promi
     ...(metrics === undefined ? {} : { metrics }),
     onError: (error) => console.error(error.message)
   });
-  const controlAddress = await startControlPlane(controlServer, {
-    host: config.controlHost,
-    port: config.controlPort
+  let shutdownPromise: Promise<void> | undefined;
+  const lifecycle: ApplicationLifecycle = Object.freeze({
+    shutdown() {
+      if (shutdownPromise !== undefined) return shutdownPromise;
+      shutdownPromise = (async () => {
+        // close() immediately stops new TCP accepts while allowing in-flight requests to drain.
+        const gatewayClosing = closeServerBounded(server, shutdownTimeoutMs);
+        const controlClosing = closeServerBounded(controlServer, shutdownTimeoutMs);
+
+        await taskRuntime.shutdown({ timeoutMs: shutdownTimeoutMs });
+        await Promise.all([gatewayClosing, controlClosing]);
+
+        const active = policyStore.capture();
+        active.retire?.();
+        if (active.stop !== undefined) {
+          await boundedCleanup(active.stop(), shutdownTimeoutMs);
+        }
+        closeAudit();
+      })();
+      return shutdownPromise;
+    }
   });
+
+  let controlAddress;
   let address;
   try {
+    controlAddress = await startControlPlane(controlServer, {
+      host: config.controlHost,
+      port: config.controlPort
+    });
     address = await startGateway(server, { host: config.host, port: config.port });
   } catch (error) {
-    await new Promise<void>((resolve) => controlServer.close(() => resolve()));
+    await lifecycle.shutdown();
     throw error;
   }
+
   console.log(`SlncTrZ-MCP listening on http://${address.host}:${address.port}/mcp`);
   console.log(
     `SlncTrZ-MCP control plane listening on http://${controlAddress.host}:${controlAddress.port}`
   );
+  return lifecycle;
 }

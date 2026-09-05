@@ -8,6 +8,7 @@ export const DEFAULT_MAX_ACTIVE_RUNNER_TASKS_PER_CLIENT = 8;
 export const DEFAULT_MAX_RETAINED_RUNNER_TASKS = 256;
 export const HARD_MAX_TASK_WAIT_MS = 60_000;
 export const DEFAULT_MAX_COORDINATION_TASKS = 256;
+export const DEFAULT_TASK_RUNTIME_SHUTDOWN_TIMEOUT_MS = 5_000;
 export const HARD_MAX_TASK_TITLE_CHARS = 256;
 export const HARD_MAX_TASK_INSTRUCTIONS_BYTES = 64 * 1024;
 export const HARD_MAX_TASK_RESULT_BYTES = 64 * 1024;
@@ -133,6 +134,7 @@ export interface TaskRuntime {
     options?: { readonly timeoutMs?: number; readonly signal?: AbortSignal }
   ): Promise<RunnerTaskWaitResult>;
   cancel(actor: RunnerTaskActor, taskId: string): Promise<TaskSnapshot>;
+  shutdown(options?: { readonly timeoutMs?: number }): Promise<void>;
 }
 
 function validatePositiveBound(value: number, label: string): void {
@@ -209,6 +211,14 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
   const coordinationId = options.coordinationId ?? randomUUID;
   const runnerTasks = new Map<string, MutableRunnerTask>();
   const coordinationTasks = new Map<string, MutableCoordinationTask>();
+  let accepting = true;
+  let shutdownPromise: Promise<void> | undefined;
+
+  const assertAccepting = (): void => {
+    if (!accepting) {
+      throw new TaskRuntimeError("task_invalid_state", "Task runtime is shutting down");
+    }
+  };
 
   const activeCount = (): number =>
     [...runnerTasks.values()].filter((task) => task.state === "running").length;
@@ -226,6 +236,25 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
     for (const task of terminal) {
       if (runnerTasks.size < maxRetainedTasks) break;
       runnerTasks.delete(task.taskId);
+    }
+  };
+
+  const pruneTerminalCoordinationTasks = (): void => {
+    if (coordinationTasks.size < maxCoordinationTasks) return;
+    const terminal = [...coordinationTasks.values()]
+      .filter(
+        (task) =>
+          task.state === "completed" || task.state === "failed" || task.state === "cancelled"
+      )
+      .sort(
+        (left, right) =>
+          left.updatedAt.localeCompare(right.updatedAt) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.taskId.localeCompare(right.taskId)
+      );
+    for (const task of terminal) {
+      if (coordinationTasks.size < maxCoordinationTasks) break;
+      coordinationTasks.delete(task.taskId);
     }
   };
 
@@ -276,6 +305,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
 
   const runtime: TaskRuntime = {
     async start(actor, policyVersion, launch) {
+      assertAccepting();
       pruneTerminalTasks();
       if (runnerTasks.size >= maxRetainedTasks || activeCount() >= maxActiveTasks) {
         throw new TaskRuntimeError("task_capacity", "Runner task capacity is exhausted");
@@ -327,8 +357,10 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
     },
 
     create(actor, title, instructions) {
+      assertAccepting();
       assertCoordinationText(title, "title");
       assertCoordinationText(instructions, "instructions");
+      pruneTerminalCoordinationTasks();
       if (coordinationTasks.size >= maxCoordinationTasks) {
         throw new TaskRuntimeError("task_capacity", "Coordination task capacity is exhausted");
       }
@@ -361,6 +393,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
     },
 
     claim(actor, taskId) {
+      assertAccepting();
       const task = lookupCoordination(actor, taskId);
       if (task.state === "claimed") {
         if (task.claimedBy === actor.clientId) return coordinationSnapshot(task);
@@ -376,6 +409,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
     },
 
     release(actor, taskId) {
+      assertAccepting();
       const task = lookupCoordination(actor, taskId);
       if (task.state !== "claimed") {
         throw new TaskRuntimeError("task_invalid_state", "Task is not currently claimed");
@@ -393,6 +427,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
     },
 
     complete(actor, taskId, result) {
+      assertAccepting();
       assertCoordinationText(result, "result");
       const task = lookupCoordination(actor, taskId);
       if (task.state !== "claimed") {
@@ -411,6 +446,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
     },
 
     fail(actor, taskId, failure) {
+      assertAccepting();
       assertCoordinationText(failure, "failure");
       const task = lookupCoordination(actor, taskId);
       if (task.state !== "claimed") {
@@ -497,6 +533,36 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
       task.state = "cancelled";
       task.updatedAt = now().toISOString();
       return coordinationSnapshot(task);
+    },
+
+    shutdown(shutdownOptions = {}) {
+      if (shutdownPromise !== undefined) return shutdownPromise;
+      accepting = false;
+      const timeoutMs = shutdownOptions.timeoutMs ?? DEFAULT_TASK_RUNTIME_SHUTDOWN_TIMEOUT_MS;
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+        return Promise.reject(new RangeError("Task runtime shutdown timeout must be positive"));
+      }
+      shutdownPromise = (async () => {
+        const running = [...runnerTasks.values()].filter((task) => task.state === "running");
+        for (const task of running) task.handle?.cancel();
+        const settlements = running
+          .map((task) => task.settled)
+          .filter((settled): settled is Promise<void> => settled !== undefined);
+        if (settlements.length === 0) return;
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          await Promise.race([
+            Promise.allSettled(settlements).then(() => undefined),
+            new Promise<void>((resolve) => {
+              timer = setTimeout(resolve, timeoutMs);
+              timer.unref();
+            })
+          ]);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      })();
+      return shutdownPromise;
     }
   };
   return Object.freeze(runtime);

@@ -125,6 +125,56 @@ describe("executeRunCommand", () => {
     }
   );
 
+  it.skipIf(process.platform === "win32")(
+    "managed cancellation escalates after the parent exits and kills a stubborn POSIX descendant",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "slnctrz-run-stubborn-tree-"));
+      cleanup.push(root);
+      const pidFile = join(root, "child.pid");
+      const childScript = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)";
+      const script = [
+        "const { spawn } = require('node:child_process');",
+        "const { writeFileSync } = require('node:fs');",
+        `const child = spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], { stdio: 'ignore' });`,
+        `writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+        "setInterval(() => {}, 1000);"
+      ].join("\n");
+      const handle = await startRunCommand(process.execPath, ["-e", script], root, {
+        timeoutMs: 5_000
+      });
+
+      let descendantPid: number | undefined;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          descendantPid = Number.parseInt(await readFile(pidFile, "utf8"), 10);
+          if (Number.isSafeInteger(descendantPid) && descendantPid > 0) break;
+        } catch {
+          // Parent has not written the descendant PID yet.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(descendantPid).toBeDefined();
+
+      handle.cancel();
+      await expect(handle.completion).resolves.toMatchObject({ cancelled: true });
+
+      let descendantAlive = true;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          process.kill(descendantPid ?? 0, 0);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+            descendantAlive = false;
+            break;
+          }
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(descendantAlive).toBe(false);
+    }
+  );
+
   it.skipIf(process.platform !== "win32")(
     "managed cancellation terminates the Windows descendant process tree",
     async () => {

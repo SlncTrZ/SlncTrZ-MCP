@@ -115,9 +115,10 @@ describe("in-process task coordinator", () => {
       state: "cancelled"
     });
 
-    expect(() => runtime.create(A, "Second", "Capacity is still bounded.")).toThrowError(
-      expect.objectContaining({ code: "task_capacity" })
-    );
+    expect(runtime.create(A, "Second", "Terminal history is pruned for capacity.")).toMatchObject({
+      taskId: "coord-next",
+      state: "available"
+    });
 
     const payloadRuntime = createTaskRuntime({ coordinationId: () => "payload" });
     expect(() => payloadRuntime.create(A, "x".repeat(257), "instructions")).toThrowError(
@@ -125,6 +126,46 @@ describe("in-process task coordinator", () => {
     );
     expect(() => payloadRuntime.create(A, "ok", "x".repeat(64 * 1024 + 1))).toThrowError(
       expect.objectContaining({ code: "task_payload_too_large" })
+    );
+  });
+
+  it("prunes only the oldest terminal coordination record and preserves active work", async () => {
+    const ids = ["completed", "failed", "active", "replacement", "overflow"];
+    let tick = 0;
+    const runtime = createTaskRuntime({
+      coordinationId: () => ids.shift() ?? "unexpected",
+      maxCoordinationTasks: 3,
+      now: () => new Date(1_700_000_000_000 + tick++ * 1_000)
+    });
+
+    runtime.create(A, "Completed", "terminal one");
+    runtime.claim(B, "completed");
+    runtime.complete(B, "completed", "done");
+
+    runtime.create(A, "Failed", "terminal two");
+    runtime.claim(C, "failed");
+    runtime.fail(C, "failed", "blocked");
+
+    runtime.create(A, "Active", "must survive pruning");
+    expect(runtime.create(A, "Replacement", "evicts oldest terminal")).toMatchObject({
+      taskId: "replacement"
+    });
+    expect(() => runtime.get(A, "completed")).toThrowError(
+      expect.objectContaining({ code: "task_not_found" })
+    );
+    expect(runtime.get(A, "failed")).toMatchObject({ state: "failed" });
+    expect(runtime.get(A, "active")).toMatchObject({ state: "available" });
+
+    runtime.claim(B, "replacement");
+    expect(runtime.create(A, "Overflow", "evicts the remaining terminal task")).toMatchObject({
+      taskId: "overflow",
+      state: "available"
+    });
+    expect(() => runtime.get(A, "failed")).toThrowError(
+      expect.objectContaining({ code: "task_not_found" })
+    );
+    expect(() => runtime.create(A, "Final", "all retained tasks are now active")).toThrowError(
+      expect.objectContaining({ code: "task_capacity" })
     );
   });
 

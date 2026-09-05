@@ -5,7 +5,7 @@
  * Provenance: PLAN Phase 8 and ADR-008.
  */
 
-import { bootstrap } from "./main.js";
+import { bootstrap, type ApplicationLifecycle } from "./main.js";
 import { runStandaloneCli } from "./standalone-cli.js";
 import {
   applyInstalledRuntimeEnvironment,
@@ -14,7 +14,7 @@ import {
 
 export interface ApplicationDependencies {
   readonly runCli: typeof runStandaloneCli;
-  readonly bootstrap: typeof bootstrap;
+  readonly bootstrap: () => Promise<ApplicationLifecycle | void>;
 }
 
 const DEFAULT_DEPENDENCIES: ApplicationDependencies = {
@@ -26,10 +26,9 @@ const DEFAULT_DEPENDENCIES: ApplicationDependencies = {
 export async function runApplication(
   args: readonly string[],
   dependencies: ApplicationDependencies = DEFAULT_DEPENDENCIES
-): Promise<void> {
-  if (await runInstalledLauncherIfNeeded(args)) return;
-  if (!(await dependencies.runCli(args))) {
-    await applyInstalledRuntimeEnvironment();
-    await dependencies.bootstrap();
-  }
+): Promise<ApplicationLifecycle | undefined> {
+  if (await runInstalledLauncherIfNeeded(args)) return undefined;
+  if (await dependencies.runCli(args)) return undefined;
+  await applyInstalledRuntimeEnvironment();
+  return (await dependencies.bootstrap()) ?? undefined;
 }
