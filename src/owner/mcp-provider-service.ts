@@ -71,6 +71,16 @@ export function createMcpProviderService(options: {
   const activate = async (): Promise<ReloadResult> =>
     options.policyStore.reload({ ownerApproved: true });
 
+  let mutationTail: Promise<void> = Promise.resolve();
+  const serializeMutation = <T>(operation: () => Promise<T>): Promise<T> => {
+    const run = mutationTail.catch(() => undefined).then(operation);
+    mutationTail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
+
   const lastDiscovered = new Map<string, McpDiscoveredSnapshot>();
 
   const discoverManifest = async (
@@ -162,7 +172,22 @@ export function createMcpProviderService(options: {
     return Object.freeze({ ...manifest, tools: Object.freeze(tools) });
   };
 
-  const addOrUpdate = async (input: {
+  const restoreProvider = async (
+    prior: ManagedMcpProvider | undefined,
+    providerId: string
+  ): Promise<void> => {
+    if (prior === undefined) {
+      await options.store.remove(providerId);
+      return;
+    }
+    await options.store.upsert({
+      manifest: prior.manifest,
+      ...(prior.name === undefined ? {} : { name: prior.name }),
+      enabled: prior.enabled
+    });
+  };
+
+  const addOrUpdateUnsafe = async (input: {
     readonly manifest: ExtensionManifestV1;
     readonly name?: string;
     readonly enabled?: boolean;
@@ -170,67 +195,78 @@ export function createMcpProviderService(options: {
     const prior = await options.store.get(input.manifest.id);
     const manifest = withNamespacedTools(input.manifest);
     const provider = await options.store.upsert({ ...input, manifest });
-    const reload = await activate();
-    if (reload.activated) return { provider, reload };
-    if (prior === undefined) await options.store.remove(provider.id);
-    else {
-      await options.store.upsert({
-        manifest: prior.manifest,
-        ...(prior.name === undefined ? {} : { name: prior.name }),
-        enabled: prior.enabled
-      });
+    try {
+      const reload = await activate();
+      if (reload.activated) return { provider, reload };
+      await restoreProvider(prior, provider.id);
+      return { provider, reload };
+    } catch (error) {
+      await restoreProvider(prior, provider.id);
+      throw error;
     }
-    return { provider, reload };
   };
 
-  const acceptTools = async (
+  const addOrUpdate = (input: {
+    readonly manifest: ExtensionManifestV1;
+    readonly name?: string;
+    readonly enabled?: boolean;
+  }): Promise<McpProviderMutationResult> => serializeMutation(() => addOrUpdateUnsafe(input));
+
+  const acceptTools = (
     providerId: string,
     tools: readonly ExtensionToolSchemaRecord[]
-  ): Promise<McpProviderMutationResult> => {
-    const provider = await options.store.get(providerId);
-    if (provider === undefined) throw new Error("mcp_provider_not_found");
-    if (tools.length === 0) throw new Error("mcp_provider_tools_required");
-    return addOrUpdate({
-      manifest: { ...provider.manifest, tools: [...tools] },
-      ...(provider.name === undefined ? {} : { name: provider.name }),
-      enabled: provider.enabled
+  ): Promise<McpProviderMutationResult> =>
+    serializeMutation(async () => {
+      const provider = await options.store.get(providerId);
+      if (provider === undefined) throw new Error("mcp_provider_not_found");
+      if (tools.length === 0) throw new Error("mcp_provider_tools_required");
+      return addOrUpdateUnsafe({
+        manifest: { ...provider.manifest, tools: [...tools] },
+        ...(provider.name === undefined ? {} : { name: provider.name }),
+        enabled: provider.enabled
+      });
     });
-  };
 
   return Object.freeze({
     list() {
       return options.store.list();
     },
     addOrUpdate,
-    async setEnabled(providerId: string, enabled: boolean) {
-      const prior = await options.store.get(providerId);
-      if (prior === undefined) throw new Error("mcp_provider_not_found");
-      const provider = await options.store.upsert({
-        manifest: prior.manifest,
-        ...(prior.name === undefined ? {} : { name: prior.name }),
-        enabled
+    setEnabled(providerId: string, enabled: boolean) {
+      return serializeMutation(async () => {
+        const prior = await options.store.get(providerId);
+        if (prior === undefined) throw new Error("mcp_provider_not_found");
+        const provider = await options.store.upsert({
+          manifest: prior.manifest,
+          ...(prior.name === undefined ? {} : { name: prior.name }),
+          enabled
+        });
+        try {
+          const reload = await activate();
+          if (reload.activated) return { provider, reload };
+          await restoreProvider(prior, providerId);
+          return { provider, reload };
+        } catch (error) {
+          await restoreProvider(prior, providerId);
+          throw error;
+        }
       });
-      const reload = await activate();
-      if (reload.activated) return { provider, reload };
-      await options.store.upsert({
-        manifest: prior.manifest,
-        ...(prior.name === undefined ? {} : { name: prior.name }),
-        enabled: prior.enabled
-      });
-      return { provider, reload };
     },
-    async remove(providerId: string) {
-      const prior = await options.store.get(providerId);
-      if (prior === undefined) throw new Error("mcp_provider_not_found");
-      await options.store.remove(providerId);
-      const reload = await activate();
-      if (reload.activated) return { removed: true, reload };
-      await options.store.upsert({
-        manifest: prior.manifest,
-        ...(prior.name === undefined ? {} : { name: prior.name }),
-        enabled: prior.enabled
+    remove(providerId: string) {
+      return serializeMutation(async () => {
+        const prior = await options.store.get(providerId);
+        if (prior === undefined) throw new Error("mcp_provider_not_found");
+        await options.store.remove(providerId);
+        try {
+          const reload = await activate();
+          if (reload.activated) return { removed: true, reload };
+          await restoreProvider(prior, providerId);
+          return { removed: false, reload };
+        } catch (error) {
+          await restoreProvider(prior, providerId);
+          throw error;
+        }
       });
-      return { removed: false, reload };
     },
     async discover(providerId: string) {
       const { discovery } = await discoverAndDiff(providerId);

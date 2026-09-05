@@ -63,6 +63,44 @@ describe("managed MCP provider store", () => {
     await expect(store.list()).resolves.toEqual([]);
   });
 
+  it("serializes concurrent writers across store instances sharing one file", async () => {
+    const { file } = await fixture();
+    const first = createMcpProviderStore(file);
+    const second = createMcpProviderStore(file);
+    const gitlab = {
+      ...manifest,
+      id: "gitlab",
+      endpoint: "https://gitlab.example.com/mcp",
+      tools: [{ canonicalId: "gitlab.search", riskClass: "read" as const }],
+      credentialRefs: ["gitlab-token"]
+    };
+
+    await Promise.all([
+      first.upsert({ manifest, name: "GitHub" }),
+      second.upsert({ manifest: gitlab, name: "GitLab" })
+    ]);
+    expect((await first.list()).map((provider) => provider.id)).toEqual(["github", "gitlab"]);
+
+    await Promise.all([
+      first.upsert({ manifest: { ...manifest, version: "2.0.0" } }),
+      second.upsert({ manifest: { ...gitlab, version: "2.0.0" } })
+    ]);
+    expect(
+      (await first.list()).map((provider) => [provider.id, provider.manifest.version])
+    ).toEqual([
+      ["github", "2.0.0"],
+      ["gitlab", "2.0.0"]
+    ]);
+
+    await Promise.all([
+      first.remove("github"),
+      second.upsert({ manifest: { ...gitlab, version: "3.0.0" } })
+    ]);
+    expect(
+      (await first.list()).map((provider) => [provider.id, provider.manifest.version])
+    ).toEqual([["gitlab", "3.0.0"]]);
+  });
+
   it("rejects persisted providers without an accepted tool set", async () => {
     const { store } = await fixture();
     await expect(store.upsert({ manifest: { ...manifest, tools: [] } })).rejects.toThrow(

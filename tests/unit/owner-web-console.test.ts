@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -33,17 +33,21 @@ describe("Owner Console product surface", () => {
     });
     const snapshot = buildActivePolicySnapshot(compiled);
     const operations: OwnerPolicyOperation[] = [];
+    let commandReloadMode: "activated" | "failed" | "throw" = "activated";
     const web = createOwnerWebConsole({
       ownerSecretHash: createOwnerSecretHash("owner passphrase test value"),
       policyStore: {
         capture: () => snapshot,
         async reload() {
+          if (commandReloadMode === "throw") throw new Error("reload_boom");
+          const activated = commandReloadMode === "activated";
           return {
-            activated: true,
+            activated,
             previousVersion: snapshot.version,
             activeVersion: snapshot.version,
             riskIncrease: false,
-            result: "activated" as const
+            result: activated ? ("activated" as const) : ("failed" as const),
+            ...(activated ? {} : { failureCode: "policy_invalid" as const })
           };
         }
       },
@@ -127,5 +131,49 @@ describe("Owner Console product surface", () => {
     });
     expect(authority.status).toBe(200);
     expect(operations).toEqual([{ kind: "set-authority-mode", authorityMode: "autonomous" }]);
+
+    const priorCommands = await readFile(paths.commandCatalogFile, "utf8");
+    const candidateCommands = JSON.stringify({ shell: { allowlist: { added: ["node"] } } });
+    commandReloadMode = "failed";
+    const rejectedCommands = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "x-slnctrz-csrf": csrf
+      },
+      body: JSON.stringify({ content: candidateCommands })
+    });
+    expect(rejectedCommands.status).toBe(409);
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(priorCommands);
+
+    commandReloadMode = "throw";
+    const crashedReload = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "x-slnctrz-csrf": csrf
+      },
+      body: JSON.stringify({ content: candidateCommands })
+    });
+    expect(crashedReload.status).toBe(500);
+    expect(await crashedReload.json()).toMatchObject({
+      error: { code: "commands_reload_failed" }
+    });
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(priorCommands);
+
+    commandReloadMode = "activated";
+    const acceptedCommands = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "x-slnctrz-csrf": csrf
+      },
+      body: JSON.stringify({ content: candidateCommands })
+    });
+    expect(acceptedCommands.status).toBe(200);
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(candidateCommands);
   });
 });

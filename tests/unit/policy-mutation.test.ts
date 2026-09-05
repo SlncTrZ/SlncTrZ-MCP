@@ -155,6 +155,39 @@ describe("owner policy mutation", () => {
     );
   });
 
+  it("serializes concurrent policy mutations across reload and rollback boundaries", async () => {
+    const { pathA, pathB, policyFile } = await fixture();
+    const pathC = await mkdtemp(join(tmpdir(), "slnctrz-policy-path-c-"));
+    cleanup.push(pathC);
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolvePromise) => {
+      releaseFirst = resolvePromise;
+    });
+    let reloadCount = 0;
+    const service = createPolicyMutationService({
+      policyFile,
+      policyStore: {
+        async reload() {
+          reloadCount += 1;
+          if (reloadCount === 1) await firstGate;
+          return activated(`v${reloadCount}`);
+        }
+      }
+    });
+
+    const first = service.apply({ kind: "add-path", path: pathB });
+    while (reloadCount === 0) await new Promise((resolvePromise) => setTimeout(resolvePromise, 1));
+    const second = service.apply({ kind: "add-path", path: pathC });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    expect(reloadCount).toBe(1);
+    expect(JSON.parse(await readFile(policyFile, "utf8")).paths).toEqual([pathA, pathB]);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(reloadCount).toBe(2);
+    expect(JSON.parse(await readFile(policyFile, "utf8")).paths).toEqual([pathA, pathB, pathC]);
+  });
+
   it("rolls back to the previous activated policy", async () => {
     const { pathA, pathB, policyFile } = await fixture();
     let count = 0;

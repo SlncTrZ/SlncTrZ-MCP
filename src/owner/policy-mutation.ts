@@ -65,39 +65,55 @@ export function createPolicyMutationService(options: {
 }): PolicyMutationService {
   if (!isAbsolute(options.policyFile)) throw new Error("Owner policy file must be absolute");
   const rollbackFile = `${options.policyFile}.previous`;
+  let mutationTail: Promise<void> = Promise.resolve();
+  const serializeMutation = <T>(operation: () => Promise<T>): Promise<T> => {
+    const run = mutationTail.catch(() => undefined).then(operation);
+    mutationTail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
   return Object.freeze({
     async validate() {
       const document = await loadPolicyDocument(options.policyFile);
       await compilePolicyDocument(document);
       return { valid: true as const, pathCount: document.paths.length };
     },
-    async apply(operation: OwnerPolicyOperation) {
-      const priorRaw = await readFile(options.policyFile, "utf8");
-      if (operation.kind === "rollback-policy") {
-        const rollbackRaw = await readFile(rollbackFile, "utf8").catch(() => undefined);
-        if (rollbackRaw === undefined) throw new Error("policy_rollback_unavailable");
-        await atomicWrite(options.policyFile, rollbackRaw);
-        const result = await options.policyStore.reload();
-        if (result.activated) await atomicWrite(rollbackFile, priorRaw);
-        else await atomicWrite(options.policyFile, priorRaw);
-        return result;
-      }
-      const prior = await loadPolicyDocument(options.policyFile);
-      const candidate = mutatePolicy(prior, operation);
-      await compilePolicyDocument(candidate);
-      await atomicWrite(options.policyFile, `${JSON.stringify(candidate, null, 2)}\n`);
-      try {
-        const result = await options.policyStore.reload();
-        if (result.activated) {
-          await atomicWrite(rollbackFile, priorRaw);
-          return result;
+    apply(operation: OwnerPolicyOperation) {
+      return serializeMutation(async () => {
+        const priorRaw = await readFile(options.policyFile, "utf8");
+        if (operation.kind === "rollback-policy") {
+          const rollbackRaw = await readFile(rollbackFile, "utf8").catch(() => undefined);
+          if (rollbackRaw === undefined) throw new Error("policy_rollback_unavailable");
+          await atomicWrite(options.policyFile, rollbackRaw);
+          try {
+            const result = await options.policyStore.reload();
+            if (result.activated) await atomicWrite(rollbackFile, priorRaw);
+            else await atomicWrite(options.policyFile, priorRaw);
+            return result;
+          } catch (error) {
+            await atomicWrite(options.policyFile, priorRaw);
+            throw error;
+          }
         }
-        await atomicWrite(options.policyFile, priorRaw);
-        return result;
-      } catch (error) {
-        await atomicWrite(options.policyFile, priorRaw);
-        throw error;
-      }
+        const prior = await loadPolicyDocument(options.policyFile);
+        const candidate = mutatePolicy(prior, operation);
+        await compilePolicyDocument(candidate);
+        await atomicWrite(options.policyFile, `${JSON.stringify(candidate, null, 2)}\n`);
+        try {
+          const result = await options.policyStore.reload();
+          if (result.activated) {
+            await atomicWrite(rollbackFile, priorRaw);
+            return result;
+          }
+          await atomicWrite(options.policyFile, priorRaw);
+          return result;
+        } catch (error) {
+          await atomicWrite(options.policyFile, priorRaw);
+          throw error;
+        }
+      });
     }
   });
 }

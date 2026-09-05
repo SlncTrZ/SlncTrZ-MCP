@@ -4,7 +4,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { FixedWindowRateLimiter } from "../auth/fixed-window-rate-limiter.js";
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
@@ -229,6 +229,15 @@ export function createOwnerWebConsole(options: {
 }): OwnerWebConsole {
   const sessions = new Map<string, SessionRecord>();
   const limiter = new FixedWindowRateLimiter({ limit: 10, windowSeconds: 60 });
+  let commandMutationTail: Promise<void> = Promise.resolve();
+  const serializeCommandMutation = <T>(operation: () => Promise<T>): Promise<T> => {
+    const run = commandMutationTail.catch(() => undefined).then(operation);
+    commandMutationTail = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
   const sessionFor = (req: IncomingMessage): SessionRecord | undefined => {
     const token = (req.headers.cookie ?? "")
       .split(";")
@@ -414,9 +423,10 @@ export function createOwnerWebConsole(options: {
           });
           return true;
         }
+        const commandContent = body.content;
         let entries: readonly (readonly string[])[];
         try {
-          entries = parseCommandAllowlist(JSON.parse(body.content) as unknown);
+          entries = parseCommandAllowlist(JSON.parse(commandContent) as unknown);
           compileCommandCatalog(entries);
         } catch (error) {
           sendJson(res, 400, {
@@ -427,12 +437,75 @@ export function createOwnerWebConsole(options: {
           });
           return true;
         }
-        const target = options.statePaths.commandCatalogFile;
-        const temporary = `${target}.tmp-${randomBytes(8).toString("hex")}`;
-        await writeFile(temporary, body.content, { encoding: "utf8", mode: 0o600, flag: "wx" });
-        await rename(temporary, target);
-        const result = await options.policyStore.reload();
-        sendJson(res, result.activated ? 200 : 409, { ...result, entries });
+        const outcome = await serializeCommandMutation(async () => {
+          const target = options.statePaths.commandCatalogFile;
+          const priorRaw = await readFile(target, "utf8").catch((error: unknown) => {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+            throw error;
+          });
+          const restorePrior = async (): Promise<void> => {
+            if (priorRaw === undefined) {
+              await rm(target, { force: true });
+              return;
+            }
+            const restoreTemporary = `${target}.tmp-${randomBytes(8).toString("hex")}`;
+            try {
+              await writeFile(restoreTemporary, priorRaw, {
+                encoding: "utf8",
+                mode: 0o600,
+                flag: "wx"
+              });
+              await rename(restoreTemporary, target);
+            } finally {
+              await rm(restoreTemporary, { force: true }).catch(() => undefined);
+            }
+          };
+          const temporary = `${target}.tmp-${randomBytes(8).toString("hex")}`;
+          try {
+            await writeFile(temporary, commandContent, {
+              encoding: "utf8",
+              mode: 0o600,
+              flag: "wx"
+            });
+            await rename(temporary, target);
+            try {
+              const result = await options.policyStore.reload();
+              if (!result.activated) {
+                try {
+                  await restorePrior();
+                } catch {
+                  return { kind: "recovery_failed" as const };
+                }
+              }
+              return { kind: "reload_result" as const, result };
+            } catch {
+              try {
+                await restorePrior();
+              } catch {
+                return { kind: "recovery_failed" as const };
+              }
+              return { kind: "reload_threw" as const };
+            }
+          } finally {
+            await rm(temporary, { force: true }).catch(() => undefined);
+          }
+        });
+        if (outcome.kind === "recovery_failed") {
+          sendJson(res, 500, {
+            error: {
+              code: "commands_recovery_failed",
+              message: "Command catalog activation failed and prior state could not be restored"
+            }
+          });
+          return true;
+        }
+        if (outcome.kind === "reload_threw") {
+          sendJson(res, 500, {
+            error: { code: "commands_reload_failed", message: "Command catalog activation failed" }
+          });
+          return true;
+        }
+        sendJson(res, outcome.result.activated ? 200 : 409, { ...outcome.result, entries });
         return true;
       }
       if (method === "POST" && pathname === "/owner/api/mcp") {

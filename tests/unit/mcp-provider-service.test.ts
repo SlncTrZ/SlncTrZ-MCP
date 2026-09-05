@@ -1,7 +1,14 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionManifestV1 } from "../../src/extension/manifest.js";
 import { createMcpProviderService } from "../../src/owner/mcp-provider-service.js";
-import type { ManagedMcpProvider, McpProviderStore } from "../../src/owner/mcp-provider-store.js";
+import {
+  createMcpProviderStore,
+  type ManagedMcpProvider,
+  type McpProviderStore
+} from "../../src/owner/mcp-provider-store.js";
 
 const manifest = {
   id: "demo",
@@ -63,6 +70,89 @@ describe("MCP provider enabled-state authority", () => {
     const result = await service.remove("demo");
     expect(result.removed).toBe(true);
     expect(store.remove).toHaveBeenCalledWith("demo");
+  });
+
+  it("serializes persist-reload-rollback transactions across concurrent mutations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-provider-service-race-"));
+    try {
+      const store = createMcpProviderStore(join(root, "providers.json"));
+      let releaseFirst!: () => void;
+      const firstGate = new Promise<void>((resolvePromise) => {
+        releaseFirst = resolvePromise;
+      });
+      let reloadCount = 0;
+      const service = createMcpProviderService({
+        store,
+        policyStore: {
+          async reload() {
+            reloadCount += 1;
+            if (reloadCount === 1) await firstGate;
+            if (reloadCount === 1) {
+              return {
+                activated: false,
+                previousVersion: "a",
+                activeVersion: "a",
+                riskIncrease: false,
+                result: "failed",
+                failureCode: "policy_invalid"
+              } as const;
+            }
+            return {
+              activated: true,
+              previousVersion: "a",
+              activeVersion: "b",
+              riskIncrease: false,
+              result: "activated"
+            } as const;
+          }
+        }
+      });
+      const firstManifest = { ...manifest, id: "first" } as ExtensionManifestV1;
+      const secondManifest = { ...manifest, id: "second" } as ExtensionManifestV1;
+      const first = service.addOrUpdate({ manifest: firstManifest });
+      while (reloadCount === 0)
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 1));
+      const second = service.addOrUpdate({ manifest: secondManifest });
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+      expect(reloadCount).toBe(1);
+
+      releaseFirst();
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.reload.activated).toBe(false);
+      expect(secondResult.reload.activated).toBe(true);
+      expect(reloadCount).toBe(2);
+      expect((await store.list()).map((entry) => entry.id)).toEqual(["second"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restores durable provider state when activation reload throws", async () => {
+    let current = provider(false);
+    const store: McpProviderStore = {
+      list: vi.fn(async () => [current]),
+      get: vi.fn(async () => current),
+      upsert: vi.fn(async (input) => {
+        current = {
+          ...current,
+          manifest: input.manifest,
+          enabled: input.enabled ?? current.enabled
+        };
+        return current;
+      }),
+      remove: vi.fn(async () => true)
+    };
+    const service = createMcpProviderService({
+      store,
+      policyStore: {
+        async reload() {
+          throw new Error("reload_boom");
+        }
+      }
+    });
+
+    await expect(service.setEnabled("demo", true)).rejects.toThrow("reload_boom");
+    expect(current.enabled).toBe(false);
   });
 
   it("namespaces bare discovered tool ids under the provider when persisting", async () => {

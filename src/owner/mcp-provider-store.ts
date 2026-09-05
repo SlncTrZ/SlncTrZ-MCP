@@ -5,7 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import * as z from "zod/v4";
 import {
   compileExtensionManifest,
@@ -40,6 +40,30 @@ const storedProviderSchema = z
     updatedAt: z.iso.datetime()
   })
   .strict();
+
+const mutationQueues = new Map<string, Promise<void>>();
+
+async function withFileMutation<T>(path: string, operation: () => Promise<T>): Promise<T> {
+  const key = resolve(path);
+  const prior = mutationQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolveGate) => {
+    release = resolveGate;
+  });
+  const tail = prior.catch(() => undefined).then(() => gate);
+  mutationQueues.set(key, tail);
+  await prior.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (mutationQueues.get(key) === tail) {
+      void tail.finally(() => {
+        if (mutationQueues.get(key) === tail) mutationQueues.delete(key);
+      });
+    }
+  }
+}
 
 const storeSchema = z
   .object({
@@ -145,32 +169,36 @@ export function createMcpProviderStore(providerFile: string): McpProviderStore {
       if (input.name !== undefined && (input.name.length === 0 || input.name.length > 128)) {
         throw new Error("mcp_provider_name_invalid");
       }
-      const providers = await loadFile(providerFile);
-      const existing = providers.find((provider) => provider.id === compiled.id);
-      const provider = cloneProvider({
-        id: compiled.id,
-        ...(input.name === undefined
-          ? existing?.name === undefined
-            ? {}
-            : { name: existing.name }
-          : { name: input.name }),
-        enabled: input.enabled ?? existing?.enabled ?? true,
-        manifest: structuredClone(input.manifest),
-        updatedAt: new Date().toISOString()
+      return withFileMutation(providerFile, async () => {
+        const providers = await loadFile(providerFile);
+        const existing = providers.find((provider) => provider.id === compiled.id);
+        const provider = cloneProvider({
+          id: compiled.id,
+          ...(input.name === undefined
+            ? existing?.name === undefined
+              ? {}
+              : { name: existing.name }
+            : { name: input.name }),
+          enabled: input.enabled ?? existing?.enabled ?? true,
+          manifest: structuredClone(input.manifest),
+          updatedAt: new Date().toISOString()
+        });
+        const next = providers.filter((entry) => entry.id !== provider.id);
+        next.push(provider);
+        if (next.length > MAX_EXTENSIONS) throw new Error("mcp_provider_store_capacity_exceeded");
+        next.sort((left, right) => left.id.localeCompare(right.id));
+        await atomicWrite(providerFile, next);
+        return provider;
       });
-      const next = providers.filter((entry) => entry.id !== provider.id);
-      next.push(provider);
-      if (next.length > MAX_EXTENSIONS) throw new Error("mcp_provider_store_capacity_exceeded");
-      next.sort((left, right) => left.id.localeCompare(right.id));
-      await atomicWrite(providerFile, next);
-      return provider;
     },
     async remove(providerId: string) {
-      const providers = await loadFile(providerFile);
-      const next = providers.filter((provider) => provider.id !== providerId);
-      if (next.length === providers.length) return false;
-      await atomicWrite(providerFile, next);
-      return true;
+      return withFileMutation(providerFile, async () => {
+        const providers = await loadFile(providerFile);
+        const next = providers.filter((provider) => provider.id !== providerId);
+        if (next.length === providers.length) return false;
+        await atomicWrite(providerFile, next);
+        return true;
+      });
     }
   });
 }
