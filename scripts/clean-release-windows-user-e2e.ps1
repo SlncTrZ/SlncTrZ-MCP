@@ -61,7 +61,10 @@ $Workspace = Join-Path $Root "Workspace Unicode Ω & spaces"
 $InstallRoot = Join-Path $Root "Local App Data\SlncTrZ-MCP"
 $StateRoot = Join-Path $Root "Profile\.slnctrz-mcp"
 $ConfigRoot = Join-Path $Root "Roaming App Data\SlncTrZ-MCP"
-$InstallScript = Join-Path $Root "install.sh"
+# Windows PowerShell 5.1 can split POSIX argv containing spaces when launching bash.exe.
+# Keep Bash entry paths space-free and pass Windows paths through process environment instead.
+$InstallScript = Join-Path ([IO.Path]::GetTempPath()) ("slnctrz-windows-e2e-bootstrap-" + [guid]::NewGuid().ToString("N") + ".sh")
+$BootstrapDriver = Join-Path ([IO.Path]::GetTempPath()) ("slnctrz-windows-e2e-driver-" + [guid]::NewGuid().ToString("N") + ".sh")
 $GatewayStdout = Join-Path $Root "gateway.stdout.log"
 $GatewayStderr = Join-Path $Root "gateway.stderr.log"
 $GatewayPort = Reserve-Port
@@ -70,16 +73,37 @@ New-Item -ItemType Directory -Force -Path $Workspace | Out-Null
 Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/install.sh" -OutFile $InstallScript
 
 $InstallScriptPosix = To-GitBashPath $Bash $InstallScript
-$WorkspacePosix = To-GitBashPath $Bash $Workspace
-$InstallRootPosix = To-GitBashPath $Bash $InstallRoot
-$StateRootPosix = To-GitBashPath $Bash $StateRoot
-$ConfigRootPosix = To-GitBashPath $Bash $ConfigRoot
+$BootstrapDriverContent = @'
+#!/usr/bin/env bash
+set -euo pipefail
+exec "$SLNCTRZ_E2E_INSTALL_SCRIPT" \
+  --mode user \
+  --port "$SLNCTRZ_E2E_PORT" \
+  --path "$SLNCTRZ_E2E_WORKSPACE" \
+  --install-root "$SLNCTRZ_E2E_INSTALL_ROOT" \
+  --state-root "$SLNCTRZ_E2E_STATE_ROOT" \
+  --config-root "$SLNCTRZ_E2E_CONFIG_ROOT"
+'@
+Set-Content -LiteralPath $BootstrapDriver -Value $BootstrapDriverContent -Encoding Ascii
+$BootstrapDriverPosix = To-GitBashPath $Bash $BootstrapDriver
 
 $previousReleaseUrl = $env:SLNCTRZ_RELEASE_URL
+$previousE2eInstallScript = $env:SLNCTRZ_E2E_INSTALL_SCRIPT
+$previousE2ePort = $env:SLNCTRZ_E2E_PORT
+$previousE2eWorkspace = $env:SLNCTRZ_E2E_WORKSPACE
+$previousE2eInstallRoot = $env:SLNCTRZ_E2E_INSTALL_ROOT
+$previousE2eStateRoot = $env:SLNCTRZ_E2E_STATE_ROOT
+$previousE2eConfigRoot = $env:SLNCTRZ_E2E_CONFIG_ROOT
 try {
   $env:SLNCTRZ_RELEASE_URL = $ReleaseUrl
+  $env:SLNCTRZ_E2E_INSTALL_SCRIPT = $InstallScriptPosix
+  $env:SLNCTRZ_E2E_PORT = [string]$GatewayPort
+  $env:SLNCTRZ_E2E_WORKSPACE = $Workspace
+  $env:SLNCTRZ_E2E_INSTALL_ROOT = $InstallRoot
+  $env:SLNCTRZ_E2E_STATE_ROOT = $StateRoot
+  $env:SLNCTRZ_E2E_CONFIG_ROOT = $ConfigRoot
 
-  $setup = & $Bash $InstallScriptPosix "--mode" "user" "--port" ([string]$GatewayPort) "--path" $WorkspacePosix "--install-root" $InstallRootPosix "--state-root" $StateRootPosix "--config-root" $ConfigRootPosix 2>&1 | Out-String
+  $setup = & $Bash $BootstrapDriverPosix 2>&1 | Out-String
   if ($LASTEXITCODE -ne 0) {
     throw ("Git Bash bootstrap failed (" + $LASTEXITCODE + "):" + [Environment]::NewLine + $setup)
   }
@@ -168,5 +192,18 @@ try {
 finally {
   if ($null -eq $previousReleaseUrl) { Remove-Item Env:SLNCTRZ_RELEASE_URL -ErrorAction SilentlyContinue }
   else { $env:SLNCTRZ_RELEASE_URL = $previousReleaseUrl }
+  foreach ($entry in @(
+    @{ Name = "SLNCTRZ_E2E_INSTALL_SCRIPT"; Value = $previousE2eInstallScript },
+    @{ Name = "SLNCTRZ_E2E_PORT"; Value = $previousE2ePort },
+    @{ Name = "SLNCTRZ_E2E_WORKSPACE"; Value = $previousE2eWorkspace },
+    @{ Name = "SLNCTRZ_E2E_INSTALL_ROOT"; Value = $previousE2eInstallRoot },
+    @{ Name = "SLNCTRZ_E2E_STATE_ROOT"; Value = $previousE2eStateRoot },
+    @{ Name = "SLNCTRZ_E2E_CONFIG_ROOT"; Value = $previousE2eConfigRoot }
+  )) {
+    if ($null -eq $entry.Value) { Remove-Item ("Env:" + $entry.Name) -ErrorAction SilentlyContinue }
+    else { Set-Item ("Env:" + $entry.Name) $entry.Value }
+  }
+  Remove-Item -LiteralPath $BootstrapDriver -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $InstallScript -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue
 }
