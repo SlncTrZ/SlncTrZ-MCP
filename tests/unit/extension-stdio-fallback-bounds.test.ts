@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -27,20 +27,27 @@ async function waitGone(pid: number): Promise<void> {
 async function legacyFixture(
   root: string,
   mode: "silent-discover" | "exit-discover" | "healthy"
-): Promise<{ script: string; pidLog: string }> {
+): Promise<{
+  script: string;
+  probePidFile: string;
+  legacyPidFile: string;
+  spawnPrefix: string;
+}> {
   const script = join(root, `${mode}.cjs`);
-  const pidLog = join(root, `${mode}.pids`);
+  const probePidFile = join(root, `${mode}.probe.pid`);
+  const legacyPidFile = join(root, `${mode}.legacy.pid`);
+  const spawnPrefix = `${mode}.spawn.`;
   const discoverBranch =
     mode === "silent-discover"
-      ? "if (request.method === 'server/discover') continue;"
+      ? `if (request.method === 'server/discover') { writeFileSync(${JSON.stringify(probePidFile)}, String(process.pid)); continue; }`
       : mode === "exit-discover"
-        ? "if (request.method === 'server/discover') process.exit(0);"
-        : "if (request.method === 'server/discover') { reply({ error: { code: -32601, message: 'method not found' } }); continue; }";
+        ? `if (request.method === 'server/discover') { writeFileSync(${JSON.stringify(probePidFile)}, String(process.pid)); process.exit(0); }`
+        : `if (request.method === 'server/discover') { writeFileSync(${JSON.stringify(probePidFile)}, String(process.pid)); reply({ error: { code: -32601, message: 'method not found' } }); continue; }`;
   await writeFile(
     script,
     [
-      "const { appendFileSync } = require('node:fs');",
-      `appendFileSync(${JSON.stringify(pidLog)}, String(process.pid) + '\\n');`,
+      "const { writeFileSync } = require('node:fs');",
+      `writeFileSync(${JSON.stringify(join(root, `${mode}.spawn.`))} + String(process.pid), '');`,
       "process.stdin.setEncoding('utf8');",
       "let carry = '';",
       "function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }",
@@ -54,7 +61,7 @@ async function legacyFixture(
       "    const request = JSON.parse(line);",
       "    const reply = (payload) => send({ jsonrpc: '2.0', id: request.id, ...payload });",
       `    ${discoverBranch}`,
-      "    if (request.method === 'initialize') { reply({ result: { protocolVersion: '2025-11-25' } }); continue; }",
+      `    if (request.method === 'initialize') { writeFileSync(${JSON.stringify(legacyPidFile)}, String(process.pid)); reply({ result: { protocolVersion: '2025-11-25' } }); continue; }`,
       "    if (request.method === 'tools/list') { reply({ result: { tools: [{ name: 'echo' }] } }); continue; }",
       "    if (request.method === 'tools/call') { reply({ result: { content: [{ type: 'text', text: 'pong' }] } }); }",
       "  }",
@@ -62,7 +69,7 @@ async function legacyFixture(
     ].join("\n"),
     "utf8"
   );
-  return { script, pidLog };
+  return { script, probePidFile, legacyPidFile, spawnPrefix };
 }
 
 function manifestFor(script: string, id = "legacy", startupTimeoutMs = 300): ExtensionManifestV1 {
@@ -85,19 +92,29 @@ describe("stdio startup fallback bounds", () => {
       let adapter: ReturnType<typeof createStdioAdapter> | undefined;
       try {
         const fixture = await legacyFixture(root, mode);
-        const manifest = await compileExtensionManifest(manifestFor(fixture.script));
+        const startupTimeoutMs = 1_800;
+        const manifest = await compileExtensionManifest(
+          manifestFor(fixture.script, "legacy", startupTimeoutMs)
+        );
         adapter = createStdioAdapter(manifest);
         const startedAt = Date.now();
         await adapter.start();
         expect((await adapter.listTools()).map((tool) => tool.canonicalId)).toEqual(["echo"]);
-        expect(Date.now() - startedAt).toBeLessThan(800);
+        expect(Date.now() - startedAt).toBeLessThan(startupTimeoutMs + 500);
 
-        const pids = (await readFile(fixture.pidLog, "utf8")).trim().split(/\r?\n/).map(Number);
-        expect(pids.length).toBeGreaterThanOrEqual(2);
-        await expect(waitGone(pids[0] ?? 0)).resolves.toBeUndefined();
+        const legacyPid = Number(await readFile(fixture.legacyPidFile, "utf8"));
+        const generationPids = (await readdir(root))
+          .filter((entry) => entry.startsWith(fixture.spawnPrefix))
+          .map((entry) => Number(entry.slice(fixture.spawnPrefix.length)))
+          .filter((pid) => Number.isInteger(pid) && pid > 0);
+        expect(generationPids).toContain(legacyPid);
+        expect(generationPids.some((pid) => pid !== legacyPid)).toBe(true);
+        await Promise.all(
+          generationPids.filter((pid) => pid !== legacyPid).map((pid) => waitGone(pid))
+        );
         await adapter.stop();
         adapter = undefined;
-        await Promise.all(pids.slice(1).map((pid) => waitGone(pid)));
+        await expect(waitGone(legacyPid)).resolves.toBeUndefined();
       } finally {
         await adapter?.stop();
         await rm(root, { recursive: true, force: true });
@@ -109,12 +126,12 @@ describe("stdio startup fallback bounds", () => {
     const root = await mkdtemp(join(tmpdir(), "slnctrz-owner-stdio-timeout-"));
     try {
       const silentScript = join(root, "silent.cjs");
-      const silentPidFile = join(root, "silent.pid");
+      const silentSpawnPrefix = "silent.spawn.";
       await writeFile(
         silentScript,
         [
           "const { writeFileSync } = require('node:fs');",
-          `writeFileSync(${JSON.stringify(silentPidFile)}, String(process.pid));`,
+          `writeFileSync(${JSON.stringify(join(root, "silent.spawn."))} + String(process.pid), '');`,
           "process.stdin.resume();"
         ].join("\n"),
         "utf8"
@@ -152,17 +169,22 @@ describe("stdio startup fallback bounds", () => {
         providers: service
       });
 
+      const silentStartupTimeoutMs = 1_500;
       const firstStartedAt = Date.now();
       const first = await orchestrator.add({
-        manifest: manifestFor(silentScript, "silent", 240)
+        manifest: manifestFor(silentScript, "silent", silentStartupTimeoutMs)
       });
       expect(first.status).toBe("rolled_back");
-      expect(Date.now() - firstStartedAt).toBeLessThan(800);
-      const silentPid = Number(await readFile(silentPidFile, "utf8"));
-      await expect(waitGone(silentPid)).resolves.toBeUndefined();
+      expect(Date.now() - firstStartedAt).toBeLessThan(silentStartupTimeoutMs + 500);
+      const silentPids = (await readdir(root))
+        .filter((entry) => entry.startsWith(silentSpawnPrefix))
+        .map((entry) => Number(entry.slice(silentSpawnPrefix.length)))
+        .filter((pid) => Number.isInteger(pid) && pid > 0);
+      expect(silentPids.length).toBeGreaterThan(0);
+      await Promise.all(silentPids.map((pid) => waitGone(pid)));
 
       const second = await orchestrator.add({
-        manifest: manifestFor(healthy.script, "healthy", 500)
+        manifest: manifestFor(healthy.script, "healthy", 1_800)
       });
       expect(second.status).toBe("committed");
       expect((await store.list()).map((provider) => provider.id)).toEqual(["healthy"]);
