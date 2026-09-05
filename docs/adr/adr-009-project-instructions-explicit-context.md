@@ -3,6 +3,8 @@
 > Status: Accepted
 > Date: 2026-08-28
 > Owners: SlncTrZ
+>
+> Current-contract note (2026-09-05): the canonical SlncTrZ Product Agent Harness from root `AGENTS.md` is product guidance and is distinct from the project instruction sources discussed here. The explicit `slnctrz://context/index` / `project-context` runtime described by this ADR is **not implemented in the current source tree**; this ADR remains an accepted design boundary, not a claim of current runtime support.
 
 ## Context
 
@@ -62,11 +64,6 @@ context consumption.
 - **Partial text truncation:** rejected because it can change instruction meaning;
   deterministic whole-file reference is safer.
 
-## Verification
+## Intended verification
 
-Linux Node 22.23.2 and Node 24.19.0 run the full repository typecheck, lint, format,
-test, and build gates. Acceptance tests cover precedence, hash changes, budgets,
-missing/malformed/oversized/symlink cases, secret and traversal denial, absolute-path
-redaction, cross-workspace isolation, authenticated MCP provenance/prompt behavior, and
-malicious instruction text that attempts to grant `core.exec`. Windows evidence is
-deferred and not claimed.
+When this project-context runtime is implemented, acceptance must cover precedence, hash changes, budgets, missing/malformed/oversized/symlink cases, secret and traversal denial, absolute-path redaction, cross-workspace isolation, authenticated MCP provenance/prompt behavior, and malicious instruction text that attempts to grant `core.exec`/`task.start` authority. Until those runtime surfaces exist and those tests pass, documentation and release claims must not report ADR-009 project-context delivery as operational.

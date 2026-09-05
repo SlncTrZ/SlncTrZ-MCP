@@ -154,10 +154,41 @@ core.edit apply
 core.exec Restricted
 core.exec Autonomous where intended
 cancellation/time/output guards
-restart persistence
+OAuth/provider/audit restart persistence where claimed
+Task Runtime restart reset where documented
 ```
 
 For the historical multi-root search bug, acceptance must prove that an explicit requested root is honored and does not search sibling authorized roots.
+
+## Managed Task Runtime release acceptance
+
+Runner evidence:
+
+```text
+task.start returns while long command is still running
+later task.get sees the same Runner task
+task.wait timeout leaves task running
+aborted/disconnected task.wait leaves task running
+explicit task.cancel terminates the managed process tree
+execution timeout -> timed_out, explicit cancel -> cancelled
+Restricted task.start denial matches core.exec policy
+a second authenticated client cannot inspect/cancel creator-private Runner work
+```
+
+Coordinator evidence uses at least two independently authenticated clients:
+
+```text
+Client A task.create
+Client B task.list/get sees the workspace task
+Client B + Client C concurrent task.claim -> exactly one winner
+loser cannot complete/fail/release claimant-owned work
+winner release -> another client can reclaim
+claimant complete/fail -> creator sees terminal result
+claimant cannot creator-cancel the task
+creator can cancel available/claimed coordination work
+```
+
+Also prove the documented lifecycle boundary: Task Runtime is in-memory and is not claimed to survive a gateway restart. Coordination instructions/results are context, not authority.
 
 ## MCP provider release acceptance
 

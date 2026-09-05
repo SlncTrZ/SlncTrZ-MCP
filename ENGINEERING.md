@@ -20,13 +20,13 @@ Current development environment: Node `v24.18.0`, npm `11.16.0`. TypeScript
 
 ### Operating systems (target matrix, PLAN Phase 8)
 
-| OS      | Arch  | Developer/source evidence | Standalone SEA evidence               |
-| ------- | ----- | ------------------------- | ------------------------------------- |
-| Linux   | x64   | CI: Node 22 + 24          | Public release target                 |
-| Linux   | arm64 | Not in current CI matrix  | Pending native evidence               |
-| Windows | x64   | Native CI: Node 24        | Public User Install target from 0.3.x |
-| macOS   | x64   | No current CI claim       | Deferred                              |
-| macOS   | arm64 | No current CI claim       | Deferred                              |
+| OS      | Arch  | Developer/source evidence | Standalone SEA evidence    |
+| ------- | ----- | ------------------------- | -------------------------- |
+| Linux   | x64   | CI: Node 22 + 24          | Public release target      |
+| Linux   | arm64 | Not in current CI matrix  | Pending native evidence    |
+| Windows | x64   | Native CI: Node 24        | Public User Install target |
+| macOS   | x64   | No current CI claim       | Deferred                   |
+| macOS   | arm64 | No current CI claim       | Deferred                   |
 
 The developer runtime support matrix and standalone release evidence are separate. Linux
 x64 SEA help/version and gateway bootstrap run on Node 24. Linux arm64 requires a native
@@ -53,6 +53,7 @@ Source lives under `src/`, mapping to ARCHITECTURE components:
 | `src/router`        | Request router                      |
 | `src/shared`        | Shared contracts and utilities      |
 | `src/standalone`    | Verified manifest/install/rollback  |
+| `src/task`          | Managed Runner + Task Coordinator   |
 
 Tests mirror this under `tests/` (`unit`, `integration`, `conformance`, `e2e`).
 Sample configuration lives under `config/`.
@@ -64,6 +65,8 @@ Sample configuration lives under `config/`.
 | `npm run build`                | Emit compiled output to `dist/`                   |
 | `npm run build:sea:linux-x64`  | Build Linux x64 SEA artifact                      |
 | `npm run smoke:sea:linux-x64`  | Boot packaged deny-all gateway                    |
+| `npm run build:sea:win32-x64`  | Build Windows x64 SEA on a native Windows runner  |
+| `npm run smoke:sea:win32-x64`  | Boot packaged Windows x64 gateway                 |
 | `npm run typecheck`            | Type-check without emitting                       |
 | `npm run lint`                 | ESLint (type-aware)                               |
 | `npm run lint:fix`             | ESLint autofix                                    |

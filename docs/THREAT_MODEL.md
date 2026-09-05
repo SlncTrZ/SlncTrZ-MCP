@@ -2,7 +2,7 @@
 
 > Scope: current schema-v2 gateway architecture. Historical workspace/profile/binding/proposal models belong in ADR history, not in the active security contract.
 > Status: active implementation gate
-> Updated: 2026-09-03
+> Updated: 2026-09-05
 
 ## 1. Security objective
 
@@ -54,7 +54,7 @@ The gateway never silently elevates privileges.
 - OAuth authorization state, dynamic-client state and token families.
 - Owner-managed policy, command and provider state.
 - Provider credentials and accepted tool catalogs.
-- Availability of the gateway process, child-process capacity and provider supervisors.
+- Availability of the gateway process, child-process capacity, Task Runtime capacity and provider supervisors.
 - Audit attribution and release/build provenance.
 - Integrity of the active runtime generation.
 
@@ -65,13 +65,14 @@ The gateway never silently elevates privileges.
 3. **Active policy snapshot** selects restricted/autonomous authority and core capabilities.
 4. **Filesystem kernel** performs canonical path resolution, bounded UTF-8 I/O, symlink/race checks and restricted-mode secret protection.
 5. **Exec kernel** resolves and revalidates executable identity, bounds argv/output/time and terminates process trees.
-6. **Extension registry/runtime** binds namespaced provider tools to fixed transports and accepted catalogs.
-7. **Credential store** resolves provider secrets without exposing them through normal model-facing metadata.
-8. **Owner control plane / Owner Console** is separately authenticated and is not a model-facing admin tool surface.
-9. **Audit/metrics** accept only bounded privacy-reviewed projections.
-10. **Standalone release path** verifies release metadata and artifact bytes before activation.
+6. **Task Runtime** keeps bounded in-process Runner/Coordinator state; Runner launch reuses Exec authority while coordination state carries no capability authority.
+7. **Extension registry/runtime** binds namespaced provider tools to fixed transports and accepted catalogs.
+8. **Credential store** resolves provider secrets without exposing them through normal model-facing metadata.
+9. **Owner control plane / Owner Console** is separately authenticated and is not a model-facing admin tool surface.
+10. **Audit/metrics** accept only bounded privacy-reviewed projections.
+11. **Standalone release path** verifies release metadata and artifact bytes before activation.
 
-Project documents, prompts, provider descriptions and MCP tool output are data, not capability grants.
+Product/project instructions, coordination-task instructions/results, prompts, provider descriptions and MCP tool output are data, not capability grants.
 
 ## 5. Threats and controls
 
@@ -89,6 +90,10 @@ Project documents, prompts, provider descriptions and MCP tool output are data, 
 | Executable substitution          | Catalog binary changes after authorization                    | Canonical executable identity stored/revalidated immediately before spawn.            |
 | Environment leakage              | Child inherits secrets                                        | Minimal explicit environment rather than wholesale inheritance.                       |
 | Process leak                     | Timeout/disconnect leaves descendants                         | Cancellation propagation and process-tree termination with grace period.              |
+| Task privilege confusion         | Caller treats `task.start` as authority beyond `core.exec`    | Runner launch reuses the same policy/Exec authorization path.                         |
+| Coordination confused deputy     | Task text asks claimant to exceed current authority           | Coordination text is context only; Kernel/Auth/Policy remains authoritative.          |
+| Coordination claim race          | Two clients believe they own the same logical task            | Deterministic atomic single-winner claim in one gateway process.                      |
+| Task-state exhaustion            | Client fills in-memory Runner/Coordinator capacity            | Fixed bounded capacities and fail-loud `task_capacity`; no implicit unbounded queue.  |
 | Windows command-script injection | `.cmd/.bat` metacharacters                                    | Reject unsafe command-script metacharacters and use controlled Windows invocation.    |
 | Namespace collision              | Provider shadows core/another provider                        | Candidate generation fails closed; previous generation remains active.                |
 | Provider discovery drift         | Runtime tools differ from accepted catalog                    | Readiness attestation and fail-closed provider availability.                          |
@@ -156,6 +161,17 @@ Authorizing a shell/interpreter is an explicit owner decision and can effectivel
 ### Autonomous execution
 
 Autonomous execution follows the gateway OS-user token. The runtime must still keep output/time/process-cleanup guards and must not claim privilege elevation.
+
+### Managed task requirements
+
+- `task.start` must use the same Restricted/Autonomous execution authorization as `core.exec`.
+- Runner tasks are creator-private and workspace-bound.
+- Aborting `task.wait` must not cancel the underlying process; explicit `task.cancel` owns cancellation.
+- Coordination tasks are workspace-visible logical state with exactly one claimant at a time.
+- Only the current claimant may release/complete/fail; creator cancellation remains explicit.
+- Task instructions/results must not be stored in metadata-only audit records.
+- Task Runtime state is intentionally in-memory in the current product and is cleared on gateway restart.
+- No durable recovery, lease/heartbeat, dependency DAG or resource-lock claim is made unless separately implemented and tested.
 
 ## 8. Extension provider requirements
 
@@ -226,11 +242,11 @@ approved command/provider identity when safe
 build version/build commit
 ```
 
-Raw file contents, model prompts, provider payloads, credentials and command stdout/stderr must not be stored by default.
+Raw file contents, model prompts, task instructions/results, provider payloads, credentials and command stdout/stderr must not be stored by default.
 
 The in-memory journal remains bounded for fast control-plane export, and the same privacy-reviewed projection is persisted by default to `<stateRoot>/audit.sqlite3`. Durable retention defaults to the newest 250,000 events and is pruned transactionally by the sink. SQLite persistence failure is surfaced through diagnostics but must not broaden authority or cause a completed tool action to be replayed.
 
-Successful and failed core read/search/write/edit/exec calls are included in the tool audit projection; provider dispatch and control-plane actions are also journaled without raw payloads.
+Successful and failed core read/search/write/edit/exec and task operations are included in the tool audit projection; provider dispatch and control-plane actions are also journaled without raw payloads.
 
 ## 12. Release and deployment requirements
 
@@ -285,6 +301,9 @@ Key test families:
 - `tests/conformance/default-workspace-e2e.test.ts` — schema-v2 Paths and restricted/autonomous behavior.
 - `tests/conformance/exec-command-catalog-e2e.test.ts` — restricted command-catalog execution.
 - `tests/conformance/extension-gateway-e2e.test.ts` — provider transport/credential/tool exposure.
+- `tests/conformance/task-runner-e2e.test.ts` — request-independent Runner launch/wait/cancel and policy reuse.
+- `tests/conformance/task-coordinator-e2e.test.ts` — independent authenticated clients and single-winner coordination claim.
+- `tests/unit/task-runtime.test.ts`, `task-coordinator.test.ts` — bounded task state/ownership transitions.
 - `tests/unit/fs-boundary.test.ts`, `fs-read`, `fs-search`, `fs-write`, `fs-edit` — filesystem kernel.
 - `tests/unit/exec-run.test.ts` — execution bounds and process behavior.
 - `tests/unit/oauth-*` — authorization, PKCE, token families and HTTP flow.

@@ -32,7 +32,7 @@ MCP Servers
 - Write/Edit/Exec apply by default; preview is explicit `dryRun:true`.
 - Proposal/approval state machine removed from normal owner mutations.
 - Model-facing Owner Admin tools removed.
-- Managed harness/instruction-context and Skills removed.
+- Legacy workspace-managed harness/instruction-context authority removed; the canonical Product Agent Harness from root `AGENTS.md` is delivered as product working guidance and remains non-authoritative.
 - Legacy fixed exec registry removed.
 - MCP workspace/profile/tool-subset grants removed; enabled provider = exposed provider.
 - Owner Console remains small: Autonomy / Paths / Commands / MCP Servers with typed intents.
@@ -56,7 +56,7 @@ Named client support still requires real-client acceptance on the **published in
 1. start from clean managed state
 2. connect/authenticate Claude or ChatGPT
 3. core.ping reports shared Paths and supported capabilities
-4. tools/list contains ping/read/search/write/edit/exec
+4. tools/list contains ping/read/search/write/edit/exec plus the enabled `task.*` Runner/Coordinator surface
 5. core.write without dryRun applies
 6. core.edit without dryRun applies
 7. dryRun:true previews write/edit
@@ -67,14 +67,16 @@ Named client support still requires real-client acceptance on the **published in
 12. provider tools appear immediately without workspace grant/reload
 13. disable provider → tools disappear
 14. enable provider → tools return
-15. restart gateway
-16. Paths, Commands and MCP providers persist
-17. no owner.* MCP tools
-18. no managed AGENTS mandate
-19. no bind/profile/proposal ceremony
+15. Task Runner start/get/wait/cancel preserves process lifetime across later requests and reuses core.exec authority
+16. Task Coordinator multi-client claim has exactly one winner and claimant/creator mutation rules hold
+17. restart gateway
+18. Paths, Commands and MCP providers persist; in-memory Task Runtime state resets as documented
+19. no owner.* MCP tools
+20. canonical Product Agent Harness is present while project AGENTS/instruction files remain contextual and non-authoritative
+21. no bind/profile/proposal ceremony
 ```
 
-Windows acceptance includes native `core.exec`, PATHEXT `.cmd/.bat` execution, process-tree termination, restricted command-catalog behavior and autonomous execution outside workspace Paths.
+Windows acceptance includes native `core.exec`, PATHEXT `.cmd/.bat` execution, process-tree termination, restricted command-catalog behavior, autonomous execution outside configured Paths, managed-task cancellation, and public Git Bash User Install lifecycle acceptance.
 
 ## Engineering rule
 

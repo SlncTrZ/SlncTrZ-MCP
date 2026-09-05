@@ -95,6 +95,8 @@ For the most consistent snapshot, stop/quiesce the gateway before copying state,
 
 Back up state + config together so installation identity and runtime configuration remain coherent.
 
+Managed Task Runtime state is intentionally in-memory in the current product. Runner/Coordinator task IDs and state are **not** backup material and do not survive stop/restart or restore. After recovery, clients must recreate/restart any unfinished task work.
+
 Example user-mode shape:
 
 ```bash

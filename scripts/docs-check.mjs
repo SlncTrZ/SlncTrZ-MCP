@@ -15,7 +15,16 @@ const [
   modelGuide,
   deployment,
   troubleshooting,
-  backup
+  backup,
+  architecture,
+  autonomy,
+  security,
+  threatModel,
+  releaseAcceptance,
+  engineering,
+  plan,
+  operationalFiles,
+  projectContextAdr
 ] = await Promise.all([
   readFile(join(root, "README.md"), "utf8"),
   readFile(join(root, "RELEASE.md"), "utf8"),
@@ -25,7 +34,16 @@ const [
   readFile(join(root, "docs", "MODEL_GUIDE.md"), "utf8"),
   readFile(join(root, "docs", "DEPLOYMENT.md"), "utf8"),
   readFile(join(root, "docs", "TROUBLESHOOTING.md"), "utf8"),
-  readFile(join(root, "docs", "BACKUP_RESTORE.md"), "utf8")
+  readFile(join(root, "docs", "BACKUP_RESTORE.md"), "utf8"),
+  readFile(join(root, "ARCHITECTURE.md"), "utf8"),
+  readFile(join(root, "docs", "AUTONOMY.md"), "utf8"),
+  readFile(join(root, "SECURITY.md"), "utf8"),
+  readFile(join(root, "docs", "THREAT_MODEL.md"), "utf8"),
+  readFile(join(root, "docs", "RELEASE_ACCEPTANCE.md"), "utf8"),
+  readFile(join(root, "ENGINEERING.md"), "utf8"),
+  readFile(join(root, "PLAN.md"), "utf8"),
+  readFile(join(root, "docs", "OPERATIONAL_FILES.md"), "utf8"),
+  readFile(join(root, "docs", "adr", "adr-009-project-instructions-explicit-context.md"), "utf8")
 ]);
 const pkg = JSON.parse(pkgRaw);
 
@@ -84,7 +102,9 @@ function assertCurrentLineOnly(text, label) {
 for (const [text, label] of [
   [readme, "README"],
   [release, "RELEASE"],
-  [provenance, "PROVENANCE"]
+  [provenance, "PROVENANCE"],
+  [deployment, "DEPLOYMENT"],
+  [troubleshooting, "TROUBLESHOOTING"]
 ]) {
   assertCurrentLineOnly(text, label);
 }
@@ -110,10 +130,39 @@ requireText(modelGuide, "Restricted mode is a capability policy", "MODEL_GUIDE")
 requireText(modelGuide, "task.start", "MODEL_GUIDE");
 requireText(modelGuide, "task.create", "MODEL_GUIDE");
 requireText(modelGuide, "in-memory only", "MODEL_GUIDE");
+requireText(readme, "## Managed tasks", "README");
+requireText(readme, "task.start", "README");
+requireText(readme, "task.create", "README");
+requireText(readme, "in-memory only", "README");
+requireText(architecture, "## Managed Task Runtime", "ARCHITECTURE");
+requireText(architecture, "Product Agent Harness", "ARCHITECTURE");
+requireText(architecture, "task.start", "ARCHITECTURE");
+requireText(autonomy, "task.start", "AUTONOMY");
+requireText(autonomy, "Logical coordination tools", "AUTONOMY");
+requireText(security, "Task Runtime is not a second privilege path", "SECURITY");
+requireText(security, "coordination-task text cannot grant capabilities", "SECURITY");
+requireText(threatModel, "### Managed task requirements", "THREAT_MODEL");
+requireText(threatModel, "Task-state exhaustion", "THREAT_MODEL");
+requireText(releaseAcceptance, "## Managed Task Runtime release acceptance", "RELEASE_ACCEPTANCE");
+requireText(releaseAcceptance, "exactly one winner", "RELEASE_ACCEPTANCE");
+requireText(engineering, "`src/task`", "ENGINEERING");
+requireText(engineering, "Public User Install target", "ENGINEERING");
+requireText(plan, "canonical Product Agent Harness", "PLAN");
+requireText(plan, "Task Coordinator multi-client claim", "PLAN");
+requireText(
+  operationalFiles,
+  "Windows PowerShell 5.1 invocation compatibility",
+  "OPERATIONAL_FILES"
+);
 requireText(deployment, "/opt/slnctrz-mcp", "DEPLOYMENT");
+requireText(deployment, "## Task Runtime lifecycle", "DEPLOYMENT");
 requireText(deployment, "/var/lib/slnctrz-mcp", "DEPLOYMENT");
 requireText(deployment, "/etc/slnctrz-mcp", "DEPLOYMENT");
 requireText(troubleshooting, "running_version_mismatch", "TROUBLESHOOTING");
+requireText(troubleshooting, "## Managed tasks after restart", "TROUBLESHOOTING");
 requireText(backup, "secrets/owner-passphrase", "BACKUP_RESTORE");
+requireText(backup, "Task Runtime state", "BACKUP_RESTORE");
+requireText(projectContextAdr, "not implemented in the current source tree", "ADR-009");
+requireText(projectContextAdr, "Product Agent Harness", "ADR-009");
 
 console.log(JSON.stringify({ status: "pass", version: pkg.version, node: pkg.engines.node }));

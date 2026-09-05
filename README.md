@@ -187,6 +187,27 @@ The gateway exposes a small fixed core surface:
 | `core.edit`   | Exact-match edit; `dryRun:true` previews                                   |
 | `core.exec`   | Run approved/native commands under bounded execution rules                 |
 
+## Managed tasks
+
+When Task Runtime is enabled, the gateway also exposes a bounded `task.*` surface with two distinct roles.
+
+**Runner tasks** execute one command asynchronously:
+
+```text
+task.start -> task.get / task.wait -> task.cancel
+```
+
+`task.start` uses the same execution authority as `core.exec`; it does not create a second command-policy path. Runner tasks are creator-private and workspace-bound. Cancelling a `task.wait` request does not cancel the underlying process; use `task.cancel` explicitly.
+
+**Coordination tasks** share logical work between authenticated clients in the same workspace:
+
+```text
+task.create -> task.list / task.get -> task.claim
+            -> task.release | task.complete | task.fail
+```
+
+Coordination task text is context, not authority. Exactly one client may hold a claim at a time, only the claimant may release/complete/fail, and the creator may cancel the task. Current task state is intentionally **in-memory only** and does not survive a gateway restart.
+
 MCP provider tools are exposed under the canonical namespace:
 
 ```text

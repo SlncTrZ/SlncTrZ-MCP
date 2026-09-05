@@ -8,6 +8,7 @@ Choose **Restricted** when you want to explicitly curate the model-facing capabi
 
 - Core file tools normally operate inside configured **Paths**.
 - `core.exec` starts executables authorized by **Commands** (`command.json`).
+- `task.start` uses that same command/Path authority when launching an asynchronous Runner task.
 - Execution cwd is constrained to configured Paths.
 - Secret-path and canonical-containment checks remain active for core file tools.
 
@@ -25,6 +26,7 @@ Choose **Autonomous** when you want SlncTrZ to behave as a capable autonomous de
 
 - Core file tools may use any path the gateway OS user can access.
 - `core.exec` may resolve/run executables available to that user without requiring a command-catalog entry.
+- `task.start` follows the same autonomous OS-user execution authority; it does not elevate beyond it.
 - Working directories may be outside configured Paths.
 - Per-operation approval is not part of the autonomy model.
 - Technical guards such as input validation, atomic writes, timeouts, output caps, cancellation and audit remain active.
@@ -53,6 +55,8 @@ Recommended for:
 | Dedicated automation box under a dedicated OS account       | **Autonomous** is usually appropriate                |
 
 The most important boundary is the **OS account running SlncTrZ**. A dedicated user account is the cleanest way to give the model broad autonomy without granting access to another user's private data.
+
+Logical coordination tools (`task.create/list/get/claim/release/complete/fail/cancel`) do not widen either autonomy mode. Their instructions/results are workspace context only, not capability grants. Task Runtime state is in-memory and is cleared by a gateway restart.
 
 ## What SlncTrZ promises
 

@@ -139,13 +139,19 @@ Gateway authorization does not replace OS permissions. A configured Path that th
 
 - built-in file tools stay within configured Paths;
 - `core.exec` requires an approved command catalog entry;
+- `task.start` uses the same command/Path authority as `core.exec`;
 - fresh general-user setup starts with an empty command allowlist.
 
 ### Autonomous
 
-- core tools may use any path/executable available to the gateway OS account.
+- core tools may use any path/executable available to the gateway OS account;
+- `task.start` follows the same OS-user execution authority.
 
-Neither mode elevates the OS account by itself.
+Neither mode elevates the OS account by itself. Logical coordination tasks do not widen either mode; their instructions/results are context only.
+
+## Task Runtime lifecycle
+
+Managed Runner and Coordinator state is intentionally in-memory in the current product. It survives later MCP requests only while the same gateway process remains running. Restart, update, rollback or service replacement clears active task state; clients must not treat task IDs as durable recovery handles across a restart.
 
 ## Runtime config
 

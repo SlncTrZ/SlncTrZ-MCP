@@ -15,7 +15,7 @@ Use `--json` when collecting machine-readable evidence.
 
 ### Windows release target unavailable
 
-If setup reports that the release does not contain `win32-x64`, that release predates Windows end-user packaging or is not a supported Windows release. Use a 0.3.x-or-later release that explicitly advertises Windows x64.
+If setup reports that the release does not contain `win32-x64`, that release predates Windows end-user packaging or is not a supported Windows release. Use the current/latest release that explicitly advertises Windows x64.
 
 ### Git Bash / cygpath missing
 
@@ -208,6 +208,12 @@ slnctrz-mcp config set public-url local
 Dynamic client registrations are durable, but authorization-in-progress state, access tokens, and refresh tokens are intentionally process-memory state. After restart/update/rollback, a client may need to reconnect or complete OAuth authorization again.
 
 This is expected behavior unless a future release explicitly changes the token persistence contract. If a client cannot reconnect, verify public URL/Host/Origin configuration and then repeat owner approval.
+
+## Managed tasks after restart
+
+Task Runtime state is intentionally process-memory state in the current product. A gateway restart/update/rollback clears active Runner and Coordinator task IDs/state. This is expected and is separate from durable OAuth client registration, policy/provider state and audit history.
+
+If `task.get` returns not found after a restart, create/start the work again rather than assuming the gateway lost a durable task record. Cancelling or disconnecting a `task.wait` request does not cancel a still-running Runner task; use `task.cancel` explicitly while the gateway process is still alive.
 
 ## Update failures
 

@@ -16,18 +16,18 @@ This inventory classifies security-sensitive scripts, configuration templates, a
 
 ## Release / CI
 
-| Path                                         | Classification                         | Purpose                                                                          |
-| -------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------- |
-| `scripts/build-sea.mjs`                      | release build                          | Native Linux x64 / Windows x64 SEA build + target metadata                       |
-| `scripts/release-gate.mjs`                   | release gate                           | Native target version/tag/build/hash/URL identity verification                   |
-| `scripts/aggregate-release-manifest.mjs`     | release build                          | Aggregate verified Linux/Windows target metadata into canonical release manifest |
-| `scripts/clean-release-windows-user-e2e.ps1` | release acceptance                     | Exact public Git Bash → native Windows User Install lifecycle E2E                |
-| `scripts/clean-release-user-e2e.sh`          | release acceptance                     | Exact public GitHub Release bootstrap/User Install E2E                           |
-| `scripts/clean-release-system-e2e.sh`        | guarded destructive release acceptance | Disposable systemd-host System Install E2E; explicit opt-in required             |
-| `scripts/docs-check.mjs`                     | release/CI                             | Public documentation contract checks                                             |
-| `scripts/provenance-inventory.mjs`           | release/CI                             | Deterministic dependency/license inventory from lockfile                         |
-| `.github/workflows/ci.yml`                   | CI                                     | Source quality/security/provenance matrix                                        |
-| `.github/workflows/standalone.yml`           | release CI                             | SEA candidate → public User Install acceptance → release promotion               |
+| Path                                         | Classification                         | Purpose                                                                                                                      |
+| -------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/build-sea.mjs`                      | release build                          | Native Linux x64 / Windows x64 SEA build + target metadata                                                                   |
+| `scripts/release-gate.mjs`                   | release gate                           | Native target version/tag/build/hash/URL identity verification                                                               |
+| `scripts/aggregate-release-manifest.mjs`     | release build                          | Aggregate verified Linux/Windows target metadata into canonical release manifest                                             |
+| `scripts/clean-release-windows-user-e2e.ps1` | release acceptance                     | Exact public Git Bash → native Windows User Install lifecycle E2E, including Windows PowerShell 5.1 invocation compatibility |
+| `scripts/clean-release-user-e2e.sh`          | release acceptance                     | Exact public GitHub Release bootstrap/User Install E2E                                                                       |
+| `scripts/clean-release-system-e2e.sh`        | guarded destructive release acceptance | Disposable systemd-host System Install E2E; explicit opt-in required                                                         |
+| `scripts/docs-check.mjs`                     | release/CI                             | Public documentation contract checks                                                                                         |
+| `scripts/provenance-inventory.mjs`           | release/CI                             | Deterministic dependency/license inventory from lockfile                                                                     |
+| `.github/workflows/ci.yml`                   | CI                                     | Source quality/security/provenance matrix                                                                                    |
+| `.github/workflows/standalone.yml`           | release CI                             | SEA candidate → public User Install acceptance → release promotion                                                           |
 
 ## Developer-only
 
@@ -60,7 +60,7 @@ The legacy verifier script must not appear in Quick Start, System Install, or or
 
 ## Obsolete
 
-No known obsolete operational file is intentionally shipped in the 0.3.x release line. If a file no longer has a production, release, developer, or migration role, remove it rather than leaving an unclassified alternate security path.
+No known obsolete operational file is intentionally shipped in the current release line. If a file no longer has a production, release, developer, or migration role, remove it rather than leaving an unclassified alternate security path.
 
 ## Release review rule
 

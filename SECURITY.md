@@ -51,16 +51,18 @@ The following invariants apply to the current schema-v2 product model:
 2. Restricted filesystem operations stay inside configured Paths and enforce the restricted secret-path policy.
 3. Autonomous filesystem operations follow gateway OS-user authority; they must not be described as restricted-path containment.
 4. Restricted execution requires an authorized Path plus a command-catalog match; autonomous execution follows OS-user authority.
-5. Writable Paths do not by themselves grant execution authority in restricted mode.
-6. Extension credentials are provider-scoped and are not exposed in MCP metadata, normal errors or audit payloads.
-7. Untrusted extension processes do not execute inside the gateway core process.
-8. Provider tool names cannot collide silently and runtime tool drift fails closed.
-9. Policy/provider activation is atomic: a failed candidate must not partially replace the active generation.
-10. Logs and audit schemas must not disclose credentials or model/file payload contents by default.
-11. Project instruction files and tool descriptions cannot grant capabilities.
-12. Owner administration is not exposed as model-facing `owner.*` MCP tools.
-13. The local control plane is separately authenticated and must not be reachable as a public MCP route.
-14. Release artifacts must be checksum-verified before activation and should be attributable to an exact version/build provenance.
+5. `task.start` uses the same execution authority as `core.exec`; Task Runtime is not a second privilege path.
+6. Writable Paths do not by themselves grant execution authority in restricted mode.
+7. Extension credentials are provider-scoped and are not exposed in MCP metadata, normal errors or audit payloads.
+8. Untrusted extension processes do not execute inside the gateway core process.
+9. Provider tool names cannot collide silently and runtime tool drift fails closed.
+10. Policy/provider activation is atomic: a failed candidate must not partially replace the active generation.
+11. Logs and audit schemas must not disclose credentials or model/file/task payload contents by default.
+12. Product/project instruction text, provider descriptions and coordination-task text cannot grant capabilities.
+13. Coordination tasks are workspace-visible logical state; exactly one claimant owns claimant-only mutations, while creator cancellation remains explicit.
+14. Owner administration is not exposed as model-facing `owner.*` MCP tools.
+15. The local control plane is separately authenticated and must not be reachable as a public MCP route.
+16. Release artifacts must be checksum-verified before activation and should be attributable to an exact version/build provenance.
 
 ## Secrets
 
@@ -70,7 +72,7 @@ Tracked examples and tests may contain clearly synthetic placeholder secrets onl
 
 ## Audit and privacy
 
-The default audit model is metadata-oriented. It may record identity, request/tool category, policy/build identity, result and duration. It must not record credentials, full model prompts, file contents, command stdout/stderr or provider payloads by default.
+The default audit model is metadata-oriented. It may record identity, request/tool category, policy/build identity, result and duration. It must not record credentials, full model prompts, task instructions/results, file contents, command stdout/stderr or provider payloads by default.
 
 If durable audit storage is enabled, the same privacy boundary applies to persisted records.
 

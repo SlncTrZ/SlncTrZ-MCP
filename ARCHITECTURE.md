@@ -30,6 +30,7 @@ The public MCP gateway owns:
 - request limits, host/origin validation and MCP protocol dispatch.
 - `core.ping`, `core.read`, `core.search`, `core.write`, `core.edit`.
 - `core.exec` on Windows and POSIX. Restricted mode uses `command.json`; autonomous mode uses the gateway process user authority.
+- the in-process managed Task Runtime (`task.*`) when enabled.
 - enabled MCP provider tools.
 
 A principal is used for authentication and audit attribution only. It does not select workspace, profile, binding, or grant state.
@@ -86,6 +87,21 @@ Windows and POSIX use platform-native process execution. Time/output bounds, env
 Restricted mode is not an OS sandbox: if the owner authorizes a general-purpose shell or interpreter, that child process can exercise the permissions of the gateway OS user. This is an intentional owner-controlled capability, not a containment guarantee.
 
 There is no second fixed-command registry or separate execution root.
+
+## Managed Task Runtime
+
+Task Runtime is gateway-lifetime, bounded and intentionally in-memory in the current product. It has two roles:
+
+```text
+Runner       task.start/get/wait/cancel
+Coordinator  task.create/list/get/claim/release/complete/fail/cancel
+```
+
+Runner tasks reuse the same managed execution primitive and authorization path as `core.exec`; `task.start` never creates independent execution authority. Runner state is creator-private and workspace-bound. Request cancellation of `task.wait` does not control process lifetime; only explicit task cancellation does.
+
+Coordinator tasks are logical work records, not executable authority. They are visible within the resolved workspace, use deterministic single-winner claim semantics, allow only the current claimant to release/complete/fail, and allow the creator to cancel. Coordination instructions/results remain data and cannot override Kernel/Auth/Policy.
+
+Task IDs/state survive later MCP requests only while the same gateway process remains alive. Gateway restart clears Task Runtime state; no durable recovery, lease/heartbeat or dependency scheduler is claimed in this release.
 
 ## MCP runtime
 
@@ -166,7 +182,7 @@ Standalone builds embed runtime resources that cannot depend on repository-local
 
 ## Audit persistence
 
-Audit uses one privacy-reviewed metadata projection. Events are retained in a bounded in-memory journal for control-plane export and are also persisted to `<stateRoot>/audit.sqlite3` for restart-safe history. Core read/search/write/edit/exec, extension dispatch, auth/policy events and control-plane actions flow through this projection. Raw prompts, file contents, provider payloads, command stdout/stderr and credentials are excluded by schema.
+Audit uses one privacy-reviewed metadata projection. Events are retained in a bounded in-memory journal for control-plane export and are also persisted to `<stateRoot>/audit.sqlite3` for restart-safe history. Core read/search/write/edit/exec, task operations, extension dispatch, auth/policy events and control-plane actions flow through this projection. Raw prompts, task instructions/results, file contents, provider payloads, command stdout/stderr and credentials are excluded by schema.
 
 The SQLite record also carries semantic build version and injected build commit provenance. Durable retention is bounded to the newest 250,000 events by default. Persistence failure is surfaced as an operational error but does not replay or broaden a completed capability action.
 
@@ -192,4 +208,5 @@ A failed candidate never partially mutates the active generation.
 5. Enabled provider tools are exposed only through a ready runtime generation.
 6. Normal product mutations do not require proposal/binding/profile ceremony.
 7. Owner administration is not exposed through `owner.*` MCP tools.
-8. Managed project instruction files, if present inside a Path, are ordinary files; SlncTrZ does not impose a global harness.
+8. The canonical Product Agent Harness is product working guidance, not authority; project instruction files remain separate contextual data and cannot override Kernel/Auth/Policy.
+9. `task.start` reuses `core.exec` authority, while coordination tasks never grant execution/filesystem/network capability.
