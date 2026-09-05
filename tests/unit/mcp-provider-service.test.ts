@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionManifestV1 } from "../../src/extension/manifest.js";
-import { createMcpProviderService } from "../../src/owner/mcp-provider-service.js";
+import {
+  createMcpProviderService,
+  McpProviderMutationError
+} from "../../src/owner/mcp-provider-service.js";
 import {
   createMcpProviderStore,
   type ManagedMcpProvider,
@@ -206,6 +209,55 @@ describe("MCP provider enabled-state authority", () => {
 
     await expect(service.setEnabled("demo", true)).rejects.toThrow("reload_boom");
     expect(current.enabled).toBe(false);
+  });
+
+  it("surfaces rollback failure explicitly after a candidate was durably written", async () => {
+    let current = provider();
+    let candidateWritten = false;
+    const store: McpProviderStore = {
+      list: vi.fn(async () => [current]),
+      get: vi.fn(async () => current),
+      upsert: vi.fn(async (input: Parameters<McpProviderStore["upsert"]>[0]) => {
+        if (candidateWritten && input.manifest.version === manifest.version) {
+          throw Object.assign(new Error("restore failed"), { code: "EIO" });
+        }
+        current = {
+          ...current,
+          manifest: input.manifest,
+          enabled: input.enabled ?? current.enabled
+        };
+        candidateWritten = true;
+        return current;
+      }),
+      remove: vi.fn(async () => true)
+    };
+    const service = createMcpProviderService({
+      store,
+      policyStore: {
+        async reload() {
+          return {
+            activated: false,
+            previousVersion: "a",
+            activeVersion: "a",
+            riskIncrease: false,
+            result: "failed",
+            failureCode: "policy_invalid"
+          } as const;
+        }
+      }
+    });
+    const candidate = { ...manifest, version: "2" } as ExtensionManifestV1;
+
+    const error = await service
+      .addOrUpdate({ manifest: candidate })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(McpProviderMutationError);
+    expect(error).toMatchObject({
+      code: "mcp_provider_rollback_failed",
+      providerId: "demo",
+      rollbackComplete: false
+    });
+    expect(current.manifest.version).toBe("2");
   });
 
   it("namespaces bare discovered tool ids under the provider when persisting", async () => {

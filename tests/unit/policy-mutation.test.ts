@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPolicyMutationService } from "../../src/owner/policy-mutation.js";
+import { compilePolicyDocument, loadPolicyDocument } from "../../src/policy/policy-config.js";
+import { buildActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
+import { createPolicySnapshotStore } from "../../src/policy/policy-store.js";
 import type { ReloadResult } from "../../src/policy/policy-store.js";
 
 const cleanup: string[] = [];
@@ -133,6 +136,40 @@ describe("owner policy mutation", () => {
     });
 
     await expect(service.apply({ kind: "add-path", path: pathB })).rejects.toThrow("reload_boom");
+    expect(await readFile(policyFile, "utf8")).toBe(before);
+  });
+
+  it("does not publish or activate a candidate when preparing policy.previous fails", async () => {
+    const { policyFile } = await fixture();
+    const rollbackFile = `${policyFile}.previous`;
+    await mkdir(rollbackFile);
+    const loader = async () =>
+      buildActivePolicySnapshot(await compilePolicyDocument(await loadPolicyDocument(policyFile)));
+    const initial = await loader();
+    const policyStore = createPolicySnapshotStore(loader, initial);
+    const service = createPolicyMutationService({ policyFile, policyStore });
+    const before = await readFile(policyFile, "utf8");
+
+    await expect(
+      service.apply({ kind: "set-authority-mode", authorityMode: "autonomous" })
+    ).rejects.toMatchObject({ code: "EISDIR" });
+    expect(await readFile(policyFile, "utf8")).toBe(before);
+    expect(policyStore.capture().version).toBe(initial.version);
+    expect((await loader()).version).toBe(initial.version);
+  });
+
+  it("does not mutate active policy when rollback metadata cannot be read", async () => {
+    const { policyFile } = await fixture();
+    const rollbackFile = `${policyFile}.previous`;
+    await mkdir(rollbackFile);
+    const reload = vi.fn(async () => activated());
+    const service = createPolicyMutationService({ policyFile, policyStore: { reload } });
+    const before = await readFile(policyFile, "utf8");
+
+    await expect(service.apply({ kind: "rollback-policy" })).rejects.toMatchObject({
+      code: "EISDIR"
+    });
+    expect(reload).not.toHaveBeenCalled();
     expect(await readFile(policyFile, "utf8")).toBe(before);
   });
 

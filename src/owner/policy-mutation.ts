@@ -21,6 +21,15 @@ export interface PolicyMutationService {
   validate(): Promise<{ readonly valid: true; readonly pathCount: number }>;
 }
 
+export class PolicyMutationRecoveryError extends Error {
+  readonly code = "policy_recovery_failed";
+
+  constructor(cause: unknown) {
+    super("Policy mutation failed and prior durable state could not be fully restored", { cause });
+    this.name = "PolicyMutationRecoveryError";
+  }
+}
+
 async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.tmp-${randomUUID()}`;
@@ -30,6 +39,23 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   } finally {
     await rm(temporary, { force: true }).catch(() => undefined);
   }
+}
+
+async function readOptionalFile(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function restoreOptionalFile(path: string, content: string | undefined): Promise<void> {
+  if (content === undefined) {
+    await rm(path, { force: true });
+    return;
+  }
+  await atomicWrite(path, content);
 }
 
 function mutatePolicy(
@@ -83,36 +109,49 @@ export function createPolicyMutationService(options: {
     apply(operation: OwnerPolicyOperation) {
       return serializeMutation(async () => {
         const priorRaw = await readFile(options.policyFile, "utf8");
+        const previousRaw = await readOptionalFile(rollbackFile);
+        let nextRaw: string;
+
         if (operation.kind === "rollback-policy") {
-          const rollbackRaw = await readFile(rollbackFile, "utf8").catch(() => undefined);
-          if (rollbackRaw === undefined) throw new Error("policy_rollback_unavailable");
-          await atomicWrite(options.policyFile, rollbackRaw);
-          try {
-            const result = await options.policyStore.reload();
-            if (result.activated) await atomicWrite(rollbackFile, priorRaw);
-            else await atomicWrite(options.policyFile, priorRaw);
-            return result;
-          } catch (error) {
-            await atomicWrite(options.policyFile, priorRaw);
-            throw error;
-          }
+          if (previousRaw === undefined) throw new Error("policy_rollback_unavailable");
+          nextRaw = previousRaw;
+        } else {
+          const prior = await loadPolicyDocument(options.policyFile);
+          const candidate = mutatePolicy(prior, operation);
+          await compilePolicyDocument(candidate);
+          nextRaw = `${JSON.stringify(candidate, null, 2)}\n`;
         }
-        const prior = await loadPolicyDocument(options.policyFile);
-        const candidate = mutatePolicy(prior, operation);
-        await compilePolicyDocument(candidate);
-        await atomicWrite(options.policyFile, `${JSON.stringify(candidate, null, 2)}\n`);
-        try {
-          const result = await options.policyStore.reload();
-          if (result.activated) {
-            await atomicWrite(rollbackFile, priorRaw);
-            return result;
+
+        // Commit the rollback generation before publishing or activating the candidate. If this
+        // write fails, the active snapshot and policy file are still untouched.
+        await atomicWrite(rollbackFile, priorRaw);
+
+        const restorePriorState = async (): Promise<void> => {
+          try {
+            await atomicWrite(options.policyFile, priorRaw);
+            await restoreOptionalFile(rollbackFile, previousRaw);
+          } catch (error) {
+            throw new PolicyMutationRecoveryError(error);
           }
-          await atomicWrite(options.policyFile, priorRaw);
-          return result;
+        };
+
+        try {
+          await atomicWrite(options.policyFile, nextRaw);
         } catch (error) {
-          await atomicWrite(options.policyFile, priorRaw);
+          await restorePriorState();
           throw error;
         }
+
+        let result: ReloadResult;
+        try {
+          result = await options.policyStore.reload();
+        } catch (error) {
+          await restorePriorState();
+          throw error;
+        }
+        if (result.activated) return result;
+        await restorePriorState();
+        return result;
       });
     }
   });
