@@ -225,6 +225,9 @@ export async function runStandaloneCli(
       `MCP Endpoint: ${setup.mcpEndpoint}`,
       `Owner Passphrase: ${setup.firstRunOwnerPassphrase ?? "preserved"}`,
       `Passphrase file: ${setup.ownerPassphraseFile}`,
+      `Client ID: ${setup.staticClientId}`,
+      `Client Secret: ${setup.firstRunStaticClientSecret ?? `(from ${setup.staticClientFile})`}`,
+      `Client file: ${setup.staticClientFile}`,
       "",
       setup.installation.installMode === "user"
         ? process.platform === "win32"

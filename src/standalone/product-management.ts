@@ -46,7 +46,7 @@ import {
 import { OFFICIAL_RELEASE_MANIFEST_URL } from "./product-setup.js";
 import { userPlatformLayout } from "./platform-layout.js";
 import { currentReleaseTarget } from "./release-manifest.js";
-import { readRuntimeEnvironmentFile } from "./runtime-env-file.js";
+import { readClientEnvironmentFile, readRuntimeEnvironmentFile } from "./runtime-env-file.js";
 
 export type DiagnosticLevel = "PASS" | "WARN" | "FAIL" | "INFO";
 
@@ -298,7 +298,14 @@ async function loadPolicyState(context: InstalledProductContext) {
 }
 
 async function countCommands(context: InstalledProductContext): Promise<number> {
-  const raw = JSON.parse(await readFile(context.statePaths.commandCatalogFile, "utf8")) as unknown;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(context.statePaths.commandCatalogFile, "utf8")) as unknown;
+  } catch (error) {
+    throw new Error(
+      `command_catalog_invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
   const entries = parseCommandAllowlist(raw);
   compileCommandCatalog(entries);
   return entries.length;
@@ -720,6 +727,13 @@ export async function showProductConfig(
   );
   const runtime = readRuntimeConfig(environment);
   const policy = await loadPolicyState(context);
+  const clientFile = join(context.installation.configRoot, "client.env");
+  let staticClientId: string | undefined;
+  try {
+    staticClientId = (await readClientEnvironmentFile(clientFile)).SLNCTRZ_CLIENT_ID;
+  } catch {
+    // client.env is optional; a pre-provisioning install has no static client.
+  }
   return {
     installMode: context.installation.installMode,
     serviceMode: context.installation.serviceMode,
@@ -733,7 +747,8 @@ export async function showProductConfig(
     publicMcpUrl: runtime.publicMcpUrl.href,
     ownerConsoleEnabled: runtime.ownerWebEnabled,
     authorityMode: policy.authorityMode ?? "restricted",
-    paths: [...policy.paths]
+    paths: [...policy.paths],
+    ...(staticClientId === undefined ? {} : { staticClientId, staticClientFile: clientFile })
   };
 }
 
@@ -790,7 +805,12 @@ export async function setProductConfig(
       delete environment.SLNCTRZ_PUBLIC_URL;
       metadataOverrides = { publicMcpUrl: null };
     } else {
-      const publicUrl = new URL(value);
+      let publicUrl: URL;
+      try {
+        publicUrl = new URL(value);
+      } catch {
+        throw new Error("public_url_invalid: public-url must be a valid URL");
+      }
       environment.SLNCTRZ_PUBLIC_URL = value;
       environment.SLNCTRZ_ALLOWED_HOSTS = appendCsvValue(
         environment.SLNCTRZ_ALLOWED_HOSTS,

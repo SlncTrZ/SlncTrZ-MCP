@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseRuntimeEnvironmentText } from "../../src/standalone/runtime-env-file.js";
+import {
+  parseClientEnvironmentText,
+  parseRuntimeEnvironmentText
+} from "../../src/standalone/runtime-env-file.js";
 
 describe("runtime environment file", () => {
   it("accepts only the managed runtime allowlist", () => {
@@ -31,6 +34,27 @@ describe("runtime environment file", () => {
   it("rejects unknown keys", () => {
     expect(() => parseRuntimeEnvironmentText("SLNCTRZ_UNKNOWN=value\n")).toThrow(
       "gateway_config_unknown_key"
+    );
+  });
+
+  it("parses the static client allowlist", () => {
+    expect(
+      parseClientEnvironmentText(
+        [
+          "SLNCTRZ_CLIENT_ID=slnctrz-mcp",
+          "SLNCTRZ_CLIENT_SECRET=e908f1cf65b38bb07e9308142fb558e784ab5ab9279074d3",
+          "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback"
+        ].join("\n")
+      )
+    ).toMatchObject({
+      SLNCTRZ_CLIENT_ID: "slnctrz-mcp",
+      SLNCTRZ_CLIENT_SECRET: "e908f1cf65b38bb07e9308142fb558e784ab5ab9279074d3"
+    });
+  });
+
+  it("rejects non-client keys from the client allowlist", () => {
+    expect(() => parseClientEnvironmentText("SLNCTRZ_HOST=127.0.0.1\n")).toThrow(
+      "client_config_unknown_key"
     );
   });
 });

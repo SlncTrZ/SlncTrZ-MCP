@@ -246,6 +246,43 @@ slnctrz-mcp config set public-url local
 
 Validated config changes report when a restart is required.
 
+### OAuth client credentials
+
+This gateway is an OAuth-protected MCP server: MCP clients authenticate against it before calling tools. Every install auto-provisions a **static confidential client** so a fixed `client_id`/`client_secret` is always available.
+
+On a fresh setup (first run only) the installer prints and stores:
+
+- **Client ID** — default `slnctrz-mcp`;
+- **Client Secret** — a random, generated value (returned on first creation only);
+- **Owner Passphrase** — the Owner Console / control-plane secret.
+
+These live in mode-0600 files under `<configRoot>`:
+
+```text
+<configRoot>/gateway.env   SLNCTRZ_CLIENT_* are NOT stored here
+<configRoot>/client.env    SLNCTRZ_CLIENT_ID, SLNCTRZ_CLIENT_SECRET, SLNCTRZ_CLIENT_NAME, SLNCTRZ_CLIENT_REDIRECT_URIS
+<stateRoot>/secrets/owner-passphrase
+```
+
+Linux system-install defaults: `/etc/slnctrz-mcp/client.env`, `/etc/slnctrz-mcp/gateway.env`, `/var/lib/slnctrz-mcp/secrets/owner-passphrase`.
+
+**Read them after install:**
+
+```bash
+slnctrz-mcp config show            # prints staticClientId + staticClientFile
+cat <configRoot>/client.env        # operator-editable SLNCTRZ_CLIENT_SECRET
+cat <stateRoot>/secrets/owner-passphrase   # owner passphrase
+```
+
+The Client Secret is not echoed by `config show` (it is a secret); read it from the `client.env` file directly.
+
+**Customise / rotate:** edit `<configRoot>/client.env` (change `SLNCTRZ_CLIENT_ID`, `SLNCTRZ_CLIENT_SECRET`, optionally `SLNCTRZ_CLIENT_REDIRECT_URIS`), then restart the gateway. A reinstall or `update` **preserves** an existing `client.env` — it never silently overwrites your edits.
+
+**Which clients need what:**
+
+- **ChatGPT / Grok** (dynamic-registration MCP clients) — **no `SLNCTRZ_CLIENT_ID` / `SLNCTRZ_CLIENT_SECRET` needed.** They register dynamically (`POST /register`), receive a public `client_id`, and authenticate with **PKCE** only. Point them at the MCP URL and approve the OAuth consent.
+- **Claude** — **requires `SLNCTRZ_CLIENT_ID` / `SLNCTRZ_CLIENT_SECRET`.** Configure the connector with `oauth` auth (method `client_secret_basic` / `client_secret_post`) using the credentials above, **complete the OAuth flow first**, then enter the **Owner Passphrase** at the consent screen. The default redirect URI is `https://claude.ai/api/mcp/auth_callback`.
+
 ### Update
 
 ```bash

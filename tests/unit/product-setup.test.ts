@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -108,6 +108,45 @@ describe("product setup", () => {
     expect(config).toContain("SLNCTRZ_HOST=127.0.0.1");
     expect(config).toContain("SLNCTRZ_PORT=8080");
     expect(config).toContain("SLNCTRZ_PUBLIC_URL=https://mcp.example.test/mcp");
+  });
+
+  it("auto-provisions a static confidential client on first setup and preserves an edited secret", async () => {
+    const paths = await roots();
+    const fetch = releaseFetch(Buffer.from("standalone-bytes"));
+    const request = {
+      installMode: "user" as const,
+      port: 9124,
+      initialPath: paths.workspace,
+      manifestUrl: "https://updates.example.test/manifest.json",
+      installRoot: paths.installRoot,
+      stateRoot: paths.stateRoot,
+      configRoot: paths.configRoot
+    };
+
+    const first = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
+    expect(first.staticClientId).toBe("slnctrz-mcp");
+    expect(first.staticClientFile).toBe(join(paths.configRoot, "client.env"));
+    expect(first.firstRunStaticClientSecret).toMatch(/^[0-9a-f]{48}$/u);
+    const file = await readFile(first.staticClientFile, "utf8");
+    expect(file).toContain("SLNCTRZ_CLIENT_ID=slnctrz-mcp");
+    expect(file).toContain(`SLNCTRZ_CLIENT_SECRET=${first.firstRunStaticClientSecret}`);
+
+    // An operator edits the secret; a reinstall must preserve it, not regenerate it.
+    const operatorSecret = "custom-operator-secret";
+    await writeFile(
+      first.staticClientFile,
+      [
+        "SLNCTRZ_CLIENT_ID=slnctrz-mcp",
+        `SLNCTRZ_CLIENT_SECRET=${operatorSecret}`,
+        "SLNCTRZ_CLIENT_NAME=SlncTrZ-MCP",
+        "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback"
+      ].join("\n") + "\n",
+      { encoding: "utf8", mode: 0o600 }
+    );
+    const second = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
+    expect(second.firstRunStaticClientSecret).toBeUndefined();
+    const preserved = await readFile(second.staticClientFile, "utf8");
+    expect(preserved).toContain(`SLNCTRZ_CLIENT_SECRET=${operatorSecret}`);
   });
 
   it.skipIf(process.platform !== "linux")(

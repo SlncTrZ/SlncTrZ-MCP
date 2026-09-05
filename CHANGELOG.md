@@ -2,6 +2,19 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.2
+
+Date: 2026-09-05
+
+### Added
+
+- Auto-provision a static confidential OAuth client on install. Setup now writes `<configRoot>/client.env` with `SLNCTRZ_CLIENT_ID=slnctrz-mcp` and a randomly generated `SLNCTRZ_CLIENT_SECRET`, returning the secret once on first setup. The file is mode-0600 and is **preserved** across reinstall/update (operators may edit it and restart the gateway). `config show` now surfaces `staticClientId` and `staticClientFile`.
+
+### Compatibility / behavior notes
+
+- No state-schema or runtime-behavior change. A fresh install now always exposes a static confidential client (`client_secret_basic` / `client_secret_post`), the auth required for clients that do not do dynamic registration + PKCE.
+- The launcher and Windows installed-runtime path now also load `<configRoot>/client.env` so the static client works in both user and system installation modes.
+
 ## 0.2.1
 
 Date: 2026-09-05

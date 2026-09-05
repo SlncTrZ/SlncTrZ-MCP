@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { resolveCurrentStandaloneExecutable } from "./installer.js";
 import { readInstallationMetadata } from "./installation-metadata.js";
-import { applyRuntimeEnvironmentFile } from "./runtime-env-file.js";
+import { applyClientEnvironmentFile, applyRuntimeEnvironmentFile } from "./runtime-env-file.js";
 
 interface InstallMarker {
   readonly schemaVersion: 1;
@@ -57,6 +57,7 @@ async function installedContext(
       readonly installRoot: string;
       readonly marker: InstallMarker;
       readonly configFile: string;
+      readonly clientFile: string;
     }
   | undefined
 > {
@@ -81,10 +82,12 @@ async function installedContext(
     throw new Error("installed runtime identity does not match installation metadata");
   }
 
+  const configRoot = metadata.configRoot;
   return {
     installRoot,
     marker,
-    configFile: join(metadata.configRoot, "gateway.env")
+    configFile: join(configRoot, "gateway.env"),
+    clientFile: join(configRoot, "client.env")
   };
 }
 
@@ -100,7 +103,9 @@ export async function applyInstalledRuntimeEnvironment(
 
   const context = await installedContext(options.executablePath ?? process.execPath, platform);
   if (context === undefined) return false;
-  await applyRuntimeEnvironmentFile(context.configFile, options.environment ?? process.env);
+  const target = options.environment ?? process.env;
+  await applyRuntimeEnvironmentFile(context.configFile, target);
+  await applyClientEnvironmentFile(context.clientFile, target);
   return true;
 }
 
@@ -121,6 +126,7 @@ export async function runInstalledLauncherIfNeeded(
 
   const environment = options.environment ?? process.env;
   await applyRuntimeEnvironmentFile(context.configFile, environment);
+  await applyClientEnvironmentFile(context.clientFile, environment);
   const active = await resolveCurrentStandaloneExecutable(context.installRoot);
   if (samePlatformPath(active, executablePath, platform)) return false;
 
