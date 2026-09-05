@@ -9,11 +9,17 @@ The owner decides how much authority the gateway has:
 
 Restricted mode is intentionally conservative, but it is **not an OS sandbox**. If you allow Bash, Python, Node, PowerShell, Docker, or another general-purpose interpreter/admin tool, that process can use the OS permissions of the gateway account.
 
-## Setup video
+## One gateway for every AI client
 
-[▶ Watch the guided setup video](docs/SlncTrZ-MCP.mp4)
+- **Windows & Linux** — install on a workstation or a self-hosted server with one command.
+- **Works with ChatGPT / Claude / Grok — even on a free account.** A single owner-controlled endpoint they can all use.
+- **Use ChatGPT to work with your files** — connect a project folder and let it read, search, and shape your work.
+- **Built for coding agents** — wire it into Claude Code, Cursor, Zed, Codex, and other agent workflows.
+- **You control the authority** — Restricted or Autonomous; you decide what the AI can touch.
 
-> The video walks through installing and configuring SlncTrZ-MCP. If the inline player does not load, open the raw file directly or save it locally.
+[▶ Watch the introduction & setup video](docs/SlncTrZ-MCP.mp4)
+
+> A quick walkthrough — install, connect your AI client, add a Path, add an MCP server. If the inline player does not load, open the raw file directly or save it locally.
 
 ## What it is for
 
