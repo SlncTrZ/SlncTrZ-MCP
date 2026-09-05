@@ -90,6 +90,28 @@ const SERVER_INFO = {
 } as const;
 
 const NOOP_TOOL_AUDIT: ToolAuditSink = () => undefined;
+const COORDINATION_TASK_TOOLS = [
+  "task.create",
+  "task.list",
+  "task.get",
+  "task.claim",
+  "task.release",
+  "task.complete",
+  "task.fail",
+  "task.cancel"
+] as const;
+const TASK_MANAGEMENT_TOOLS = ["task.get", "task.wait", "task.cancel"] as const;
+
+function isAuthorizationDenial(error: unknown): boolean {
+  if (error instanceof KernelPolicyError) {
+    return (
+      error.code === "unauthenticated" ||
+      error.code === "scope_denied" ||
+      error.code === "capability_denied"
+    );
+  }
+  return error instanceof TaskRuntimeError && error.code === "task_forbidden";
+}
 
 /** Static gateway metadata surfaced by core.ping so the model can orient itself. */
 export interface GatewayInfo {
@@ -388,6 +410,28 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       workspaceId: "default"
     });
   const toolAudit = options.toolAudit ?? NOOP_TOOL_AUDIT;
+  const execAuthorization = authorizedContext(kernelPolicy, options.principal, "core.exec");
+  const taskRuntime = options.taskRuntime;
+  const taskActor =
+    taskRuntime === undefined || options.principal === undefined
+      ? undefined
+      : { clientId: options.principal.clientId, workspaceId: kernelPolicy.workspaceId };
+  const taskSurfaceEnabled = taskRuntime !== undefined && taskActor !== undefined;
+  const taskStartAvailable = taskSurfaceEnabled && execAuthorization !== undefined;
+  const advertisedTaskTools = taskSurfaceEnabled
+    ? [
+        ...(taskStartAvailable ? ["task.start" as const] : []),
+        "task.create" as const,
+        "task.list" as const,
+        "task.claim" as const,
+        "task.release" as const,
+        "task.complete" as const,
+        "task.fail" as const,
+        "task.get" as const,
+        "task.wait" as const,
+        "task.cancel" as const
+      ].sort((left, right) => left.localeCompare(right))
+    : [];
 
   server.registerTool(
     "core.ping",
@@ -468,12 +512,30 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             ? {}
             : { catalogFingerprint: kp.toolCatalogFingerprint })
         };
+        const managedTasks = {
+          enabled: taskSurfaceEnabled,
+          persistence: "in-memory" as const,
+          advertisedTools: [...advertisedTaskTools],
+          runner: {
+            canStart: taskStartAvailable,
+            visibility: "creator-private" as const,
+            tools: taskSurfaceEnabled
+              ? [...(taskStartAvailable ? ["task.start" as const] : []), ...TASK_MANAGEMENT_TOOLS]
+              : []
+          },
+          coordinator: {
+            available: taskSurfaceEnabled,
+            visibility: "workspace" as const,
+            tools: taskSurfaceEnabled ? [...COORDINATION_TASK_TOOLS] : []
+          }
+        };
         const text = [
           "SlncTrZ-MCP gateway is online (status: ok).",
           ...(options.ownerConsoleUrl === undefined
             ? []
             : [`Owner console: ${options.ownerConsoleUrl}`]),
           `Workspace: ${JSON.stringify(workspace)}`,
+          `Managed tasks: ${JSON.stringify(managedTasks)}`,
           ...(config === undefined
             ? []
             : [`Config files (outside paths): ${JSON.stringify(config)}`]),
@@ -498,6 +560,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                 }),
             workspace: { ...workspace, authorityMode: kp?.authorityMode ?? "restricted" },
             extensions,
+            managedTasks,
             ...(config === undefined ? {} : { config: { ...config } }),
             ...(docs.length === 0 ? {} : { docs: [...docs] }),
             ...(modelGuide === undefined ? {} : { modelGuide }),
@@ -859,7 +922,6 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     );
   }
 
-  const execAuthorization = authorizedContext(kernelPolicy, options.principal, "core.exec");
   if (execAuthorization !== undefined) {
     server.registerTool(
       "core.exec",
@@ -894,6 +956,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           const startedAt = Date.now();
           let outcome: ExecResult | undefined;
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
+          let auditDecision: "allow" | "deny" = "allow";
           let auditedCommandId: string | undefined;
           try {
             const authorized = authorizeRunKernelCommand(
@@ -930,6 +993,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: result
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             if (error instanceof ExecError || error instanceof KernelPolicyError) {
               return errorResult(error);
             }
@@ -950,7 +1014,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "core.exec",
               riskClass: "execute",
               policyVersion: execAuthorization.policyVersion,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt),
               ...(auditedCommandId === undefined ? {} : { commandId: auditedCommandId })
@@ -959,12 +1023,6 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
   }
-
-  const taskRuntime = options.taskRuntime;
-  const taskActor =
-    taskRuntime === undefined || options.principal === undefined
-      ? undefined
-      : { clientId: options.principal.clientId, workspaceId: kernelPolicy.workspaceId };
 
   if (taskRuntime !== undefined && taskActor !== undefined && execAuthorization !== undefined) {
     server.registerTool(
@@ -998,6 +1056,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
+          let auditDecision: "allow" | "deny" = "allow";
           let auditedCommandId: string | undefined;
           try {
             const authorized = authorizeRunKernelCommand(
@@ -1022,6 +1081,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: task
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             if (
               error instanceof ExecError ||
               error instanceof KernelPolicyError ||
@@ -1039,7 +1099,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "task.start",
               riskClass: "execute",
               policyVersion: kernelPolicy.version,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt),
               ...(auditedCommandId === undefined ? {} : { commandId: auditedCommandId })
@@ -1205,6 +1265,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" = "success";
+          let auditDecision: "allow" | "deny" = "allow";
           try {
             const task = taskRuntime.release(taskActor, args.taskId);
             return {
@@ -1212,6 +1273,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: task
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1224,7 +1286,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "task.release",
               riskClass: "write",
               policyVersion: kernelPolicy.version,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt)
             });
@@ -1254,6 +1316,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" = "success";
+          let auditDecision: "allow" | "deny" = "allow";
           try {
             const task = taskRuntime.complete(taskActor, args.taskId, args.result);
             return {
@@ -1261,6 +1324,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: task
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1273,7 +1337,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "task.complete",
               riskClass: "write",
               policyVersion: kernelPolicy.version,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt)
             });
@@ -1303,6 +1367,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" = "success";
+          let auditDecision: "allow" | "deny" = "allow";
           try {
             const task = taskRuntime.fail(taskActor, args.taskId, args.failure);
             return {
@@ -1310,6 +1375,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: task
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1322,7 +1388,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "task.fail",
               riskClass: "write",
               policyVersion: kernelPolicy.version,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt)
             });
@@ -1348,6 +1414,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+          let auditDecision: "allow" | "deny" = "allow";
           try {
             const task = taskRuntime.get(taskActor, args.taskId);
             return {
@@ -1355,6 +1422,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: task
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1367,7 +1435,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "task.get",
               riskClass: "read",
               policyVersion: kernelPolicy.version,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt)
             });
@@ -1398,6 +1466,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+          let auditDecision: "allow" | "deny" = "allow";
           try {
             const waited = await taskRuntime.wait(taskActor, args.taskId, {
               ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
@@ -1420,6 +1489,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               }
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             if (error instanceof TaskRuntimeError) {
               auditResult = error.code === "task_wait_cancelled" ? "cancelled" : "error";
               return errorResult(error);
@@ -1435,7 +1505,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "task.wait",
               riskClass: "read",
               policyVersion: kernelPolicy.version,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt)
             });
@@ -1461,6 +1531,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+          let auditDecision: "allow" | "deny" = "allow";
           try {
             const task = await taskRuntime.cancel(taskActor, args.taskId);
             return {
@@ -1468,6 +1539,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: task
             };
           } catch (error) {
+            if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1480,7 +1552,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               toolId: "task.cancel",
               riskClass: "execute",
               policyVersion: kernelPolicy.version,
-              decision: "allow",
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt)
             });

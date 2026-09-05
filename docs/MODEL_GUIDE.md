@@ -22,14 +22,14 @@ There are **four** normal, owner-configurable concepts:
 
 ## 2. Your tools
 
-| Tool          | Need      | Notes                                                                                            |
-| ------------- | --------- | ------------------------------------------------------------------------------------------------ |
-| `core.ping`   | —         | Liveness + workspace capabilities/paths + doc/config pointers. **Run it first.**                 |
-| `core.read`   | read cap  | Read a UTF-8 file inside an authorized Path.                                                     |
-| `core.search` | read cap  | Find **files & directories** in a Path, **case-insensitive**; `*`/`?` glob.                      |
-| `core.write`  | write cap | Write a file (applies by default; `dryRun:true` = preview).                                      |
-| `core.edit`   | write cap | Exact-match edit (applies by default; `dryRun:true` = preview).                                  |
-| `core.exec`   | exec cap  | Run platform-native commands. Restricted uses `command.json`; autonomous uses OS-user authority. |
+| Tool          | Need      | Notes                                                                                                        |
+| ------------- | --------- | ------------------------------------------------------------------------------------------------------------ |
+| `core.ping`   | —         | Liveness + workspace capabilities/paths + managed-task/tool-surface + doc/config pointers. **Run it first.** |
+| `core.read`   | read cap  | Read a UTF-8 file inside an authorized Path.                                                                 |
+| `core.search` | read cap  | Find **files & directories** in a Path, **case-insensitive**; `*`/`?` glob.                                  |
+| `core.write`  | write cap | Write a file (applies by default; `dryRun:true` = preview).                                                  |
+| `core.edit`   | write cap | Exact-match edit (applies by default; `dryRun:true` = preview).                                              |
+| `core.exec`   | exec cap  | Run platform-native commands. Restricted uses `command.json`; autonomous uses OS-user authority.             |
 
 **Capability presence** derives automatically from config + platform:
 
@@ -70,6 +70,8 @@ task.create -> task.list / task.get -> task.claim
 - `task.wait` is Runner-only in this MVP; observe coordination work with `task.get` or `task.list`.
 
 Current Task Runtime state is intentionally **in-memory only**. Task IDs and state survive later MCP requests while the same gateway process remains running, but they do not survive a gateway restart. Do not claim restart-safe/durable task recovery.
+
+`core.ping.structuredContent.managedTasks` is the machine-readable orientation summary for this surface. Its `advertisedTools` list mirrors the `task.*` tools currently exposed by `tools/list`; `runner.canStart` is true only when `task.start` is actually available under current `core.exec` authority. This summary is descriptive only and never grants capability authority.
 
 ---
 
@@ -136,7 +138,7 @@ Do **not** guess, fabricate config, or ask the owner to grant you admin tools.
 - **Fail closed:** unknown/invalid state is denied. Never assume a Path/command is authorized.
 - **Secrets:** never expose credentials; the gateway isolates MCP credentials and never returns them.
 - **Containment:** restricted file operations are canonical-root-checked; autonomous mode deliberately follows OS-user authority instead of workspace containment.
-- **Audit:** core tool calls, auth/policy events and control-plane actions are journaled as metadata-only; the bounded in-memory journal is also persisted to `<stateRoot>/audit.sqlite3`. Durable retention defaults to the newest 250,000 events. Do not put secrets in tool args.
+- **Audit:** core/task tool calls, auth/policy events and control-plane actions are journaled as metadata-only; the bounded in-memory journal is also persisted to `<stateRoot>/audit.sqlite3`. True authorization/ownership denials are recorded as `denied`; ordinary input/runtime/contention failures remain `error`. Durable retention defaults to the newest 250,000 events. Do not put secrets in tool args.
 - **Cross-platform exec:** `core.exec` runs natively on Windows and POSIX. Restricted mode resolves commands through the configured catalog; autonomous mode resolves through the OS-user environment. Time/output/process-cleanup guards remain active.
 
 ---
