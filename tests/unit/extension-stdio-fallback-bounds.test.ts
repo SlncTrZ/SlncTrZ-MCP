@@ -7,6 +7,7 @@ import {
   type ExtensionManifestV1
 } from "../../src/extension/manifest.js";
 import { createStdioAdapter } from "../../src/extension/stdio-adapter.js";
+import { createExtensionSupervisor } from "../../src/extension/supervisor.js";
 import { createMcpOwnerOrchestrator } from "../../src/owner/mcp-owner-orchestrator.js";
 import { createMcpProviderService } from "../../src/owner/mcp-provider-service.js";
 import { createMcpProviderStore } from "../../src/owner/mcp-provider-store.js";
@@ -189,6 +190,113 @@ describe("stdio startup fallback bounds", () => {
       expect(second.status).toBe("committed");
       expect((await store.list()).map((provider) => provider.id)).toEqual(["healthy"]);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+async function waitForPid(path: string): Promise<number> {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    try {
+      const pid = Number(await readFile(path, "utf8"));
+      if (Number.isInteger(pid) && pid > 0) return pid;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("fixture did not reach discovery");
+}
+
+describe("stdio explicit stop during discovery", () => {
+  for (const supervised of [false, true]) {
+    it(`does not start fallback after ${supervised ? "supervisor" : "adapter"} stop`, async () => {
+      const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-stop-"));
+      let adapter: ReturnType<typeof createStdioAdapter> | undefined;
+      let adapterStarting: Promise<unknown> | undefined;
+      try {
+        const fixture = await legacyFixture(root, "silent-discover");
+        adapter = createStdioAdapter(
+          await compileExtensionManifest(manifestFor(fixture.script, "legacy", 9_000))
+        );
+        const current = adapter;
+        const observedAdapter = {
+          ...current,
+          start() {
+            const pending = current.start();
+            adapterStarting = pending.then(
+              () => ({ started: true }),
+              (error: unknown) => error
+            );
+            return pending;
+          }
+        };
+        const owner = supervised
+          ? createExtensionSupervisor({ adapter: observedAdapter, startupTimeoutMs: 9_000 })
+          : observedAdapter;
+        const starting = owner.start().then(
+          () => ({ started: true }),
+          (error: unknown) => error
+        );
+        const probePid = await waitForPid(fixture.probePidFile);
+
+        await owner.stop();
+        expect(await starting).toMatchObject({ code: "provider_unavailable" });
+        expect(await adapterStarting).toMatchObject({ code: "provider_unavailable" });
+        expect(owner.health()).toBe("unavailable");
+        expect(current.health()).toBe("unavailable");
+        await expect(current.listTools()).rejects.toMatchObject({ code: "provider_unavailable" });
+        const spawned = (await readdir(root)).filter((entry) =>
+          entry.startsWith(fixture.spawnPrefix)
+        );
+        expect(spawned).toEqual([`${fixture.spawnPrefix}${probePid}`]);
+        await expect(waitGone(probePid)).resolves.toBeUndefined();
+      } finally {
+        await adapter?.stop();
+        await adapterStarting;
+        await adapter?.stop();
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("lets an explicit restart own its lifecycle before the cancelled start settles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-stop-restart-"));
+    let adapter: ReturnType<typeof createStdioAdapter> | undefined;
+    let starting: Promise<unknown> | undefined;
+    let restarting: Promise<void> | undefined;
+    try {
+      const fixture = await legacyFixture(root, "silent-discover");
+      adapter = createStdioAdapter(
+        await compileExtensionManifest(manifestFor(fixture.script, "legacy", 3_000))
+      );
+      starting = adapter.start().then(
+        () => ({ started: true }),
+        (error: unknown) => error
+      );
+      const oldPid = await waitForPid(fixture.probePidFile);
+      const stopping = adapter.stop();
+      restarting = adapter.start();
+      await stopping;
+
+      expect(await starting).toMatchObject({ code: "provider_unavailable" });
+      await restarting;
+      expect((await adapter.listTools()).map((tool) => tool.canonicalId)).toEqual(["echo"]);
+      expect(adapter.health()).toBe("ready");
+      const legacyPid = await waitForPid(fixture.legacyPidFile);
+      expect(legacyPid).not.toBe(oldPid);
+      const pids = (await readdir(root))
+        .filter((entry) => entry.startsWith(fixture.spawnPrefix))
+        .map((entry) => Number(entry.slice(fixture.spawnPrefix.length)));
+      expect(pids).toHaveLength(3);
+      await Promise.all(pids.filter((pid) => pid !== legacyPid).map(waitGone));
+      await adapter.stop();
+      await expect(waitGone(legacyPid)).resolves.toBeUndefined();
+    } finally {
+      await adapter?.stop();
+      await starting;
+      await restarting?.catch(() => undefined);
+      await adapter?.stop();
       await rm(root, { recursive: true, force: true });
     }
   });

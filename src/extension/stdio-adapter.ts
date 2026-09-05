@@ -119,6 +119,13 @@ export function createStdioAdapter(
   let era: ProtocolEra = "legacy";
   let startupDeadlineAt: number | undefined;
   let startupToolListPending = false;
+  let lifecycleEpoch = 0;
+
+  const assertCurrentStartup = (epoch: number): void => {
+    if (epoch !== lifecycleEpoch) {
+      throw new AdapterError("provider_unavailable", "provider startup was cancelled");
+    }
+  };
 
   const rejectGeneration = (
     current: StdioGeneration,
@@ -298,7 +305,8 @@ export function createStdioAdapter(
     });
   };
 
-  const startLegacy = async (): Promise<void> => {
+  const startLegacy = async (epoch: number): Promise<void> => {
+    assertCurrentStartup(epoch);
     const legacy = spawnGeneration();
     try {
       const response = await sendBounded(
@@ -313,6 +321,7 @@ export function createStdioAdapter(
         },
         remainingStartupMs()
       );
+      assertCurrentStartup(epoch);
       const initialized = asResult(response) as { readonly protocolVersion?: unknown };
       if (
         typeof initialized.protocolVersion !== "string" ||
@@ -322,6 +331,7 @@ export function createStdioAdapter(
         throw new AdapterError("provider_protocol_error", "invalid legacy protocol negotiation");
       }
       await notify(legacy, "notifications/initialized");
+      assertCurrentStartup(epoch);
       era = "legacy";
     } catch (error) {
       stopGeneration(legacy);
@@ -330,7 +340,8 @@ export function createStdioAdapter(
     }
   };
 
-  const startModernOrLegacy = async (): Promise<void> => {
+  const startModernOrLegacy = async (epoch: number): Promise<void> => {
+    assertCurrentStartup(epoch);
     const probe = spawnGeneration();
     let fallback = false;
     const probeBudgetMs = Math.max(
@@ -346,6 +357,7 @@ export function createStdioAdapter(
         },
         probeBudgetMs
       );
+      assertCurrentStartup(epoch);
       if (response.error !== undefined) {
         if (response.error.code === -32601) fallback = true;
         else
@@ -359,6 +371,8 @@ export function createStdioAdapter(
         return;
       }
     } catch (error) {
+      // Explicit stop invalidates this attempt; it must never trigger legacy fallback.
+      assertCurrentStartup(epoch);
       if (
         error instanceof AdapterError &&
         (error.code === "provider_timeout" || error.code === "provider_unavailable")
@@ -373,7 +387,7 @@ export function createStdioAdapter(
 
     if (!fallback) return;
     stopGeneration(probe);
-    await startLegacy();
+    await startLegacy(epoch);
   };
 
   const activeGeneration = (): StdioGeneration => {
@@ -393,13 +407,17 @@ export function createStdioAdapter(
       if (existing !== undefined && !existing.stopped && existing.child.exitCode === null) {
         return;
       }
+      const epoch = ++lifecycleEpoch;
       startupDeadlineAt = Date.now() + manifest.startupTimeoutMs;
       startupToolListPending = true;
       try {
-        await startModernOrLegacy();
+        await startModernOrLegacy(epoch);
+        assertCurrentStartup(epoch);
       } catch (error) {
-        startupDeadlineAt = undefined;
-        startupToolListPending = false;
+        if (epoch === lifecycleEpoch) {
+          startupDeadlineAt = undefined;
+          startupToolListPending = false;
+        }
         throw error;
       }
     },
@@ -415,6 +433,9 @@ export function createStdioAdapter(
         },
         timeoutMs
       );
+      if (generation !== current || current.stopped) {
+        throw new AdapterError("provider_unavailable", "provider generation was stopped");
+      }
       const result = asResult(response) as ListToolsResult;
       startupToolListPending = false;
       startupDeadlineAt = undefined;
@@ -460,6 +481,7 @@ export function createStdioAdapter(
     },
 
     async stop(): Promise<void> {
+      lifecycleEpoch += 1;
       startupDeadlineAt = undefined;
       startupToolListPending = false;
       const current = generation;

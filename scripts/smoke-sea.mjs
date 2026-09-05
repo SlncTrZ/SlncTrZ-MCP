@@ -3,6 +3,8 @@
 import { randomBytes, scryptSync } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -58,12 +60,14 @@ const verifier = [
   expected.toString("base64url")
 ].join("$");
 
+const stateRoot = await mkdtemp(join(tmpdir(), "slnctrz-sea-smoke-"));
 const child = spawn(binary, [], {
   cwd: root,
   env: {
     PATH: process.env.PATH ?? "",
     SystemRoot: process.env.SystemRoot ?? "",
     WINDIR: process.env.WINDIR ?? "",
+    SLNCTRZ_STATE_ROOT: stateRoot,
     SLNCTRZ_OWNER_SECRET_HASH: verifier,
     SLNCTRZ_PUBLIC_URL: "https://mcp.example.test/mcp",
     SLNCTRZ_HOST: "127.0.0.1",
@@ -137,6 +141,6 @@ await new Promise((resolvePromise, reject) => {
     }
     resolvePromise();
   });
-});
+}).finally(() => rm(stateRoot, { recursive: true, force: true }));
 
 console.log(`SEA ${nativeTarget} gateway bootstrap + embedded asset smoke test passed`);
