@@ -2,6 +2,18 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.1
+
+Date: 2026-09-05
+
+### Added
+
+- Expand the default Linux command allowlist (`config/commands.json`) with `gh`, `pip`, and `ssh`, matching the broader permissive set already configured on the production `.227` gateway. A fresh standalone install now seeds these commands instead of the previously narrower default set.
+
+### Compatibility / behavior notes
+
+- No state-schema or runtime-behavior change; the command allowlist default only affects fresh installs.
+
 ## 0.2.0 — Agent Guidance + Managed Tasks
 
 Date: 2026-09-05
