@@ -117,6 +117,8 @@ export function createStdioAdapter(
   let generation: StdioGeneration | undefined;
   let nextId = 1;
   let era: ProtocolEra = "legacy";
+  let startupDeadlineAt: number | undefined;
+  let startupToolListPending = false;
 
   const rejectGeneration = (
     current: StdioGeneration,
@@ -245,6 +247,30 @@ export function createStdioAdapter(
     });
   };
 
+  const sendBounded = async (
+    current: StdioGeneration,
+    payload: Record<string, unknown>,
+    timeoutMs: number
+  ): Promise<RpcResponse> => {
+    if (timeoutMs <= 0) {
+      stopGeneration(current, "provider_timeout");
+      throw new AdapterError("provider_timeout", "provider_timeout");
+    }
+    const request = send(current, payload);
+    const timer = setTimeout(() => stopGeneration(current, "provider_timeout"), timeoutMs);
+    timer.unref();
+    try {
+      return await request;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const remainingStartupMs = (): number => {
+    if (startupDeadlineAt === undefined) return manifest.startupTimeoutMs;
+    return Math.max(0, startupDeadlineAt - Date.now());
+  };
+
   const notify = (
     current: StdioGeneration,
     method: string,
@@ -275,14 +301,18 @@ export function createStdioAdapter(
   const startLegacy = async (): Promise<void> => {
     const legacy = spawnGeneration();
     try {
-      const response = await send(legacy, {
-        method: "initialize",
-        params: {
-          protocolVersion: LEGACY_PROTOCOL,
-          capabilities: {},
-          clientInfo: CLIENT_INFO
-        }
-      });
+      const response = await sendBounded(
+        legacy,
+        {
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY_PROTOCOL,
+            capabilities: {},
+            clientInfo: CLIENT_INFO
+          }
+        },
+        remainingStartupMs()
+      );
       const initialized = asResult(response) as { readonly protocolVersion?: unknown };
       if (
         typeof initialized.protocolVersion !== "string" ||
@@ -303,11 +333,19 @@ export function createStdioAdapter(
   const startModernOrLegacy = async (): Promise<void> => {
     const probe = spawnGeneration();
     let fallback = false;
+    const probeBudgetMs = Math.max(
+      1,
+      Math.min(remainingStartupMs(), Math.max(1, Math.floor(manifest.startupTimeoutMs / 3)))
+    );
     try {
-      const response = await send(probe, {
-        method: "server/discover",
-        params: modernParams({})
-      });
+      const response = await sendBounded(
+        probe,
+        {
+          method: "server/discover",
+          params: modernParams({})
+        },
+        probeBudgetMs
+      );
       if (response.error !== undefined) {
         if (response.error.code === -32601) fallback = true;
         else
@@ -321,11 +359,19 @@ export function createStdioAdapter(
         return;
       }
     } catch (error) {
-      stopGeneration(probe);
-      if (error instanceof AdapterError) throw error;
-      throw new AdapterError("provider_unavailable", "provider discovery failed");
+      if (
+        error instanceof AdapterError &&
+        (error.code === "provider_timeout" || error.code === "provider_unavailable")
+      ) {
+        fallback = true;
+      } else {
+        stopGeneration(probe);
+        if (error instanceof AdapterError) throw error;
+        throw new AdapterError("provider_unavailable", "provider discovery failed");
+      }
     }
 
+    if (!fallback) return;
     stopGeneration(probe);
     await startLegacy();
   };
@@ -347,16 +393,31 @@ export function createStdioAdapter(
       if (existing !== undefined && !existing.stopped && existing.child.exitCode === null) {
         return;
       }
-      await startModernOrLegacy();
+      startupDeadlineAt = Date.now() + manifest.startupTimeoutMs;
+      startupToolListPending = true;
+      try {
+        await startModernOrLegacy();
+      } catch (error) {
+        startupDeadlineAt = undefined;
+        startupToolListPending = false;
+        throw error;
+      }
     },
 
     async listTools(): Promise<readonly ExtensionToolInfo[]> {
       const current = activeGeneration();
-      const response = await send(current, {
-        method: "tools/list",
-        params: requestParams({})
-      });
+      const timeoutMs = startupToolListPending ? remainingStartupMs() : manifest.requestTimeoutMs;
+      const response = await sendBounded(
+        current,
+        {
+          method: "tools/list",
+          params: requestParams({})
+        },
+        timeoutMs
+      );
       const result = asResult(response) as ListToolsResult;
+      startupToolListPending = false;
+      startupDeadlineAt = undefined;
       return (result.tools ?? [])
         .filter((tool) => tool.name !== undefined)
         .map((tool) => ({
@@ -399,6 +460,8 @@ export function createStdioAdapter(
     },
 
     async stop(): Promise<void> {
+      startupDeadlineAt = undefined;
+      startupToolListPending = false;
       const current = generation;
       if (current !== undefined) stopGeneration(current);
     },
