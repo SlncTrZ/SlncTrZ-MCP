@@ -38,7 +38,7 @@ The gateway is local-first. Public exposure is optional for local use. A publicl
 | Linux x64 standalone SEA   | Public release target                                                                     |
 | Linux x64 User Install     | Release-gated clean-host acceptance                                                       |
 | Linux x64 System Install   | Implemented; clean systemd-host release evidence required before a verified support claim |
-| Windows x64 standalone SEA | Public release target from 0.1.x                                                          |
+| Windows x64 standalone SEA | Public release target in the current 0.2.x line                                           |
 | Windows x64 User Install   | Git Bash bootstrap + native installed runtime; release-gated clean-host acceptance        |
 | Windows System Install     | Not yet supported                                                                         |
 | macOS standalone installer | Not yet a public prebuilt support target                                                  |

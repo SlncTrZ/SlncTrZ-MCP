@@ -2,7 +2,7 @@
 
 This document is the current public-release contract for SlncTrZ-MCP.
 
-The active release line is **0.1.x**. Source history, package version, standalone binary identity, release manifest, and public tag must agree before publication.
+The active release line is **0.2.x**. Source history, package version, standalone binary identity, release manifest, and public tag must agree before publication.
 
 ## Supported publication target
 
@@ -13,7 +13,7 @@ linux-x64
 win32-x64
 ```
 
-Source CI exercises Linux Node 22/24 and Windows Node 24. Windows x64 is a public User Install target from 0.1.x; Windows System Install/service mode is not yet supported. macOS remains outside the public standalone target set.
+Source CI exercises Linux Node 22/24 and Windows Node 24. Windows x64 is a public User Install target in the current 0.2.x line; Windows System Install/service mode is not yet supported. macOS remains outside the public standalone target set.
 
 ## Release assets
 
@@ -32,7 +32,7 @@ The standalone binary is a self-contained Node SEA. End-user runtime does not re
 
 ### Windows signing policy
 
-The first 0.1.x Windows distribution tier is allowed to publish an **unsigned** `slnctrz-mcp.exe`. The mandatory trust contract is the official GitHub Release URL plus the release-level SHA-256/manifest verification. Release notes and troubleshooting must not imply Authenticode signing when it is absent.
+The 0.2.x Windows distribution tier is allowed to publish an **unsigned** `slnctrz-mcp.exe`. The mandatory trust contract is the official GitHub Release URL plus the release-level SHA-256/manifest verification. Release notes and troubleshooting must not imply Authenticode signing when it is absent.
 
 If Authenticode is introduced later, signing must occur after SEA injection and before final SHA-256/manifest generation; CI must verify the signature and publish only the signed bytes.
 
