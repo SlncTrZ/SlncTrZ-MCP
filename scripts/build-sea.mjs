@@ -95,6 +95,7 @@ await writeFile(
         "slnctrz-mcp-launcher.sh"
       ),
       "config/systemd/gateway.env.example": join(root, "config", "systemd", "gateway.env.example"),
+      "AGENTS.md": join(root, "AGENTS.md"),
       "docs/MODEL_GUIDE.md": join(root, "docs", "MODEL_GUIDE.md")
     },
     disableExperimentalSEAWarning: true,

@@ -5,6 +5,7 @@
  * Provenance: PLAN Phases 1-3, Phase 8, ADR-012, ADR-015, and ADR-008.
  */
 
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { InMemoryServerEventBus } from "@modelcontextprotocol/server";
 import { createDynamicClientFileStore } from "../auth/dynamic-client-store.js";
@@ -44,8 +45,10 @@ import { createMcpProviderService } from "../owner/mcp-provider-service.js";
 import { createMcpOwnerOrchestrator } from "../owner/mcp-owner-orchestrator.js";
 import { createMcpProviderStore } from "../owner/mcp-provider-store.js";
 import { createOwnerWebConsole } from "../owner/web-console.js";
+import { extractCanonicalAgentHarness } from "../shared/agent-harness.js";
 import { APP_VERSION, BUILD_COMMIT } from "../shared/build-info.js";
 import { isStandaloneSeaRuntime, readStandaloneTextAsset } from "../standalone/assets.js";
+import { createTaskRuntime } from "../task/runtime.js";
 import { readRuntimeConfig, type RuntimeConfig } from "./config.js";
 import { createGatewayServer, listenGateway } from "./http-server.js";
 
@@ -198,6 +201,13 @@ export async function bootstrap(dependencies: BootstrapDependencies = {}): Promi
   const standaloneModelGuide = standaloneRuntime
     ? readStandaloneTextAsset("docs/MODEL_GUIDE.md")
     : undefined;
+  const applicationRoot = resolveApplicationRoot();
+  const agentHarnessSource = standaloneRuntime
+    ? readStandaloneTextAsset("AGENTS.md")
+    : await readFile(join(applicationRoot, "AGENTS.md"), "utf8");
+  if (agentHarnessSource === undefined) throw new Error("agent_harness_missing");
+  const agentHarness = extractCanonicalAgentHarness(agentHarnessSource);
+  const taskRuntime = createTaskRuntime();
   const server = createGatewayServer({
     oauthService,
     policyStore,
@@ -212,12 +222,14 @@ export async function bootstrap(dependencies: BootstrapDependencies = {}): Promi
         audit: statePaths.auditDatabaseFile
       },
       docs: standaloneRuntime ? [] : ["AGENTS.md", "docs/MODEL_GUIDE.md", "MCP_SERVERS.md"],
-      ...(standaloneModelGuide === undefined ? {} : { modelGuide: standaloneModelGuide })
+      ...(standaloneModelGuide === undefined ? {} : { modelGuide: standaloneModelGuide }),
+      agentHarness
     },
     ...(ownerWeb === undefined ? {} : { ownerWeb }),
     toolAudit: createJournalToolAuditSink(auditJournal, createJsonLineToolAuditSink()),
     ...(metrics === undefined ? {} : { metrics }),
     mcpEventBus,
+    taskRuntime,
     allowedHostnames: config.allowedHostnames,
     allowedOriginHostnames: config.allowedOriginHostnames,
     onError: (error) => console.error(error.message)

@@ -14,6 +14,7 @@ import {
   HARD_EXEC_TIMEOUT_CEILING_MS,
   ExecError,
   executeRunCommand,
+  startRunCommand,
   type ExecResult
 } from "../kernel/exec.js";
 import {
@@ -35,7 +36,16 @@ import {
 import { type WriteOptions, WriteError, writeContainedFile } from "../kernel/fs-write.js";
 import { AdapterError } from "../extension/adapter.js";
 import { toolNameOf } from "../kernel/tool-identity.js";
+import { buildAgentHarnessInstructions, type AgentHarness } from "../shared/agent-harness.js";
 import { APP_VERSION } from "../shared/build-info.js";
+import {
+  HARD_MAX_TASK_INSTRUCTIONS_BYTES,
+  HARD_MAX_TASK_RESULT_BYTES,
+  HARD_MAX_TASK_TITLE_CHARS,
+  HARD_MAX_TASK_WAIT_MS,
+  TaskRuntimeError,
+  type TaskRuntime
+} from "../task/runtime.js";
 
 /**
  * Build the machine-readable structuredContent for an extension tool result. When the provider
@@ -96,6 +106,8 @@ export interface GatewayInfo {
   readonly docs: readonly string[];
   /** Optional embedded standalone model guide; surfaced directly by core.ping when no readable file exists. */
   readonly modelGuide?: string;
+  /** Product-owned canonical working guidance; never grants capability authority. */
+  readonly agentHarness?: AgentHarness;
 }
 
 export interface McpServerOptions {
@@ -107,6 +119,8 @@ export interface McpServerOptions {
   readonly ownerConsoleUrl?: string;
   /** Static gateway config docs + file locations surfaced by core.ping. */
   readonly gatewayInfo?: GatewayInfo;
+  /** Gateway-lifetime in-process task runtime. */
+  readonly taskRuntime?: TaskRuntime;
 }
 
 function authorizedContext(
@@ -147,6 +161,7 @@ function errorResult(
     | ExecError
     | KernelPolicyError
     | ExecutionError
+    | TaskRuntimeError
 ) {
   return {
     isError: true as const,
@@ -360,7 +375,13 @@ async function editWithin(
 
 /** Build a fresh MCP server whose tool surface is filtered by principal and policy snapshot. */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {
-  const server = new McpServer(SERVER_INFO);
+  const agentHarness = options.gatewayInfo?.agentHarness;
+  const server = new McpServer(
+    SERVER_INFO,
+    agentHarness === undefined
+      ? undefined
+      : { instructions: buildAgentHarnessInstructions(agentHarness) }
+  );
   const kernelPolicy =
     options.kernelPolicy ??
     createKernelPolicySnapshot({
@@ -403,6 +424,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         const config = gi?.config;
         const docs = gi?.docs ?? [];
         const modelGuide = gi?.modelGuide;
+        const productAgentHarness = gi?.agentHarness;
         const docsLabel =
           docs.length > 0
             ? docs.join(", ")
@@ -418,7 +440,11 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           "may use the authority of the gateway OS user outside Paths when the task requires it. " +
           "To understand the system, read the workspace docs: " +
           docsLabel +
-          ". In source checkouts, model guidance lives in docs/MODEL_GUIDE.md; standalone builds expose the embedded guide in core.ping structuredContent.modelGuide. core.search matches files and directories case-insensitively. " +
+          ". In source checkouts, model guidance lives in docs/MODEL_GUIDE.md; standalone builds expose the embedded guide in core.ping structuredContent.modelGuide. " +
+          (productAgentHarness === undefined
+            ? ""
+            : "Canonical SlncTrZ working guidance is available in core.ping structuredContent.agentHarness and is product guidance, not capability authority. ") +
+          "core.search matches files and directories case-insensitively. " +
           "Gateway config remains owner-managed; do not silently change policy/commands/providers. " +
           "Use the Owner Console" +
           (options.ownerConsoleUrl ? ` at ${options.ownerConsoleUrl}` : "") +
@@ -475,7 +501,11 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             ...(config === undefined ? {} : { config: { ...config } }),
             ...(docs.length === 0 ? {} : { docs: [...docs] }),
             ...(modelGuide === undefined ? {} : { modelGuide }),
-            ...(config === undefined && docs.length === 0 && modelGuide === undefined
+            ...(productAgentHarness === undefined ? {} : { agentHarness: productAgentHarness }),
+            ...(config === undefined &&
+            docs.length === 0 &&
+            modelGuide === undefined &&
+            productAgentHarness === undefined
               ? {}
               : { guidance })
           }
@@ -924,6 +954,535 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt),
               ...(auditedCommandId === undefined ? {} : { commandId: auditedCommandId })
+            });
+          }
+        })
+    );
+  }
+
+  const taskRuntime = options.taskRuntime;
+  const taskActor =
+    taskRuntime === undefined || options.principal === undefined
+      ? undefined
+      : { clientId: options.principal.clientId, workspaceId: kernelPolicy.workspaceId };
+
+  if (taskRuntime !== undefined && taskActor !== undefined && execAuthorization !== undefined) {
+    server.registerTool(
+      "task.start",
+      {
+        title: "Start Managed Task",
+        description:
+          "Start one policy-authorized command as an in-process managed task and return immediately with a task id.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            command: z.string().min(1),
+            args: z.array(z.string()).max(DEFAULT_MAX_EXEC_ARGS).optional(),
+            root: z.string().optional(),
+            timeoutMs: z.number().int().positive().max(HARD_EXEC_TIMEOUT_CEILING_MS).optional(),
+            maxOutputBytes: z
+              .number()
+              .int()
+              .positive()
+              .max(HARD_EXEC_OUTPUT_CEILING_BYTES)
+              .optional()
+          })
+          .strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
+          let auditedCommandId: string | undefined;
+          try {
+            const authorized = authorizeRunKernelCommand(
+              kernelPolicy,
+              options.principal,
+              args.command,
+              (args.args ?? [])[0],
+              args.root
+            );
+            auditedCommandId = authorized.binary;
+            const task = await taskRuntime.start(taskActor, kernelPolicy.version, () =>
+              startRunCommand(authorized.binary, args.args ?? [], authorized.runRoot, {
+                ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+                ...(args.maxOutputBytes === undefined
+                  ? {}
+                  : { maxOutputBytes: args.maxOutputBytes })
+              })
+            );
+            auditResult = "success";
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} ${task.state}` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            if (
+              error instanceof ExecError ||
+              error instanceof KernelPolicyError ||
+              error instanceof TaskRuntimeError
+            ) {
+              return errorResult(error);
+            }
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.start",
+              riskClass: "execute",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt),
+              ...(auditedCommandId === undefined ? {} : { commandId: auditedCommandId })
+            });
+          }
+        })
+    );
+  }
+
+  if (taskRuntime !== undefined && taskActor !== undefined) {
+    server.registerTool(
+      "task.create",
+      {
+        title: "Create Coordination Task",
+        description:
+          "Create one workspace-visible logical task for another authenticated client to claim. This does not execute a process.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            title: z.string().min(1).max(HARD_MAX_TASK_TITLE_CHARS),
+            instructions: z.string().min(1).max(HARD_MAX_TASK_INSTRUCTIONS_BYTES)
+          })
+          .strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" = "success";
+          try {
+            const task = taskRuntime.create(taskActor, args.title, args.instructions);
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} ${task.state}` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.create",
+              riskClass: "write",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.list",
+      {
+        title: "List Coordination Tasks",
+        description: "List logical coordination tasks visible in the current workspace.",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z.object({}).strict()
+      },
+      async (_args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" = "success";
+          try {
+            const tasks = taskRuntime.list(taskActor);
+            return {
+              content: [{ type: "text", text: `${tasks.length} coordination task(s)` }],
+              structuredContent: { tasks }
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.list",
+              riskClass: "read",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.claim",
+      {
+        title: "Claim Coordination Task",
+        description: "Atomically claim one available coordination task in the current workspace.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" = "success";
+          try {
+            const task = taskRuntime.claim(taskActor, args.taskId);
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} claimed` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.claim",
+              riskClass: "write",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.release",
+      {
+        title: "Release Coordination Task",
+        description: "Release a coordination task currently claimed by this client.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" = "success";
+          try {
+            const task = taskRuntime.release(taskActor, args.taskId);
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} released` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.release",
+              riskClass: "write",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.complete",
+      {
+        title: "Complete Coordination Task",
+        description: "Complete a coordination task currently claimed by this client.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            taskId: z.string().min(1),
+            result: z.string().min(1).max(HARD_MAX_TASK_RESULT_BYTES)
+          })
+          .strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" = "success";
+          try {
+            const task = taskRuntime.complete(taskActor, args.taskId, args.result);
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} completed` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.complete",
+              riskClass: "write",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.fail",
+      {
+        title: "Fail Coordination Task",
+        description: "Fail a coordination task currently claimed by this client.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            taskId: z.string().min(1),
+            failure: z.string().min(1).max(HARD_MAX_TASK_RESULT_BYTES)
+          })
+          .strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" = "success";
+          try {
+            const task = taskRuntime.fail(taskActor, args.taskId, args.failure);
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} failed` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.fail",
+              riskClass: "write",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.get",
+      {
+        title: "Get Managed Task",
+        description:
+          "Return a creator-private Runner task or any coordination task visible in the current workspace.",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+          try {
+            const task = taskRuntime.get(taskActor, args.taskId);
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} ${task.state}` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.get",
+              riskClass: "read",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.wait",
+      {
+        title: "Wait for Managed Task",
+        description:
+          "Wait for a Runner task up to a bounded request timeout. Cancelling this wait does not cancel the task; coordination tasks use task.get/list instead.",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            taskId: z.string().min(1),
+            timeoutMs: z.number().int().positive().max(HARD_MAX_TASK_WAIT_MS).optional()
+          })
+          .strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+          try {
+            const waited = await taskRuntime.wait(taskActor, args.taskId, {
+              ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+              ...(context.http?.req?.signal === undefined
+                ? {}
+                : { signal: context.http.req.signal })
+            });
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: waited.waitTimedOut
+                    ? `task ${waited.task.taskId} still ${waited.task.state}`
+                    : `task ${waited.task.taskId} ${waited.task.state}`
+                }
+              ],
+              structuredContent: {
+                ...waited.task,
+                waitTimedOut: waited.waitTimedOut
+              }
+            };
+          } catch (error) {
+            if (error instanceof TaskRuntimeError) {
+              auditResult = error.code === "task_wait_cancelled" ? "cancelled" : "error";
+              return errorResult(error);
+            }
+            auditResult = "error";
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.wait",
+              riskClass: "read",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+
+    server.registerTool(
+      "task.cancel",
+      {
+        title: "Cancel Managed Task",
+        description:
+          "Cancel a creator-private Runner task, or cancel a coordination task when this client is its creator.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+          try {
+            const task = await taskRuntime.cancel(taskActor, args.taskId);
+            return {
+              content: [{ type: "text", text: `task ${task.taskId} ${task.state}` }],
+              structuredContent: task
+            };
+          } catch (error) {
+            auditResult = "error";
+            if (error instanceof TaskRuntimeError) return errorResult(error);
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: taskActor.clientId,
+              workspaceId: taskActor.workspaceId,
+              toolId: "task.cancel",
+              riskClass: "execute",
+              policyVersion: kernelPolicy.version,
+              decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
             });
           }
         })

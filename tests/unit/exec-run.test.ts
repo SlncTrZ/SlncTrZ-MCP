@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compileCommandCatalog } from "../../src/kernel/command-catalog.js";
@@ -13,6 +13,7 @@ import {
   MAX_EXEC_COMMAND_LINE_CHARS_WINDOWS_CMD,
   ExecError,
   executeRunCommand,
+  startRunCommand,
   validateExecArgvSize
 } from "../../src/kernel/exec.js";
 
@@ -29,6 +30,137 @@ describe("executeRunCommand", () => {
     expect(result.applied).toBe(true);
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe("hi");
+  });
+
+  it("preserves a non-zero process exit code without converting it into a runner error", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-run-"));
+    cleanup.push(root);
+    const result = await executeRunCommand(process.execPath, ["-e", "process.exit(7)"], root);
+    expect(result.applied).toBe(true);
+    expect(result.exitCode).toBe(7);
+    expect(result.signal).toBeNull();
+    expect(result.timedOut).toBe(false);
+    expect(result.cancelled).toBe(false);
+  });
+
+  it("marks timeout as a terminal execution outcome", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-run-"));
+    cleanup.push(root);
+    const result = await executeRunCommand(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      root,
+      { timeoutMs: 50 }
+    );
+    expect(result.exitCode).toBeNull();
+    expect(result.timedOut).toBe(true);
+    expect(result.cancelled).toBe(false);
+    expect(result.signal).not.toBeNull();
+  });
+
+  it("exposes explicit managed cancellation with the same terminal semantics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-run-"));
+    cleanup.push(root);
+    const handle = await startRunCommand(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      root,
+      { timeoutMs: 5_000 }
+    );
+    handle.cancel();
+    const result = await handle.completion;
+    expect(result.exitCode).toBeNull();
+    expect(result.cancelled).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(result.signal).not.toBeNull();
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "managed cancellation terminates the POSIX descendant process group",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "slnctrz-run-tree-"));
+      cleanup.push(root);
+      const pidFile = join(root, "child.pid");
+      const script = [
+        "const { spawn } = require('node:child_process');",
+        "const { writeFileSync } = require('node:fs');",
+        "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+        `writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+        "setInterval(() => {}, 1000);"
+      ].join("\n");
+      const handle = await startRunCommand(process.execPath, ["-e", script], root, {
+        timeoutMs: 5_000
+      });
+
+      let descendantPid: number | undefined;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          descendantPid = Number.parseInt(await readFile(pidFile, "utf8"), 10);
+          if (Number.isSafeInteger(descendantPid) && descendantPid > 0) break;
+        } catch {
+          // Parent has not written the descendant PID yet.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(descendantPid).toBeDefined();
+
+      handle.cancel();
+      const result = await handle.completion;
+      expect(result.cancelled).toBe(true);
+
+      let descendantAlive = true;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          process.kill(descendantPid ?? 0, 0);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+            descendantAlive = false;
+            break;
+          }
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(descendantAlive).toBe(false);
+    }
+  );
+
+  it("marks AbortSignal cancellation without treating it as a timeout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-run-"));
+    cleanup.push(root);
+    const controller = new AbortController();
+    const run = executeRunCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], root, {
+      signal: controller.signal,
+      timeoutMs: 5_000
+    });
+    setTimeout(() => controller.abort(), 50);
+    const result = await run;
+    expect(result.exitCode).toBeNull();
+    expect(result.cancelled).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(result.signal).not.toBeNull();
+  });
+
+  it("bounds stdout and reports truncation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-run-"));
+    cleanup.push(root);
+    const result = await executeRunCommand(
+      process.execPath,
+      ["-e", "process.stdout.write('x'.repeat(128))"],
+      root,
+      { maxOutputBytes: 16 }
+    );
+    expect(Buffer.byteLength(result.stdout, "utf8")).toBe(16);
+    expect(result.stdoutTruncated).toBe(true);
+    expect(result.stderrTruncated).toBe(false);
+  });
+
+  it("fails loud when the approved executable cannot be revalidated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-run-"));
+    cleanup.push(root);
+    await expect(executeRunCommand(join(root, "missing-binary"), [], root)).rejects.toMatchObject({
+      code: "spawn_failed"
+    });
   });
 
   it("executes when dryRun is explicitly false", async () => {

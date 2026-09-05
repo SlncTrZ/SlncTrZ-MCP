@@ -4,10 +4,19 @@ import { OAuthService } from "../../src/auth/oauth-service.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createGatewayServer, listenGateway } from "../../src/app/http-server.js";
 import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
+import { extractCanonicalAgentHarness } from "../../src/shared/agent-harness.js";
 
 const servers: Server[] = [];
 const TEST_OWNER_SECRET = "conformance test owner secret";
 const TEST_RESOURCE = "https://mcp.example.com/mcp";
+const TEST_AGENT_HARNESS = extractCanonicalAgentHarness(
+  [
+    "<!-- SLNCTRZ_CANONICAL_AGENT_HARNESS_BEGIN -->",
+    "## Test harness",
+    "- Read before you write.",
+    "<!-- SLNCTRZ_CANONICAL_AGENT_HARNESS_END -->"
+  ].join("\n")
+);
 
 afterEach(async () => {
   await Promise.all(
@@ -51,7 +60,17 @@ async function startGateway(): Promise<{ origin: string; accessToken: string }> 
   });
   const server = createGatewayServer({
     oauthService,
-    kernelPolicy: createKernelPolicySnapshot({ workspaceId: "conformance" })
+    kernelPolicy: createKernelPolicySnapshot({ workspaceId: "conformance" }),
+    gatewayInfo: {
+      version: "test",
+      config: {
+        policy: "/state/policy.json",
+        commands: "/state/command.json",
+        providers: "/state/mcp/providers.json"
+      },
+      docs: [],
+      agentHarness: TEST_AGENT_HARNESS
+    }
   });
   servers.push(server);
   const address = await listenGateway(server, { host: "127.0.0.1", port: 0 });
@@ -101,12 +120,14 @@ describe("MCP initialize conformance", () => {
       })
     });
     const payload = (await readMcpPayload(response)) as {
-      result?: unknown;
+      result?: { instructions?: string };
       error?: { code?: number; message?: string };
     };
     expect(response.status).toBe(200);
     expect(payload.error).toBeUndefined();
     expect(payload.result).toBeDefined();
+    expect(payload.result?.instructions).toContain("SlncTrZ Product Agent Harness");
+    expect(payload.result?.instructions).toContain(TEST_AGENT_HARNESS.content);
   });
 
   it("serves 2026-07-28 tools/list with the per-request modern envelope", async () => {
@@ -167,13 +188,52 @@ describe("MCP initialize conformance", () => {
     });
 
     const payload = (await readMcpPayload(response)) as {
-      result?: { protocolVersion?: string; serverInfo?: { name?: string } };
+      result?: {
+        protocolVersion?: string;
+        serverInfo?: { name?: string };
+        instructions?: string;
+      };
     };
     expect(response.status).toBe(200);
     expect(payload.result).toMatchObject({
       protocolVersion: "2025-06-18",
       serverInfo: { name: "slnctrz-mcp" }
     });
+    expect(payload.result?.instructions).toContain("SlncTrZ Product Agent Harness");
+    expect(payload.result?.instructions).toContain(TEST_AGENT_HARNESS.content);
+  });
+
+  it("exposes the same canonical harness through core.ping fallback", async () => {
+    const { origin, accessToken } = await startGateway();
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 27,
+        method: "tools/call",
+        params: { name: "core.ping", arguments: {} }
+      })
+    });
+    const payload = (await readMcpPayload(response)) as {
+      result?: {
+        structuredContent?: {
+          agentHarness?: {
+            id?: string;
+            schemaVersion?: number;
+            sha256?: string;
+            content?: string;
+          };
+        };
+      };
+    };
+    expect(response.status).toBe(200);
+    expect(payload.result?.structuredContent?.agentHarness).toEqual(TEST_AGENT_HARNESS);
   });
 
   it("returns JSON-RPC method-not-found for an unknown authenticated method", async () => {

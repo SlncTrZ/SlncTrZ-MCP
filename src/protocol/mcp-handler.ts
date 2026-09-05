@@ -14,6 +14,7 @@ import {
 import { type ToolAuditSink } from "../observability/tool-audit.js";
 import type { MetricsRegistry } from "../observability/metrics.js";
 import { createKernelPolicySnapshot, type KernelPolicySnapshot } from "../policy/kernel-policy.js";
+import type { TaskRuntime } from "../task/runtime.js";
 import { createMcpServer, type GatewayInfo } from "./mcp-server.js";
 export type { GatewayInfo };
 
@@ -25,6 +26,7 @@ export interface McpHandlerOptions {
   readonly ownerConsoleUrl?: string;
   readonly gatewayInfo?: GatewayInfo;
   readonly eventBus?: ServerEventBus;
+  readonly taskRuntime?: TaskRuntime;
 }
 
 /** Create one handler whose factory isolates every modern and legacy exchange. */
@@ -52,7 +54,8 @@ export function createGatewayMcpHandler(options: McpHandlerOptions = {}): McpHtt
               }
             }),
         ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
-        ...(options.metrics === undefined ? {} : { metrics: options.metrics })
+        ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
+        ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime })
       }),
     {
       legacy: "stateless",

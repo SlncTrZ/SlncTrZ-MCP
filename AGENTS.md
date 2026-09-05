@@ -18,6 +18,8 @@
 
 ---
 
+<!-- SLNCTRZ_CANONICAL_AGENT_HARNESS_BEGIN -->
+
 ## How to think, step by step (12 Rules)
 
 1. **Think before coding** — state your assumptions; if there are several readings, surface them; if
@@ -53,6 +55,8 @@
 - **No self-privilege** — use only what's granted; if you need configuration outside your scope, ask
   the project owner to do it, don't escalate yourself.
 - **Stay in your granted workspace** — don't touch repos or data that aren't yours.
+
+<!-- SLNCTRZ_CANONICAL_AGENT_HARNESS_END -->
 
 ---
 

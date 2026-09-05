@@ -27,6 +27,7 @@ import { type ActivePolicySnapshot } from "../policy/policy-snapshot.js";
 import { type PolicySnapshotStore } from "../policy/policy-store.js";
 import { createGatewayMcpHandler } from "../protocol/mcp-handler.js";
 import type { GatewayInfo } from "../protocol/mcp-server.js";
+import type { TaskRuntime } from "../task/runtime.js";
 import {
   PayloadTooLargeError,
   UnsupportedMediaTypeError,
@@ -70,6 +71,7 @@ export interface GatewayServerOptions {
   readonly gatewayInfo?: GatewayInfo;
   readonly metrics?: MetricsRegistry;
   readonly mcpEventBus?: ServerEventBus;
+  readonly taskRuntime?: TaskRuntime;
   readonly onError?: (error: Error) => void;
 }
 
@@ -331,7 +333,8 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           ...(options.gatewayInfo === undefined ? {} : { gatewayInfo: options.gatewayInfo }),
           ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
           ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
-          ...(options.mcpEventBus === undefined ? {} : { eventBus: options.mcpEventBus })
+          ...(options.mcpEventBus === undefined ? {} : { eventBus: options.mcpEventBus }),
+          ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime })
         });
         const requestHandleMcp = toNodeHandler(
           requestHandler,

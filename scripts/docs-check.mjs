@@ -6,11 +6,22 @@ import { fileURLToPath } from "node:url";
 import { readVersion, RELEASE_LINE_MARKER } from "./version.mjs";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
-const [readme, release, provenance, pkgRaw, modelGuide, deployment, troubleshooting, backup] = await Promise.all([
+const [
+  readme,
+  release,
+  provenance,
+  pkgRaw,
+  agents,
+  modelGuide,
+  deployment,
+  troubleshooting,
+  backup
+] = await Promise.all([
   readFile(join(root, "README.md"), "utf8"),
   readFile(join(root, "RELEASE.md"), "utf8"),
   readFile(join(root, "PROVENANCE.md"), "utf8"),
   readFile(join(root, "package.json"), "utf8"),
+  readFile(join(root, "AGENTS.md"), "utf8"),
   readFile(join(root, "docs", "MODEL_GUIDE.md"), "utf8"),
   readFile(join(root, "docs", "DEPLOYMENT.md"), "utf8"),
   readFile(join(root, "docs", "TROUBLESHOOTING.md"), "utf8"),
@@ -78,9 +89,27 @@ for (const [text, label] of [
   assertCurrentLineOnly(text, label);
 }
 
+for (const value of [
+  "SLNCTRZ_CANONICAL_AGENT_HARNESS_BEGIN",
+  "SLNCTRZ_CANONICAL_AGENT_HARNESS_END",
+  "Simplicity first",
+  "Surgical changes",
+  "Read before you write",
+  "Tests verify intent",
+  "Checkpoint after every step",
+  "Fail loud",
+  "Reuse first",
+  "No self-privilege"
+]) {
+  requireText(agents, value, "AGENTS");
+}
 requireText(modelGuide, "structuredContent.modelGuide", "MODEL_GUIDE");
+requireText(modelGuide, "structuredContent.agentHarness", "MODEL_GUIDE");
 requireText(modelGuide, "core.ping", "MODEL_GUIDE");
 requireText(modelGuide, "Restricted mode is a capability policy", "MODEL_GUIDE");
+requireText(modelGuide, "task.start", "MODEL_GUIDE");
+requireText(modelGuide, "task.create", "MODEL_GUIDE");
+requireText(modelGuide, "in-memory only", "MODEL_GUIDE");
 requireText(deployment, "/opt/slnctrz-mcp", "DEPLOYMENT");
 requireText(deployment, "/var/lib/slnctrz-mcp", "DEPLOYMENT");
 requireText(deployment, "/etc/slnctrz-mcp", "DEPLOYMENT");

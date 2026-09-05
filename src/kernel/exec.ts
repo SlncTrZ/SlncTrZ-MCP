@@ -123,6 +123,18 @@ export interface RunCommandOptions extends ExecOptions {
   readonly maxArgs?: number;
 }
 
+export interface ManagedRunCommandHandle {
+  cancel(): void;
+  readonly completion: Promise<ExecResult>;
+}
+
+function completedRunCommandHandle(result: ExecResult): ManagedRunCommandHandle {
+  return Object.freeze({
+    cancel: () => undefined,
+    completion: Promise.resolve(result)
+  });
+}
+
 export function validateExecArgvSize(
   binary: string,
   argv: readonly string[],
@@ -159,12 +171,12 @@ export function validateExecArgvSize(
   }
 }
 
-export async function executeRunCommand(
+export async function startRunCommand(
   binary: string,
   argv: readonly string[],
   runRoot: string,
   options: RunCommandOptions = {}
-): Promise<ExecResult> {
+): Promise<ManagedRunCommandHandle> {
   if (runRoot.length === 0) throw new ExecError("no_root", "No exec root is configured");
   if (argv.some((arg) => arg.includes("\0"))) {
     throw new ExecError("invalid_input", "Argument contains NUL bytes");
@@ -210,7 +222,7 @@ export async function executeRunCommand(
   };
 
   if (options.signal?.aborted === true) {
-    return {
+    return completedRunCommandHandle({
       ...baseResult,
       applied: false,
       exitCode: null,
@@ -218,10 +230,10 @@ export async function executeRunCommand(
       timedOut: false,
       cancelled: true,
       durationMs: 0
-    };
+    });
   }
   if (options.dryRun === true) {
-    return {
+    return completedRunCommandHandle({
       ...baseResult,
       applied: false,
       exitCode: null,
@@ -229,7 +241,7 @@ export async function executeRunCommand(
       timedOut: false,
       cancelled: false,
       durationMs: 0
-    };
+    });
   }
 
   let binaryReal: string;
@@ -277,7 +289,8 @@ export async function executeRunCommand(
     throw new ExecError("invalid_limit", "Timeout is outside the supported range");
   }
 
-  return new Promise<ExecResult>((resolve, reject) => {
+  let cancel = (): void => undefined;
+  const completion = new Promise<ExecResult>((resolve, reject) => {
     let settled = false;
     let stdoutTruncated = false;
     let stderrTruncated = false;
@@ -381,6 +394,7 @@ export async function executeRunCommand(
       graceTimer.unref();
     };
     const onAbort = (): void => terminate("abort");
+    cancel = onAbort;
     const timer = setTimeout(() => terminate("timeout"), timeoutMs);
     timer.unref();
 
@@ -405,4 +419,19 @@ export async function executeRunCommand(
       );
     });
   });
+
+  return Object.freeze({
+    cancel: () => cancel(),
+    completion
+  });
+}
+
+export async function executeRunCommand(
+  binary: string,
+  argv: readonly string[],
+  runRoot: string,
+  options: RunCommandOptions = {}
+): Promise<ExecResult> {
+  const handle = await startRunCommand(binary, argv, runRoot, options);
+  return handle.completion;
 }
