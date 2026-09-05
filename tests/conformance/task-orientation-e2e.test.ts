@@ -49,6 +49,21 @@ function authorize(oauth: OAuthService): string {
   }).access_token;
 }
 
+interface RpcPayload {
+  readonly result?: {
+    readonly tools?: readonly { readonly name?: string }[];
+    readonly structuredContent?: Record<string, unknown>;
+  };
+}
+
+interface ManagedTaskOrientation {
+  readonly enabled: boolean;
+  readonly persistence: string;
+  readonly advertisedTools: readonly string[];
+  readonly runner: { readonly canStart: boolean };
+  readonly coordinator: { readonly available: boolean };
+}
+
 async function rpc(
   origin: string,
   token: string,
@@ -75,7 +90,7 @@ async function rpc(
         .trim()
     : body;
   if (data === undefined) throw new Error("missing MCP payload");
-  return JSON.parse(data) as any;
+  return JSON.parse(data) as RpcPayload;
 }
 
 async function fixture(taskRuntime: boolean, exec: boolean) {
@@ -111,23 +126,23 @@ describe("core.ping managed task orientation", () => {
       const { origin, token } = await fixture(testCase.runtime, testCase.exec);
       const listed = await rpc(origin, token, 1, "tools/list", {});
       const names = (listed.result?.tools ?? [])
-        .map((tool: { name?: string }) => tool.name)
-        .filter(Boolean)
+        .flatMap((tool: { name?: string }) => (tool.name === undefined ? [] : [tool.name]))
         .sort();
       const ping = await rpc(origin, token, 2, "tools/call", { name: "core.ping", arguments: {} });
       const structured = ping.result?.structuredContent;
-      const managed = structured?.managedTasks;
+      const managed = structured?.managedTasks as ManagedTaskOrientation | undefined;
+      const workspace = structured?.workspace as
+        { readonly capabilities?: readonly string[] } | undefined;
+      const capabilities = [...(workspace?.capabilities ?? [])];
       const taskNames = names.filter((name: string) => name.startsWith("task."));
 
-      expect(managed.advertisedTools).toEqual(taskNames);
-      expect(managed.enabled).toBe(testCase.runtime);
-      expect(managed.persistence).toBe("in-memory");
-      expect(managed.runner.canStart).toBe(testCase.runtime && testCase.exec);
-      expect(managed.coordinator.available).toBe(testCase.runtime);
-      expect(structured.workspace.capabilities.includes("core.exec")).toBe(testCase.exec);
-      expect(
-        structured.workspace.capabilities.some((name: string) => name.startsWith("task."))
-      ).toBe(false);
+      expect(managed?.advertisedTools).toEqual(taskNames);
+      expect(managed?.enabled).toBe(testCase.runtime);
+      expect(managed?.persistence).toBe("in-memory");
+      expect(managed?.runner.canStart).toBe(testCase.runtime && testCase.exec);
+      expect(managed?.coordinator.available).toBe(testCase.runtime);
+      expect(capabilities.includes("core.exec")).toBe(testCase.exec);
+      expect(capabilities.some((name) => name.startsWith("task."))).toBe(false);
     });
   }
 });

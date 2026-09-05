@@ -56,7 +56,14 @@ function authorize(oauth: OAuthService, label: string): string {
   }).access_token;
 }
 
-async function payload(response: Response): Promise<any> {
+interface McpPayload {
+  readonly result?: {
+    readonly isError?: boolean;
+    readonly structuredContent?: Record<string, unknown>;
+  };
+}
+
+async function payload(response: Response): Promise<McpPayload> {
   const body = await response.text();
   if (response.headers.get("content-type")?.includes("text/event-stream")) {
     const data = body
@@ -65,9 +72,9 @@ async function payload(response: Response): Promise<any> {
       ?.slice(5)
       .trim();
     if (data === undefined) throw new Error("missing SSE data");
-    return JSON.parse(data);
+    return JSON.parse(data) as McpPayload;
   }
-  return JSON.parse(body);
+  return JSON.parse(body) as McpPayload;
 }
 
 async function call(

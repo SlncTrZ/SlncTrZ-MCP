@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
+import { bootstrap } from "../../src/app/main.js";
 
 const cleanup: string[] = [];
 const children: ChildProcess[] = [];
@@ -108,7 +109,14 @@ async function authorize(origin: string, ownerSecret: string): Promise<string> {
   return ((await token.json()) as { access_token: string }).access_token;
 }
 
-async function readMcpPayload(response: Response): Promise<any> {
+interface McpPayload {
+  readonly result?: {
+    readonly isError?: boolean;
+    readonly structuredContent?: Record<string, unknown>;
+  };
+}
+
+async function readMcpPayload(response: Response): Promise<McpPayload> {
   const body = await response.text();
   if (response.headers.get("content-type")?.includes("text/event-stream")) {
     const data = body
@@ -117,9 +125,9 @@ async function readMcpPayload(response: Response): Promise<any> {
       ?.slice("data:".length)
       .trim();
     if (data === undefined) throw new Error("MCP SSE response has no data frame");
-    return JSON.parse(data);
+    return JSON.parse(data) as McpPayload;
   }
-  return JSON.parse(body);
+  return JSON.parse(body) as McpPayload;
 }
 
 async function taskStart(origin: string, token: string, args: readonly string[]): Promise<string> {
@@ -184,6 +192,72 @@ async function expectProcessGone(pid: number): Promise<void> {
   }
   throw new Error(`managed descendant ${pid} survived gateway shutdown`);
 }
+
+describe.skipIf(process.platform !== "win32")(
+  "application lifecycle graceful shutdown on Windows",
+  () => {
+    it("cancels managed descendant process trees through ApplicationLifecycle.shutdown", async () => {
+      const stateRoot = await mkdtemp(join(process.cwd(), ".shutdown-state-win-"));
+      const workspace = await mkdtemp(join(process.cwd(), ".shutdown-workspace-win-"));
+      cleanup.push(stateRoot, workspace);
+      const ownerSecret = "shutdown-owner-secret-windows-123456";
+      await mkdir(join(stateRoot, "secrets"), { recursive: true });
+      await writeFile(join(stateRoot, "secrets", "owner-passphrase"), `${ownerSecret}\n`, "utf8");
+      await writeFile(
+        join(stateRoot, "policy.json"),
+        JSON.stringify({ schemaVersion: 2, paths: [workspace], authorityMode: "restricted" }),
+        "utf8"
+      );
+      await writeFile(
+        join(stateRoot, "command.json"),
+        JSON.stringify({ shell: { allowlist: { added: ["node"] } } }),
+        "utf8"
+      );
+
+      const port = await freePort();
+      const controlPort = await freePort();
+      const origin = `http://127.0.0.1:${port}`;
+      const lifecycle = await bootstrap({
+        config: {
+          host: "127.0.0.1",
+          port,
+          publicMcpUrl: new URL(`${origin}/mcp`),
+          maxDynamicClients: 16,
+          controlHost: "127.0.0.1",
+          controlPort,
+          telemetryEnabled: false,
+          ownerWebEnabled: false,
+          allowedHostnames: ["127.0.0.1"],
+          allowedOriginHostnames: ["127.0.0.1"],
+          stateRoot
+        }
+      });
+
+      try {
+        await waitForHealth(origin);
+        const token = await authorize(origin, ownerSecret);
+        const pidFile = join(workspace, "descendant.pid");
+        const childScript = "setInterval(() => {}, 1000)";
+        const parent = [
+          "const { spawn } = require('node:child_process');",
+          "const { writeFileSync } = require('node:fs');",
+          `const child = spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], { stdio: 'ignore' });`,
+          `writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+          "setInterval(() => {}, 1000);"
+        ].join("\n");
+        await taskStart(origin, token, ["-e", parent]);
+        const descendantPid = await waitForPid(pidFile);
+
+        await lifecycle.shutdown();
+        await expect(expectProcessGone(descendantPid)).resolves.toBeUndefined();
+        await expect(fetch(`${origin}/healthz`)).rejects.toThrow();
+        await expect(lifecycle.shutdown()).resolves.toBeUndefined();
+      } finally {
+        await lifecycle.shutdown();
+      }
+    }, 15_000);
+  }
+);
 
 describe.skipIf(process.platform === "win32")("application entry graceful shutdown", () => {
   for (const signal of ["SIGTERM", "SIGINT"] as const) {

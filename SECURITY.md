@@ -56,13 +56,15 @@ The following invariants apply to the current schema-v2 product model:
 7. Extension credentials are provider-scoped and are not exposed in MCP metadata, normal errors or audit payloads.
 8. Untrusted extension processes do not execute inside the gateway core process.
 9. Provider tool names cannot collide silently and runtime tool drift fails closed.
-10. Policy/provider activation is atomic: a failed candidate must not partially replace the active generation.
-11. Logs and audit schemas must not disclose credentials or model/file/task payload contents by default.
-12. Product/project instruction text, provider descriptions and coordination-task text cannot grant capabilities.
-13. Coordination tasks are workspace-visible logical state; exactly one claimant owns claimant-only mutations, while creator cancellation remains explicit.
-14. Owner administration is not exposed as model-facing `owner.*` MCP tools.
-15. The local control plane is separately authenticated and must not be reachable as a public MCP route.
-16. Release artifacts must be checksum-verified before activation and should be attributable to an exact version/build provenance.
+10. Policy/provider/command authority mutation is transactional: a failed candidate must not leave rejected durable authority or partially replace the active generation.
+11. Provider credential rotation stages new secret state and activates a generation using it before retiring an unreferenced old credential; failed rotation must preserve prior usable state or report recovery failure explicitly.
+12. Logs and audit schemas must not disclose credentials or model/file/task payload contents by default.
+13. Product/project instruction text, provider descriptions and coordination-task text cannot grant capabilities.
+14. Coordination tasks are workspace-visible logical state; exactly one claimant owns claimant-only mutations, while creator cancellation remains explicit.
+15. Graceful gateway shutdown owns managed child/process/provider cleanup; SIGKILL/forced termination that prevents handlers from running is not claimed to provide graceful cleanup.
+16. Owner administration is not exposed as model-facing `owner.*` MCP tools.
+17. The local control plane is separately authenticated and must not be reachable as a public MCP route.
+18. Release artifacts must be checksum-verified before activation and should be attributable to an exact version/build provenance.
 
 ## Secrets
 

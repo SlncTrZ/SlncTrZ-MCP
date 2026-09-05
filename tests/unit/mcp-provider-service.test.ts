@@ -127,12 +127,65 @@ describe("MCP provider enabled-state authority", () => {
     }
   });
 
+  it("does not let a later failed transaction undo an earlier committed provider", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-provider-service-commit-"));
+    try {
+      const store = createMcpProviderStore(join(root, "providers.json"));
+      let releaseFirst!: () => void;
+      const firstGate = new Promise<void>((resolvePromise) => {
+        releaseFirst = resolvePromise;
+      });
+      let reloadCount = 0;
+      const service = createMcpProviderService({
+        store,
+        policyStore: {
+          async reload() {
+            reloadCount += 1;
+            if (reloadCount === 1) await firstGate;
+            return reloadCount === 1
+              ? {
+                  activated: true,
+                  previousVersion: "a",
+                  activeVersion: "b",
+                  riskIncrease: false,
+                  result: "activated"
+                }
+              : {
+                  activated: false,
+                  previousVersion: "b",
+                  activeVersion: "b",
+                  riskIncrease: false,
+                  result: "failed",
+                  failureCode: "policy_invalid"
+                };
+          }
+        }
+      });
+      const firstManifest = { ...manifest, id: "first" } as ExtensionManifestV1;
+      const secondManifest = { ...manifest, id: "second" } as ExtensionManifestV1;
+      const first = service.addOrUpdate({ manifest: firstManifest });
+      while (reloadCount === 0)
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 1));
+      const second = service.addOrUpdate({ manifest: secondManifest });
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+      expect(reloadCount).toBe(1);
+
+      releaseFirst();
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.reload.activated).toBe(true);
+      expect(secondResult.reload.activated).toBe(false);
+      expect((await store.list()).map((entry) => entry.id)).toEqual(["first"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("restores durable provider state when activation reload throws", async () => {
     let current = provider(false);
     const store: McpProviderStore = {
       list: vi.fn(async () => [current]),
       get: vi.fn(async () => current),
-      upsert: vi.fn(async (input) => {
+      upsert: vi.fn(async (input: Parameters<McpProviderStore["upsert"]>[0]) => {
         current = {
           ...current,
           manifest: input.manifest,

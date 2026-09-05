@@ -24,7 +24,8 @@ const [
   engineering,
   plan,
   operationalFiles,
-  projectContextAdr
+  projectContextAdr,
+  mcpServers
 ] = await Promise.all([
   readFile(join(root, "README.md"), "utf8"),
   readFile(join(root, "RELEASE.md"), "utf8"),
@@ -43,7 +44,8 @@ const [
   readFile(join(root, "ENGINEERING.md"), "utf8"),
   readFile(join(root, "PLAN.md"), "utf8"),
   readFile(join(root, "docs", "OPERATIONAL_FILES.md"), "utf8"),
-  readFile(join(root, "docs", "adr", "adr-009-project-instructions-explicit-context.md"), "utf8")
+  readFile(join(root, "docs", "adr", "adr-009-project-instructions-explicit-context.md"), "utf8"),
+  readFile(join(root, "MCP_SERVERS.md"), "utf8")
 ]);
 const pkg = JSON.parse(pkgRaw);
 
@@ -130,6 +132,8 @@ requireText(modelGuide, "Restricted mode is a capability policy", "MODEL_GUIDE")
 requireText(modelGuide, "task.start", "MODEL_GUIDE");
 requireText(modelGuide, "task.create", "MODEL_GUIDE");
 requireText(modelGuide, "in-memory only", "MODEL_GUIDE");
+requireText(modelGuide, "structuredContent.managedTasks", "MODEL_GUIDE");
+requireText(modelGuide, "True authorization/ownership denials", "MODEL_GUIDE");
 requireText(readme, "## Managed tasks", "README");
 requireText(readme, "task.start", "README");
 requireText(readme, "task.create", "README");
@@ -137,14 +141,21 @@ requireText(readme, "in-memory only", "README");
 requireText(architecture, "## Managed Task Runtime", "ARCHITECTURE");
 requireText(architecture, "Product Agent Harness", "ARCHITECTURE");
 requireText(architecture, "task.start", "ARCHITECTURE");
+requireText(architecture, "Graceful application shutdown", "ARCHITECTURE");
+requireText(architecture, "Credential rotation stages a new opaque ref", "ARCHITECTURE");
 requireText(autonomy, "task.start", "AUTONOMY");
 requireText(autonomy, "Logical coordination tools", "AUTONOMY");
 requireText(security, "Task Runtime is not a second privilege path", "SECURITY");
 requireText(security, "coordination-task text cannot grant capabilities", "SECURITY");
+requireText(security, "Policy/provider/command authority mutation is transactional", "SECURITY");
+requireText(security, "Graceful gateway shutdown", "SECURITY");
 requireText(threatModel, "### Managed task requirements", "THREAT_MODEL");
 requireText(threatModel, "Task-state exhaustion", "THREAT_MODEL");
+requireText(threatModel, "Credential rotation rollback", "THREAT_MODEL");
 requireText(releaseAcceptance, "## Managed Task Runtime release acceptance", "RELEASE_ACCEPTANCE");
 requireText(releaseAcceptance, "exactly one winner", "RELEASE_ACCEPTANCE");
+requireText(releaseAcceptance, "OLD -> committed -> active runtime NEW", "RELEASE_ACCEPTANCE");
+requireText(releaseAcceptance, "official legacy + modern-only", "RELEASE_ACCEPTANCE");
 requireText(engineering, "`src/task`", "ENGINEERING");
 requireText(engineering, "Public User Install target", "ENGINEERING");
 requireText(plan, "canonical Product Agent Harness", "PLAN");
@@ -156,6 +167,7 @@ requireText(
 );
 requireText(deployment, "/opt/slnctrz-mcp", "DEPLOYMENT");
 requireText(deployment, "## Task Runtime lifecycle", "DEPLOYMENT");
+requireText(deployment, "graceful SIGTERM/SIGINT shutdown", "DEPLOYMENT");
 requireText(deployment, "/var/lib/slnctrz-mcp", "DEPLOYMENT");
 requireText(deployment, "/etc/slnctrz-mcp", "DEPLOYMENT");
 requireText(troubleshooting, "running_version_mismatch", "TROUBLESHOOTING");
@@ -164,5 +176,7 @@ requireText(backup, "secrets/owner-passphrase", "BACKUP_RESTORE");
 requireText(backup, "Task Runtime state", "BACKUP_RESTORE");
 requireText(projectContextAdr, "not implemented in the current source tree", "ADR-009");
 requireText(projectContextAdr, "Product Agent Harness", "ADR-009");
+requireText(mcpServers, "server/discover", "MCP_SERVERS");
+requireText(mcpServers, "Credential rotate phải activate thật", "MCP_SERVERS");
 
 console.log(JSON.stringify({ status: "pass", version: pkg.version, node: pkg.engines.node }));

@@ -101,6 +101,22 @@ describe("managed MCP provider store", () => {
     ).toEqual([["gitlab", "3.0.0"]]);
   });
 
+  it("serializes concurrent updates to the same provider in invocation order", async () => {
+    const { file } = await fixture();
+    const first = createMcpProviderStore(file);
+    const second = createMcpProviderStore(file);
+    await first.upsert({ manifest });
+
+    await Promise.all([
+      first.upsert({ manifest: { ...manifest, version: "2.0.0" } }),
+      second.upsert({ manifest: { ...manifest, version: "3.0.0" }, enabled: false })
+    ]);
+
+    const listed = await first.list();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ enabled: false, manifest: { version: "3.0.0" } });
+  });
+
   it("rejects persisted providers without an accepted tool set", async () => {
     const { store } = await fixture();
     await expect(store.upsert({ manifest: { ...manifest, tools: [] } })).rejects.toThrow(

@@ -99,9 +99,9 @@ Coordinator  task.create/list/get/claim/release/complete/fail/cancel
 
 Runner tasks reuse the same managed execution primitive and authorization path as `core.exec`; `task.start` never creates independent execution authority. Runner state is creator-private and workspace-bound. Request cancellation of `task.wait` does not control process lifetime; only explicit task cancellation does.
 
-Coordinator tasks are logical work records, not executable authority. They are visible within the resolved workspace, use deterministic single-winner claim semantics, allow only the current claimant to release/complete/fail, and allow the creator to cancel. Coordination instructions/results remain data and cannot override Kernel/Auth/Policy.
+Coordinator tasks are logical work records, not executable authority. They are visible within the resolved workspace, use deterministic single-winner claim semantics, allow only the current claimant to release/complete/fail, and allow the creator to cancel. Coordination instructions/results remain data and cannot override Kernel/Auth/Policy. When the bounded Coordinator store needs room, it evicts only the oldest terminal records using a stable terminal/update-time ordering; `available` and `claimed` work is never evicted.
 
-Task IDs/state survive later MCP requests only while the same gateway process remains alive. Gateway restart clears Task Runtime state; no durable recovery, lease/heartbeat or dependency scheduler is claimed in this release.
+Task IDs/state survive later MCP requests only while the same gateway process remains alive. Graceful application shutdown stops new work, cancels active Runner process trees, retires provider generations and closes listeners/audit resources before exit. Gateway restart clears Task Runtime state; no durable recovery, lease/heartbeat or dependency scheduler is claimed in this release. Forced termination that prevents the shutdown handler from running is outside that graceful-cleanup guarantee.
 
 ## MCP runtime
 
@@ -115,7 +115,7 @@ provider record
   credential refs
 ```
 
-Credentials live in a separate secret store. Add/update/remove/enable/disable/sync operations atomically refresh the active runtime. Enabled providers expose all accepted tools; there is no workspace/profile/tool-subset grant layer in the simple product.
+Credentials live in a separate secret store. Credential rotation stages a new opaque ref, probes and activates a generation that uses it, then removes an old ref only after it is no longer referenced; a failed candidate keeps the prior usable credential/runtime state or reports recovery failure explicitly. Add/update/remove/enable/disable/sync operations atomically refresh the active runtime. Enabled providers expose all accepted tools; there is no workspace/profile/tool-subset grant layer in the simple product.
 
 Runtime internals may retain supervisor state, health, generations and tool-drift information, but those are implementation details rather than user authorization concepts.
 

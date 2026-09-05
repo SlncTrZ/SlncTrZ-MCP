@@ -186,9 +186,11 @@ winner release -> another client can reclaim
 claimant complete/fail -> creator sees terminal result
 claimant cannot creator-cancel the task
 creator can cancel available/claimed coordination work
+terminal completed/failed/cancelled history is pruned deterministically at capacity
+available/claimed work is never evicted; full-active capacity still fails loud
 ```
 
-Also prove the documented lifecycle boundary: Task Runtime is in-memory and is not claimed to survive a gateway restart. Coordination instructions/results are context, not authority.
+Also prove the documented lifecycle boundary: Task Runtime is in-memory and is not claimed to survive a gateway restart. Through the real application entry, graceful SIGTERM and SIGINT must cancel managed descendant process trees and close owned resources before exit on platforms where those handlers are available. Do not substitute explicit `task.cancel` evidence for application-shutdown evidence, and do not claim cleanup for forced termination that cannot run the handler. Coordination instructions/results are context, not authority.
 
 ## MCP provider release acceptance
 
@@ -203,6 +205,9 @@ disable -> tools disappear
 enable -> tools return
 sync drift path
 credential failure classification
+credential rotation OLD -> committed -> active runtime NEW, with failed rotation preserving OLD
+stdio official legacy + modern-only protocol-era discovery/call matrix
+timeout -> transport restart -> next normal stdio call succeeds; late old-child events do not kill new generation
 restart persistence
 ```
 

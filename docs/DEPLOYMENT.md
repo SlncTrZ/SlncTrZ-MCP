@@ -151,7 +151,7 @@ Neither mode elevates the OS account by itself. Logical coordination tasks do no
 
 ## Task Runtime lifecycle
 
-Managed Runner and Coordinator state is intentionally in-memory in the current product. It survives later MCP requests only while the same gateway process remains running. Restart, update, rollback or service replacement clears active task state; clients must not treat task IDs as durable recovery handles across a restart.
+Managed Runner and Coordinator state is intentionally in-memory in the current product. It survives later MCP requests only while the same gateway process remains running. On graceful SIGTERM/SIGINT shutdown the application stops accepting new work, cancels active Runner process trees, retires provider generations and closes listeners/audit resources before exit. Restart, update, rollback or service replacement clears active task state; clients must not treat task IDs as durable recovery handles across a restart. Do not claim graceful cleanup for SIGKILL/TerminateProcess-style termination that prevents the shutdown handler from running.
 
 ## Runtime config
 

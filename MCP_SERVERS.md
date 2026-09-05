@@ -57,7 +57,8 @@ auth mode, probe fail.
 2. **Target không mang credential** — secret chỉ nằm trong credential store (opaque ref).
 3. **Auth đúng** — khớp chính xác cơ chế server đang dùng (mục 6).
 4. **Probe phải PASS** — gateway chỉ persist khi probe thật sự trả `tools/list`; fail thì rollback sạch.
-5. **Verify sau khi thêm** — qua `core.ping` (mục 9) và Refresh/Scan tools phía client.
+5. **Credential rotate phải activate thật** — secret mới được stage bằng opaque ref mới; chỉ báo committed sau khi generation active dùng credential mới. Ref cũ chỉ bị xóa khi không còn provider nào tham chiếu.
+6. **Verify sau khi thêm** — qua `core.ping` (mục 9) và Refresh/Scan tools phía client.
 
 ---
 
@@ -151,7 +152,7 @@ Quy tắc fail-closed:
 ## 6. Xác thực (trọng tâm)
 
 Credentials được lưu tách riêng trong **secret store** (opaque ref), không bao giờ nằm trong
-manifest / URL / args / description / audit. Gateway chèn credential vào request khi gọi server.
+manifest / URL / args / description / audit. Khi rotate, gateway stage credential mới dưới ref mới, probe/activate candidate generation trước rồi mới cleanup ref cũ nếu không còn được tham chiếu; không overwrite/xóa secret đang active rồi gọi đó là rollback. Gateway chèn credential vào request khi gọi server.
 Đây là cách server nhận credential:
 
 | Auth mode                | Gateway gửi                                           | Khi nào dùng                                                                             |

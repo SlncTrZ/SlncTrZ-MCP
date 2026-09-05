@@ -76,42 +76,43 @@ Product/project instructions, coordination-task instructions/results, prompts, p
 
 ## 5. Threats and controls
 
-| Threat                           | Example                                                       | Required control                                                                      |
-| -------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Lexical traversal                | `../../secret`                                                | Normalize and reject path escape before I/O.                                          |
-| Symlink escape                   | Path resolves outside a restricted root                       | Canonical `realpath` containment; deny unsafe final write symlinks.                   |
-| TOCTOU write race                | File replaced between validation and overwrite                | Optimistic SHA-256 check, re-read before replacement, atomic same-directory write.    |
-| Restricted secret disclosure     | `.env`, `.ssh`, credential files                              | Protected-secret deny in restricted mode.                                             |
-| Autonomous-mode ambiguity        | Docs claim secret/path containment while code follows OS user | Explicit mode contract in README/ARCHITECTURE/SECURITY and tool descriptions.         |
-| Invalid encoding                 | Malformed UTF-8                                               | Fatal UTF-8 decode and stable error.                                                  |
-| Resource exhaustion              | Huge tree/file/output                                         | Hard bytes/results/entries/argv/output/time limits.                                   |
-| Write corruption                 | Crash during overwrite                                        | Temporary file, fsync, atomic replacement/link, cleanup.                              |
-| Shell injection                  | Caller-controlled shell string                                | Direct spawn; fixed executable; no generic shell interpolation in core exec.          |
-| Executable substitution          | Catalog binary changes after authorization                    | Canonical executable identity stored/revalidated immediately before spawn.            |
-| Environment leakage              | Child inherits secrets                                        | Minimal explicit environment rather than wholesale inheritance.                       |
-| Process leak                     | Timeout/disconnect leaves descendants                         | Cancellation propagation and process-tree termination with grace period.              |
-| Task privilege confusion         | Caller treats `task.start` as authority beyond `core.exec`    | Runner launch reuses the same policy/Exec authorization path.                         |
-| Coordination confused deputy     | Task text asks claimant to exceed current authority           | Coordination text is context only; Kernel/Auth/Policy remains authoritative.          |
-| Coordination claim race          | Two clients believe they own the same logical task            | Deterministic atomic single-winner claim in one gateway process.                      |
-| Task-state exhaustion            | Client fills in-memory Runner/Coordinator capacity            | Fixed bounded capacities and fail-loud `task_capacity`; no implicit unbounded queue.  |
-| Windows command-script injection | `.cmd/.bat` metacharacters                                    | Reject unsafe command-script metacharacters and use controlled Windows invocation.    |
-| Namespace collision              | Provider shadows core/another provider                        | Candidate generation fails closed; previous generation remains active.                |
-| Provider discovery drift         | Runtime tools differ from accepted catalog                    | Readiness attestation and fail-closed provider availability.                          |
-| Provider credential leak         | Secret appears in tool metadata/log/audit                     | Separate credential store and schemas that cannot carry secret values.                |
-| Provider exhaustion              | Hung/crashing provider                                        | Bounded timeout/message/output/restart and supervisor state.                          |
-| Hybrid generation                | New policy uses old/partial provider state                    | Build complete candidate then atomically swap active generation.                      |
-| Owner impersonation              | Local process calls control API                               | Owner verifier on every route plus failed-auth rate limiting.                         |
-| Public admin exposure            | `/owner`/control action accidentally becomes MCP tool         | No model-facing `owner.*`; control routes are separately handled/authenticated.       |
-| Host/origin abuse                | Hostile Host/Origin headers                                   | Explicit hostname/origin validation before dispatch.                                  |
-| JSON-RPC/body abuse              | Bad envelope, oversized body, invalid UTF-8                   | Strict bounded HTTP parsing and protocol validation.                                  |
-| Audit disclosure                 | Args/content/credentials persisted                            | Fixed metadata-only schemas; no raw payloads by default.                              |
-| Audit exhaustion                 | Unbounded journal                                             | Fixed-capacity in-memory journal and bounded persistent sink if enabled.              |
-| Release substitution             | Modified binary under valid version label                     | Manifest size + SHA-256 verification before activation.                               |
-| Redirect downgrade/substitution  | Release URL redirects to unsafe scheme/origin chain           | HTTPS-only bounded redirects with explicit validation before accepting bytes.         |
-| Mixed deployment                 | Live directory contains files from multiple generations       | Immutable versioned release directories and atomic activation pointer.                |
-| Destructive-root confusion       | Tampered state points uninstall at an unrelated directory     | Independent install-root + state installation IDs must match before deletion.         |
-| Version drift                    | `package.json` and runtime identities disagree                | One canonical build-info source plus consistency/release gate tests.                  |
-| Provenance loss                  | Runtime cannot identify source commit                         | Inject exact build commit in CI/deployment; surface it in binary/runtime diagnostics. |
+| Threat                           | Example                                                             | Required control                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lexical traversal                | `../../secret`                                                      | Normalize and reject path escape before I/O.                                                                                                |
+| Symlink escape                   | Path resolves outside a restricted root                             | Canonical `realpath` containment; deny unsafe final write symlinks.                                                                         |
+| TOCTOU write race                | File replaced between validation and overwrite                      | Optimistic SHA-256 check, re-read before replacement, atomic same-directory write.                                                          |
+| Restricted secret disclosure     | `.env`, `.ssh`, credential files                                    | Protected-secret deny in restricted mode.                                                                                                   |
+| Autonomous-mode ambiguity        | Docs claim secret/path containment while code follows OS user       | Explicit mode contract in README/ARCHITECTURE/SECURITY and tool descriptions.                                                               |
+| Invalid encoding                 | Malformed UTF-8                                                     | Fatal UTF-8 decode and stable error.                                                                                                        |
+| Resource exhaustion              | Huge tree/file/output                                               | Hard bytes/results/entries/argv/output/time limits.                                                                                         |
+| Write corruption                 | Crash during overwrite                                              | Temporary file, fsync, atomic replacement/link, cleanup.                                                                                    |
+| Shell injection                  | Caller-controlled shell string                                      | Direct spawn; fixed executable; no generic shell interpolation in core exec.                                                                |
+| Executable substitution          | Catalog binary changes after authorization                          | Canonical executable identity stored/revalidated immediately before spawn.                                                                  |
+| Environment leakage              | Child inherits secrets                                              | Minimal explicit environment rather than wholesale inheritance.                                                                             |
+| Process leak                     | Timeout/disconnect leaves descendants                               | Cancellation propagation and process-tree termination with grace period.                                                                    |
+| Task privilege confusion         | Caller treats `task.start` as authority beyond `core.exec`          | Runner launch reuses the same policy/Exec authorization path.                                                                               |
+| Coordination confused deputy     | Task text asks claimant to exceed current authority                 | Coordination text is context only; Kernel/Auth/Policy remains authoritative.                                                                |
+| Coordination claim race          | Two clients believe they own the same logical task                  | Deterministic atomic single-winner claim in one gateway process.                                                                            |
+| Task-state exhaustion            | Client fills in-memory Runner/Coordinator capacity                  | Fixed bounds; Coordinator evicts only oldest terminal history, while active work remains non-evictable and full-active capacity fails loud. |
+| Windows command-script injection | `.cmd/.bat` metacharacters                                          | Reject unsafe command-script metacharacters and use controlled Windows invocation.                                                          |
+| Namespace collision              | Provider shadows core/another provider                              | Candidate generation fails closed; previous generation remains active.                                                                      |
+| Provider discovery drift         | Runtime tools differ from accepted catalog                          | Readiness attestation and fail-closed provider availability.                                                                                |
+| Provider credential leak         | Secret appears in tool metadata/log/audit                           | Separate credential store and schemas that cannot carry secret values.                                                                      |
+| Credential rotation rollback     | New secret overwrites/deletes active prior secret before activation | Stage opaque new ref, probe/activate new generation, then cleanup only unreferenced old refs.                                               |
+| Provider exhaustion              | Hung/crashing provider                                              | Bounded timeout/message/output/restart and supervisor state.                                                                                |
+| Hybrid generation                | New policy uses old/partial provider state                          | Build complete candidate then atomically swap active generation.                                                                            |
+| Owner impersonation              | Local process calls control API                                     | Owner verifier on every route plus failed-auth rate limiting.                                                                               |
+| Public admin exposure            | `/owner`/control action accidentally becomes MCP tool               | No model-facing `owner.*`; control routes are separately handled/authenticated.                                                             |
+| Host/origin abuse                | Hostile Host/Origin headers                                         | Explicit hostname/origin validation before dispatch.                                                                                        |
+| JSON-RPC/body abuse              | Bad envelope, oversized body, invalid UTF-8                         | Strict bounded HTTP parsing and protocol validation.                                                                                        |
+| Audit disclosure                 | Args/content/credentials persisted                                  | Fixed metadata-only schemas; no raw payloads by default.                                                                                    |
+| Audit exhaustion                 | Unbounded journal                                                   | Fixed-capacity in-memory journal and bounded persistent sink if enabled.                                                                    |
+| Release substitution             | Modified binary under valid version label                           | Manifest size + SHA-256 verification before activation.                                                                                     |
+| Redirect downgrade/substitution  | Release URL redirects to unsafe scheme/origin chain                 | HTTPS-only bounded redirects with explicit validation before accepting bytes.                                                               |
+| Mixed deployment                 | Live directory contains files from multiple generations             | Immutable versioned release directories and atomic activation pointer.                                                                      |
+| Destructive-root confusion       | Tampered state points uninstall at an unrelated directory           | Independent install-root + state installation IDs must match before deletion.                                                               |
+| Version drift                    | `package.json` and runtime identities disagree                      | One canonical build-info source plus consistency/release gate tests.                                                                        |
+| Provenance loss                  | Runtime cannot identify source commit                               | Inject exact build commit in CI/deployment; surface it in binary/runtime diagnostics.                                                       |
 
 ## 6. Filesystem requirements
 
@@ -171,6 +172,8 @@ Autonomous execution follows the gateway OS-user token. The runtime must still k
 - Only the current claimant may release/complete/fail; creator cancellation remains explicit.
 - Task instructions/results must not be stored in metadata-only audit records.
 - Task Runtime state is intentionally in-memory in the current product and is cleared on gateway restart.
+- Graceful SIGTERM/SIGINT shutdown stops new work, cancels active Runner process trees, retires provider generations and closes listeners/audit resources before exit; forced termination that prevents handlers from running is outside this guarantee.
+- Coordinator retention may prune only terminal history; `available` and `claimed` work is never evicted to make room.
 - No durable recovery, lease/heartbeat, dependency DAG or resource-lock claim is made unless separately implemented and tested.
 
 ## 8. Extension provider requirements

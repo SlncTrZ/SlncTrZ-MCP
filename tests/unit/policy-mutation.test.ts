@@ -188,6 +188,73 @@ describe("owner policy mutation", () => {
     expect(JSON.parse(await readFile(policyFile, "utf8")).paths).toEqual([pathA, pathB, pathC]);
   });
 
+  it("lets a queued mutation continue after the first candidate fails and restores cleanly", async () => {
+    const { pathA, pathB, policyFile } = await fixture();
+    const pathC = await mkdtemp(join(tmpdir(), "slnctrz-policy-path-c-fail-"));
+    cleanup.push(pathC);
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolvePromise) => {
+      releaseFirst = resolvePromise;
+    });
+    let reloadCount = 0;
+    const service = createPolicyMutationService({
+      policyFile,
+      policyStore: {
+        async reload() {
+          reloadCount += 1;
+          if (reloadCount === 1) await firstGate;
+          return reloadCount === 1 ? failed() : activated("v2");
+        }
+      }
+    });
+
+    const first = service.apply({ kind: "add-path", path: pathB });
+    while (reloadCount === 0) await new Promise((resolvePromise) => setTimeout(resolvePromise, 1));
+    const second = service.apply({ kind: "add-path", path: pathC });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    expect(reloadCount).toBe(1);
+
+    releaseFirst();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult.activated).toBe(false);
+    expect(secondResult.activated).toBe(true);
+    expect(JSON.parse(await readFile(policyFile, "utf8")).paths).toEqual([pathA, pathC]);
+  });
+
+  it("serializes rollback-policy behind a committed mutation", async () => {
+    const { pathA, pathB, policyFile } = await fixture();
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolvePromise) => {
+      releaseFirst = resolvePromise;
+    });
+    let reloadCount = 0;
+    const service = createPolicyMutationService({
+      policyFile,
+      policyStore: {
+        async reload() {
+          reloadCount += 1;
+          if (reloadCount === 1) await firstGate;
+          return activated(`v${reloadCount}`);
+        }
+      }
+    });
+
+    const mutation = service.apply({ kind: "add-path", path: pathB });
+    while (reloadCount === 0) await new Promise((resolvePromise) => setTimeout(resolvePromise, 1));
+    const rollback = service.apply({ kind: "rollback-policy" });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    expect(reloadCount).toBe(1);
+
+    releaseFirst();
+    await Promise.all([mutation, rollback]);
+    expect(reloadCount).toBe(2);
+    expect(JSON.parse(await readFile(policyFile, "utf8")).paths).toEqual([pathA]);
+    expect(JSON.parse(await readFile(`${policyFile}.previous`, "utf8")).paths).toEqual([
+      pathA,
+      pathB
+    ]);
+  });
+
   it("rolls back to the previous activated policy", async () => {
     const { pathA, pathB, policyFile } = await fixture();
     let count = 0;

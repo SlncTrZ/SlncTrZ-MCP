@@ -30,7 +30,7 @@ describe("standalone CLI", () => {
   });
 
   it("delegates an empty invocation to normal gateway bootstrap", async () => {
-    const bootstrap = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const bootstrap = vi.fn<() => Promise<undefined>>().mockResolvedValue(undefined);
     await runApplication([], { runCli: runStandaloneCli, bootstrap });
     expect(bootstrap).toHaveBeenCalledOnce();
   });

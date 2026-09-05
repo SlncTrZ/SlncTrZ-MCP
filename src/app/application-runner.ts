@@ -14,7 +14,7 @@ import {
 
 export interface ApplicationDependencies {
   readonly runCli: typeof runStandaloneCli;
-  readonly bootstrap: () => Promise<ApplicationLifecycle | void>;
+  readonly bootstrap: () => Promise<ApplicationLifecycle | undefined>;
 }
 
 const DEFAULT_DEPENDENCIES: ApplicationDependencies = {

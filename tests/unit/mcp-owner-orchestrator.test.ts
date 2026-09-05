@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ProviderCredential } from "../../src/extension/adapter.js";
 import type { ExtensionManifestV1 } from "../../src/extension/manifest.js";
 import { createMcpOwnerOrchestrator } from "../../src/owner/mcp-owner-orchestrator.js";
 import type { McpProviderService } from "../../src/owner/mcp-provider-service.js";
@@ -89,7 +90,7 @@ describe("MCP owner orchestrator without workspace grants", () => {
     const removed: string[] = [];
     const orchestrator = createMcpOwnerOrchestrator({
       credentials: {
-        set: vi.fn(async (ref, credential) => {
+        set: vi.fn(async (ref: string, credential: ProviderCredential) => {
           secrets.set(ref, credential.value);
           return { ref, kind: credential.kind };
         }),
@@ -154,7 +155,7 @@ describe("MCP owner orchestrator without workspace grants", () => {
     const removed: string[] = [];
     const orchestrator = createMcpOwnerOrchestrator({
       credentials: {
-        set: vi.fn(async (ref, credential) => {
+        set: vi.fn(async (ref: string, credential: ProviderCredential) => {
           secrets.set(ref, credential.value);
           return { ref, kind: credential.kind };
         }),
@@ -214,7 +215,7 @@ describe("MCP owner orchestrator without workspace grants", () => {
     });
     const orchestrator = createMcpOwnerOrchestrator({
       credentials: {
-        set: vi.fn(async (ref, credential) => {
+        set: vi.fn(async (ref: string, credential: ProviderCredential) => {
           secrets.set(ref, credential.value);
           return { ref, kind: credential.kind };
         }),
@@ -273,7 +274,11 @@ describe("MCP owner orchestrator without workspace grants", () => {
     const remove = vi.fn(async () => true);
     const orchestrator = createMcpOwnerOrchestrator({
       credentials: {
-        set: vi.fn(async (ref, credential) => ({ ref, kind: credential.kind })),
+        set: vi.fn(async (ref: string, credential: ProviderCredential) => ({
+          ref,
+          kind: credential.kind,
+          ...(credential.kind === "env" ? { name: credential.name } : {})
+        })),
         remove
       },
       providers: service

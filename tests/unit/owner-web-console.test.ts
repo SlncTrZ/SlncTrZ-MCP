@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -33,13 +33,21 @@ describe("Owner Console product surface", () => {
     });
     const snapshot = buildActivePolicySnapshot(compiled);
     const operations: OwnerPolicyOperation[] = [];
-    let commandReloadMode: "activated" | "failed" | "throw" = "activated";
+    let commandReloadMode: "activated" | "failed" | "throw" | "recovery-fail" = "activated";
+    let commandReloadGate: Promise<void> | undefined;
+    let commandReloadCalls = 0;
     const web = createOwnerWebConsole({
       ownerSecretHash: createOwnerSecretHash("owner passphrase test value"),
       policyStore: {
         capture: () => snapshot,
         async reload() {
+          commandReloadCalls += 1;
+          if (commandReloadGate !== undefined) await commandReloadGate;
           if (commandReloadMode === "throw") throw new Error("reload_boom");
+          if (commandReloadMode === "recovery-fail") {
+            await rm(root, { recursive: true, force: true });
+            await writeFile(root, "not-a-directory", "utf8");
+          }
           const activated = commandReloadMode === "activated";
           return {
             activated,
@@ -78,12 +86,18 @@ describe("Owner Console product surface", () => {
 
     const server = createServer((req, res) => {
       const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-      void web.handle(req, res, pathname).then((handled) => {
-        if (!handled) {
-          res.statusCode = 404;
-          res.end();
-        }
-      });
+      void web
+        .handle(req, res, pathname)
+        .then((handled) => {
+          if (!handled) {
+            res.statusCode = 404;
+            res.end();
+          }
+        })
+        .catch(() => {
+          if (!res.headersSent) res.statusCode = 500;
+          if (!res.writableEnded) res.end();
+        });
     });
     await new Promise<void>((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
     cleanup.push(
@@ -163,6 +177,36 @@ describe("Owner Console product surface", () => {
     });
     expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(priorCommands);
 
+    const invalidBefore = await readFile(paths.commandCatalogFile, "utf8");
+    const invalidCommands = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "x-slnctrz-csrf": csrf
+      },
+      body: JSON.stringify({ content: "{" })
+    });
+    expect(invalidCommands.status).toBe(400);
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(invalidBefore);
+
+    await rm(paths.commandCatalogFile, { force: true });
+    commandReloadMode = "failed";
+    const absentRejected = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "x-slnctrz-csrf": csrf
+      },
+      body: JSON.stringify({ content: candidateCommands })
+    });
+    expect(absentRejected.status).toBe(409);
+    await expect(readFile(paths.commandCatalogFile, "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await writeFile(paths.commandCatalogFile, priorCommands, "utf8");
+
     commandReloadMode = "activated";
     const acceptedCommands = await fetch(`${origin}/owner/api/commands`, {
       method: "PUT",
@@ -175,5 +219,63 @@ describe("Owner Console product surface", () => {
     });
     expect(acceptedCommands.status).toBe(200);
     expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(candidateCommands);
+
+    let releaseReload!: () => void;
+    commandReloadGate = new Promise<void>((resolvePromise) => {
+      releaseReload = resolvePromise;
+    });
+    const callsBeforeConcurrent = commandReloadCalls;
+    const firstConcurrentContent = JSON.stringify({ shell: { allowlist: { added: ["node"] } } });
+    const secondConcurrentContent = JSON.stringify({
+      shell: { allowlist: { added: ["node", "git"] } }
+    });
+    const firstConcurrent = fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ content: firstConcurrentContent })
+    });
+    while (commandReloadCalls === callsBeforeConcurrent) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 1));
+    }
+    const secondConcurrent = fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ content: secondConcurrentContent })
+    });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    expect(commandReloadCalls).toBe(callsBeforeConcurrent + 1);
+    commandReloadGate = undefined;
+    releaseReload();
+    const [firstConcurrentResponse, secondConcurrentResponse] = await Promise.all([
+      firstConcurrent,
+      secondConcurrent
+    ]);
+    expect(firstConcurrentResponse.status).toBe(200);
+    expect(secondConcurrentResponse.status).toBe(200);
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(secondConcurrentContent);
+
+    await rm(root, { recursive: true, force: true });
+    await writeFile(root, "not-a-directory", "utf8");
+    const writeFailure = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ content: candidateCommands })
+    });
+    expect(writeFailure.status).toBe(500);
+    expect(await readFile(root, "utf8")).toBe("not-a-directory");
+
+    await rm(root, { force: true });
+    await mkdir(root, { recursive: true });
+    await writeFile(paths.commandCatalogFile, priorCommands, "utf8");
+    commandReloadMode = "recovery-fail";
+    const recoveryFailure = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ content: candidateCommands })
+    });
+    expect(recoveryFailure.status).toBe(500);
+    expect(await recoveryFailure.json()).toMatchObject({
+      error: { code: "commands_recovery_failed" }
+    });
   });
 });
