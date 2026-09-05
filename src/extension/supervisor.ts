@@ -189,7 +189,10 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
         transition("starting");
         try {
           await withTimeout(adapter.start(), startupTimeoutMs);
-          if (state === "starting") transition("ready");
+          if (state === "starting") {
+            transition("ready");
+            drain();
+          }
           return;
         } catch {
           if (state !== "starting") return;
@@ -241,6 +244,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
 
       if (outcome.kind === "timeout") {
         entry.resolve({ isError: true, truncated: false, text: "provider_timeout" });
+        if (isRunnable(state)) void scheduleRestart();
       } else if (outcome.kind === "ok") {
         entry.resolve(outcome.result);
       } else if (outcome.kind === "adapter") {
@@ -317,7 +321,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       args: unknown,
       callOptions: AdapterCallOptions = {}
     ): Promise<ExtensionCallResult> {
-      if (!isRunnable(state)) {
+      if (!isRunnable(state) && state !== "restarting") {
         return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
       }
       return new Promise<ExtensionCallResult>((resolve, reject) => {

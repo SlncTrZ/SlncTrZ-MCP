@@ -24,10 +24,33 @@ afterEach(async () => {
 /** Write an MCP mock provider: read JSON-RPC lines on stdin, reply on stdout. */
 async function writeMockProvider(dir: string, behavior: "ok" | "echo_env"): Promise<string> {
   const path = join(dir, "mock-provider.js");
-  const script =
+  const callResult =
     behavior === "echo_env"
-      ? `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'env='+ (process.env.MOCK_TOKEN ?? 'none') + ';other=' + (process.env.UNRELATED_SENTINEL ?? 'none')}]}})+'\\n'); });`
-      : `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else if (m.method === 'tools/list') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'echo'}]}})+'\\n'); else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'pong'}]}})+'\\n'); });`;
+      ? `{content:[{type:'text',text:'env='+ (process.env.MOCK_TOKEN ?? 'none') + ';other=' + (process.env.UNRELATED_SENTINEL ?? 'none')} ]}`
+      : `{content:[{type:'text',text:'pong'}]}`;
+  const script = `
+process.stdin.setEncoding('utf8');
+let carry = '';
+process.stdin.on('data', (chunk) => {
+  carry += chunk;
+  while (carry.includes('\\n')) {
+    const index = carry.indexOf('\\n');
+    const line = carry.slice(0, index);
+    carry = carry.slice(index + 1);
+    if (!line) continue;
+    const m = JSON.parse(line);
+    if (m.method === 'server/discover') {
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32601,message:'method not found'}})+'\\n');
+    } else if (m.method === 'initialize') {
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n');
+    } else if (m.method === 'tools/list') {
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'echo'}]}})+'\\n');
+    } else if (m.id !== undefined) {
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:${callResult}})+'\\n');
+    }
+  }
+});
+`;
   await writeFile(path, script, "utf8");
   return path;
 }
@@ -43,7 +66,7 @@ async function writeDiscoveryFailureProvider(
       : `process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'mock.changed'}]}})+'\\n')`;
   await writeFile(
     path,
-    `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else if (m.method === 'tools/list') ${discoveryReply}; });`,
+    `process.stdin.on('data', (d) => { const l = String(d).trim(); if(!l) return; const m = JSON.parse(l); if (m.method === 'server/discover') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32601,message:'method not found'}})+'\\n'); else if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else if (m.method === 'tools/list') ${discoveryReply}; });`,
     "utf8"
   );
   return path;
@@ -53,7 +76,7 @@ async function writeStderrFloodProvider(dir: string): Promise<string> {
   const path = join(dir, "stderr-flood-provider.js");
   await writeFile(
     path,
-    `process.stdin.on('data', (d) => { const m = JSON.parse(String(d).trim()); if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{}})+'\\n'); else process.stderr.write('x'.repeat(4096)); });`,
+    `process.stdin.on('data', (d) => { const m = JSON.parse(String(d).trim()); if (m.method === 'server/discover') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32601,message:'method not found'}})+'\\n'); else if (m.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n'); else if (m.id !== undefined) process.stderr.write('x'.repeat(4096)); });`,
     "utf8"
   );
   return path;

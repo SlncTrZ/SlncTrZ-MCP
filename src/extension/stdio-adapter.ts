@@ -1,11 +1,9 @@
 /**
  * Stdio Extension Adapter — one isolated third-party MCP provider over stdio.
- * Wing: extension | Topic: stdio-adapter | Updated: 2026-08-27
  *
- * The adapter spawns only the manifest's fixed command and argv with shell disabled, a
- * minimal explicit environment and a fixed command-directory cwd. It drains and bounds
- * both output streams, parses every newline-delimited JSON-RPC frame, and tears the child
- * down on cancellation, protocol failure, output overflow or stop.
+ * Negotiates MCP 2026-07-28 using a disposable server/discover probe and falls back to a
+ * fresh 2025-era initialize connection. Every child callback is generation-bound so late
+ * events from an older process cannot stop or corrupt a newer provider generation.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -22,7 +20,11 @@ import {
 import { APP_VERSION } from "../shared/build-info.js";
 import { type CompiledExtensionManifest } from "./manifest.js";
 
-const INITIALIZE_PROTOCOL = "2026-07-28";
+const MODERN_PROTOCOL = "2026-07-28";
+const LEGACY_PROTOCOL = "2025-11-25";
+const CLIENT_INFO = { name: "slnctrz", version: APP_VERSION } as const;
+
+type ProtocolEra = "modern" | "legacy";
 
 interface RpcResponse {
   readonly id?: number | string;
@@ -40,8 +42,25 @@ interface CallToolResult {
   readonly isError?: boolean;
 }
 
-/** JSON-RPC `result` payloads surfaced by the adapter, narrowable per method at each call site. */
-type ProviderResult = ListToolsResult | CallToolResult | { readonly protocolVersion?: unknown };
+interface DiscoverResult {
+  readonly supportedVersions?: readonly string[];
+}
+
+type ProviderResult =
+  DiscoverResult | ListToolsResult | CallToolResult | { readonly protocolVersion?: unknown };
+
+interface PendingRequest {
+  resolve(value: RpcResponse): void;
+  reject(error: unknown): void;
+}
+
+interface StdioGeneration {
+  readonly child: ChildProcess;
+  readonly pending: Map<number, PendingRequest>;
+  stopped: boolean;
+  stdoutCarry: string;
+  operationBytes: number;
+}
 
 function sanitizedEnv(
   manifest: CompiledExtensionManifest,
@@ -75,10 +94,17 @@ function asResult(response: RpcResponse): ProviderResult {
   return response.result as ProviderResult;
 }
 
-/**
- * Create a stdio adapter bound to one compiled manifest. No caller-selected executable,
- * args, cwd or environment crosses this boundary.
- */
+function modernParams(params: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...params,
+    _meta: {
+      "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL,
+      "io.modelcontextprotocol/clientInfo": CLIENT_INFO,
+      "io.modelcontextprotocol/clientCapabilities": {}
+    }
+  };
+}
+
 export function createStdioAdapter(
   manifest: CompiledExtensionManifest,
   credentials: readonly ProviderCredential[] = []
@@ -88,83 +114,116 @@ export function createStdioAdapter(
     throw new AdapterError("provider_unavailable", "stdio adapter requires a command");
   }
 
-  let child: ChildProcess | undefined;
-  let stopped = false;
+  let generation: StdioGeneration | undefined;
   let nextId = 1;
-  let stdoutCarry = "";
-  let operationBytes = 0;
-  const pending = new Map<
-    number,
-    { resolve: (value: RpcResponse) => void; reject: (error: unknown) => void }
-  >();
+  let era: ProtocolEra = "legacy";
 
-  const rejectAllPending = (code: AdapterError["code"]): void => {
-    for (const entry of pending.values()) entry.reject(new AdapterError(code, code));
-    pending.clear();
+  const rejectGeneration = (
+    current: StdioGeneration,
+    code: AdapterError["code"] = "provider_unavailable"
+  ): void => {
+    for (const entry of current.pending.values()) {
+      entry.reject(new AdapterError(code, code));
+    }
+    current.pending.clear();
   };
 
-  const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    const current = child;
-    child = undefined;
-    rejectAllPending("provider_unavailable");
-    if (current === undefined) return;
-    current.stdin?.end();
-    current.stdout?.removeAllListeners();
-    current.stderr?.removeAllListeners();
-    current.kill("SIGTERM");
-    const killTimer = setTimeout(() => {
-      if (current.exitCode === null) current.kill("SIGKILL");
+  const stopGeneration = (
+    current: StdioGeneration,
+    code: AdapterError["code"] = "provider_unavailable"
+  ): void => {
+    if (current.stopped) return;
+    current.stopped = true;
+    if (generation === current) generation = undefined;
+    rejectGeneration(current, code);
+    current.child.stdin?.end();
+    current.child.stdout?.removeAllListeners();
+    current.child.stderr?.removeAllListeners();
+    current.child.stdin?.removeAllListeners();
+    current.child.removeAllListeners("error");
+    current.child.removeAllListeners("exit");
+    if (current.child.exitCode !== null) return;
+    current.child.kill("SIGTERM");
+    const timer = setTimeout(() => {
+      if (current.child.exitCode === null) current.child.kill("SIGKILL");
     }, 1_000);
-    killTimer.unref();
+    timer.unref();
   };
 
-  const consumeStdout = (chunk: Buffer): void => {
-    operationBytes += chunk.length;
-    if (operationBytes > manifest.maxOutputBytes) {
-      stop();
+  const consumeStdout = (current: StdioGeneration, chunk: Buffer): void => {
+    if (current.stopped) return;
+    current.operationBytes += chunk.length;
+    if (current.operationBytes > manifest.maxOutputBytes) {
+      stopGeneration(current);
       return;
     }
-    stdoutCarry += chunk.toString("utf8");
-    if (Buffer.byteLength(stdoutCarry, "utf8") > manifest.maxMessageBytes) {
-      stop();
+    current.stdoutCarry += chunk.toString("utf8");
+    if (Buffer.byteLength(current.stdoutCarry, "utf8") > manifest.maxMessageBytes) {
+      stopGeneration(current);
       return;
     }
     while (true) {
-      const newline = stdoutCarry.indexOf("\n");
+      const newline = current.stdoutCarry.indexOf("\n");
       if (newline === -1) return;
-      const line = stdoutCarry.slice(0, newline);
-      stdoutCarry = stdoutCarry.slice(newline + 1);
+      const line = current.stdoutCarry.slice(0, newline);
+      current.stdoutCarry = current.stdoutCarry.slice(newline + 1);
       if (Buffer.byteLength(line, "utf8") > manifest.maxMessageBytes) {
-        stop();
+        stopGeneration(current);
         return;
       }
       let message: RpcResponse;
       try {
         message = JSON.parse(line) as RpcResponse;
       } catch {
-        stop();
+        stopGeneration(current, "provider_protocol_error");
         return;
       }
       if (message.id === undefined) continue;
       const id = Number(message.id);
-      const pendingEntry = pending.get(id);
-      if (pendingEntry === undefined) continue;
-      pending.delete(id);
-      pendingEntry.resolve(message);
+      const entry = current.pending.get(id);
+      if (entry === undefined) continue;
+      current.pending.delete(id);
+      entry.resolve(message);
     }
   };
 
-  const consumeStderr = (chunk: Buffer): void => {
-    operationBytes += chunk.length;
-    if (operationBytes > manifest.maxOutputBytes) stop();
+  const consumeStderr = (current: StdioGeneration, chunk: Buffer): void => {
+    if (current.stopped) return;
+    current.operationBytes += chunk.length;
+    if (current.operationBytes > manifest.maxOutputBytes) stopGeneration(current);
   };
 
-  const send = (payload: Record<string, unknown>): Promise<RpcResponse> => {
-    const current = child;
-    const stdin = current?.stdin;
-    if (stdin === undefined || stdin === null || stopped) {
+  const spawnGeneration = (): StdioGeneration => {
+    const child = spawn(command, manifest.args, {
+      shell: false,
+      cwd: dirname(command),
+      stdio: ["pipe", "pipe", "pipe"],
+      env: sanitizedEnv(manifest, credentials)
+    });
+    const current: StdioGeneration = {
+      child,
+      pending: new Map(),
+      stopped: false,
+      stdoutCarry: "",
+      operationBytes: 0
+    };
+    generation = current;
+    child.stdout?.on("data", (chunk: Buffer) => consumeStdout(current, chunk));
+    child.stderr?.on("data", (chunk: Buffer) => consumeStderr(current, chunk));
+    child.stdout?.on("error", () => stopGeneration(current));
+    child.stderr?.on("error", () => stopGeneration(current));
+    child.stdin?.on("error", () => stopGeneration(current));
+    child.once("error", () => stopGeneration(current));
+    child.once("exit", () => stopGeneration(current));
+    return current;
+  };
+
+  const send = (
+    current: StdioGeneration,
+    payload: Record<string, unknown>
+  ): Promise<RpcResponse> => {
+    const stdin = current.child.stdin;
+    if (stdin === null || stdin === undefined || current.stopped || generation !== current) {
       return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
     }
     const id = nextId;
@@ -175,54 +234,128 @@ export function createStdioAdapter(
         new AdapterError("provider_protocol_error", "request exceeds message cap")
       );
     }
-    operationBytes = 0;
+    current.operationBytes = 0;
     return new Promise<RpcResponse>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      current.pending.set(id, { resolve, reject });
       stdin.write(line, (error) => {
         if (error === undefined || error === null) return;
-        pending.delete(id);
+        current.pending.delete(id);
         reject(new AdapterError("provider_unavailable", "provider_unavailable"));
       });
     });
   };
 
+  const notify = (
+    current: StdioGeneration,
+    method: string,
+    params?: Record<string, unknown>
+  ): Promise<void> => {
+    const stdin = current.child.stdin;
+    if (stdin === null || stdin === undefined || current.stopped || generation !== current) {
+      return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+    }
+    const line = `${JSON.stringify({
+      jsonrpc: "2.0",
+      method,
+      ...(params === undefined ? {} : { params })
+    })}\n`;
+    if (Buffer.byteLength(line, "utf8") > manifest.maxMessageBytes) {
+      return Promise.reject(
+        new AdapterError("provider_protocol_error", "request exceeds message cap")
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      stdin.write(line, (error) => {
+        if (error === undefined || error === null) resolve();
+        else reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+      });
+    });
+  };
+
+  const startLegacy = async (): Promise<void> => {
+    const legacy = spawnGeneration();
+    try {
+      const response = await send(legacy, {
+        method: "initialize",
+        params: {
+          protocolVersion: LEGACY_PROTOCOL,
+          capabilities: {},
+          clientInfo: CLIENT_INFO
+        }
+      });
+      const initialized = asResult(response) as { readonly protocolVersion?: unknown };
+      if (
+        typeof initialized.protocolVersion !== "string" ||
+        initialized.protocolVersion.length === 0 ||
+        initialized.protocolVersion === MODERN_PROTOCOL
+      ) {
+        throw new AdapterError("provider_protocol_error", "invalid legacy protocol negotiation");
+      }
+      await notify(legacy, "notifications/initialized");
+      era = "legacy";
+    } catch (error) {
+      stopGeneration(legacy);
+      if (error instanceof AdapterError) throw error;
+      throw new AdapterError("provider_unavailable", "initialize failed");
+    }
+  };
+
+  const startModernOrLegacy = async (): Promise<void> => {
+    const probe = spawnGeneration();
+    let fallback = false;
+    try {
+      const response = await send(probe, {
+        method: "server/discover",
+        params: modernParams({})
+      });
+      if (response.error !== undefined) {
+        if (response.error.code === -32601) fallback = true;
+        else
+          throw new AdapterError("provider_protocol_error", "provider returned a JSON-RPC error");
+      } else {
+        const discovery = response.result as DiscoverResult | undefined;
+        fallback = discovery?.supportedVersions?.includes(MODERN_PROTOCOL) !== true;
+      }
+      if (!fallback) {
+        era = "modern";
+        return;
+      }
+    } catch (error) {
+      stopGeneration(probe);
+      if (error instanceof AdapterError) throw error;
+      throw new AdapterError("provider_unavailable", "provider discovery failed");
+    }
+
+    stopGeneration(probe);
+    await startLegacy();
+  };
+
+  const activeGeneration = (): StdioGeneration => {
+    const current = generation;
+    if (current === undefined || current.stopped || current.child.exitCode !== null) {
+      throw new AdapterError("provider_unavailable", "provider_unavailable");
+    }
+    return current;
+  };
+
+  const requestParams = (params: Record<string, unknown>): Record<string, unknown> =>
+    era === "modern" ? modernParams(params) : params;
+
   return {
     async start(): Promise<void> {
-      if (child !== undefined && !stopped) return;
-      stopped = false;
-      stdoutCarry = "";
-      operationBytes = 0;
-      const current = spawn(command, manifest.args, {
-        shell: false,
-        cwd: dirname(command),
-        stdio: ["pipe", "pipe", "pipe"],
-        env: sanitizedEnv(manifest, credentials)
-      });
-      child = current;
-      current.stdout?.on("data", (chunk: Buffer) => consumeStdout(chunk));
-      current.stderr?.on("data", (chunk: Buffer) => consumeStderr(chunk));
-      current.stdout?.on("error", stop);
-      current.stderr?.on("error", stop);
-      current.stdin?.on("error", stop);
-      current.once("error", stop);
-      current.once("exit", stop);
-      try {
-        await send({
-          method: "initialize",
-          params: {
-            protocolVersion: INITIALIZE_PROTOCOL,
-            capabilities: {},
-            clientInfo: { name: "slnctrz", version: APP_VERSION }
-          }
-        });
-      } catch {
-        stop();
-        throw new AdapterError("provider_unavailable", "initialize failed");
+      const existing = generation;
+      if (existing !== undefined && !existing.stopped && existing.child.exitCode === null) {
+        return;
       }
+      await startModernOrLegacy();
     },
 
     async listTools(): Promise<readonly ExtensionToolInfo[]> {
-      const response = await send({ method: "tools/list", params: {} });
+      const current = activeGeneration();
+      const response = await send(current, {
+        method: "tools/list",
+        params: requestParams({})
+      });
       const result = asResult(response) as ListToolsResult;
       return (result.tools ?? [])
         .filter((tool) => tool.name !== undefined)
@@ -239,16 +372,18 @@ export function createStdioAdapter(
       args: unknown,
       options: AdapterCallOptions
     ): Promise<ExtensionCallResult> {
+      const current = activeGeneration();
       const signal = options.signal;
       if (signal?.aborted === true) {
+        stopGeneration(current);
         throw new AdapterError("provider_unavailable", "provider_unavailable");
       }
-      const onAbort = (): void => stop();
+      const onAbort = (): void => stopGeneration(current);
       signal?.addEventListener("abort", onAbort, { once: true });
       try {
-        const response = await send({
+        const response = await send(current, {
           method: "tools/call",
-          params: { name: toolId, arguments: args }
+          params: requestParams({ name: toolId, arguments: args })
         });
         const result = asResult(response) as CallToolResult;
         const rendered = (result.content ?? []).map((content) => content.text ?? "").join("\n");
@@ -264,12 +399,15 @@ export function createStdioAdapter(
     },
 
     async stop(): Promise<void> {
-      stop();
+      const current = generation;
+      if (current !== undefined) stopGeneration(current);
     },
 
     health(): AdapterHealth {
-      const alive = child !== undefined && child.exitCode === null && !stopped;
-      return alive ? "ready" : "unavailable";
+      const current = generation;
+      return current !== undefined && !current.stopped && current.child.exitCode === null
+        ? "ready"
+        : "unavailable";
     }
   };
 }
