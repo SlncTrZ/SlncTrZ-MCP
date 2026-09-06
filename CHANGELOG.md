@@ -2,6 +2,18 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.4
+
+Date: 2026-09-06
+
+### Fixed
+
+- `runtimeIdentity` now honors the `$HOME` environment variable for the invoking user's home directory instead of reading only the passwd entry (`os.userInfo().homedir`). This fixes a regression in 0.2.3 that resolved user-mode install/state roots to the real account home whenever `$HOME` was overridden (for example the CI clean-install acceptance host, which isolates `HOME` per run). The live process identity now prefers `os.homedir()`, while an explicitly provided `currentUser.home` is still honored.
+
+### Note
+
+- The 0.2.3 prerelease was superseded before promotion: release tag `v0.2.3` shipped an incomplete candidate that failed the clean Linux User Install gate. This release (`v0.2.4`) carries the runtime-identity and command-provisioning changes below alongside the `$HOME` fix.
+
 ## 0.2.3
 
 Date: 2026-09-06
