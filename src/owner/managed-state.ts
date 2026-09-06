@@ -17,7 +17,7 @@ import {
   parseCommandAllowlist,
   type CompiledCommandCatalog
 } from "../kernel/command-catalog.js";
-import { readStandaloneTextAsset } from "../standalone/assets.js";
+import { provisionDefaultCommandCatalog } from "./command-catalog-provisioning.js";
 import { ensureWindowsPrivateAcl } from "../shared/windows-private-acl.js";
 
 export const DEFAULT_WORKSPACE_ID = "default";
@@ -98,25 +98,7 @@ export async function ensureCommandCatalog(
   paths: ManagedStatePaths,
   appRoot: string
 ): Promise<void> {
-  try {
-    await access(paths.commandCatalogFile, constants.F_OK);
-    return;
-  } catch {
-    // Fresh install only.
-  }
-  const templateName = process.platform === "win32" ? "commands.win32.json" : "commands.json";
-  let template: string | undefined;
-  try {
-    template = await readFile(join(appRoot, "config", templateName), "utf8");
-  } catch {
-    template = readStandaloneTextAsset(`config/${templateName}`);
-  }
-  if (template === undefined) return;
-  await writeFile(paths.commandCatalogFile, template, {
-    encoding: "utf8",
-    mode: 0o600,
-    flag: "wx"
-  });
+  await provisionDefaultCommandCatalog({ paths, appRoot });
 }
 
 export type CommandCatalogLoadState =

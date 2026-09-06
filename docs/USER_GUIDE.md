@@ -43,11 +43,11 @@ File tools (`read_file`, `write_file`, `edit`, `search`) operate **only** inside
 **Authority modes:**
 
 - **Restricted** (default on fresh setup) — file tools stay within configured Paths;
-  `core.exec` requires an approved command-catalog entry; `task.start` shares the same authority.
+  `core.exec` requires an approved command-catalog entry; fresh setup discovers the initial Commands by filtering the platform candidate template to executables available on this machine; `task.start` shares the same authority.
 - **Autonomous** — core tools may use any path/executable available to the gateway OS account.
 
 **Security note:** the gateway does not replace OS permissions. A Path the runtime account
-cannot read/traverse still fails at the OS level. Add only directories you intend to expose.
+cannot read/write/traverse still fails at the OS level. On Linux System Install the runtime account is the real non-root user that invoked setup (validated from `SUDO_USER` when using `sudo`), not a generated service account. Add only directories you intend to expose.
 
 ---
 

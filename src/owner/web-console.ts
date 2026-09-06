@@ -155,10 +155,10 @@ async function api(path,opt={}){const headers={...(opt.body?{'content-type':'app
 function btn(text,cls,fn){const b=document.createElement('button');b.textContent=text;b.className=cls||'btn-deny';b.onclick=fn;return b}
 function showError(el,msg){el.textContent=msg;el.classList.remove('hidden')}
 function clearError(el){el.classList.add('hidden')}
-async function refresh(){const d=await api('/owner/api/state');q('status').textContent='Policy '+d.policyVersion;q('authority').value=d.authorityMode||'restricted';q('overview').textContent=['Version '+(d.product?.version||'unknown')+(d.product?.buildCommit?' ('+d.product.buildCommit+')':''),'Authority '+(d.authorityMode||'restricted'),'Paths '+((d.paths||[]).length),'Commands '+((d.commands||[]).length),'MCP Servers '+((d.mcpServers||[]).length),'State '+(d.product?.stateRoot||''),'Passphrase recovery '+(d.product?.ownerPassphraseFile||'')].filter(Boolean).join(' · ');const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[]);renderMcp(d.mcpServers||[]);syncCommandHeight()}
+async function refresh(){const d=await api('/owner/api/state');q('status').textContent='Policy '+d.policyVersion;q('authority').value=d.authorityMode||'restricted';q('overview').textContent=['Version '+(d.product?.version||'unknown')+(d.product?.buildCommit?' ('+d.product.buildCommit+')':''),'Authority '+(d.authorityMode||'restricted'),'Paths '+((d.paths||[]).length),(d.commandCatalog?.status&&d.commandCatalog.status!=='ready'?'Commands '+d.commandCatalog.status:'Commands '+((d.commands||[]).length)),'MCP Servers '+((d.mcpServers||[]).length),'State '+(d.product?.stateRoot||''),'Passphrase recovery '+(d.product?.ownerPassphraseFile||'')].filter(Boolean).join(' · ');const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight()}
 function syncCommandHeight(){const card=q('commands-card'),col=document.querySelector('.app-grid > .col');if(card&&col)card.style.maxHeight=(col.offsetHeight)+'px'}
 window.addEventListener('resize',syncCommandHeight);
-function renderCommands(list){const el=q('commands');el.innerHTML='';const risky=new Set(['bash','sh','powershell','cmd','python','python3','node','perl','ruby','sudo','su','docker','systemctl','apt','apt-get']);list.forEach(c=>{const name=String(c[0]||'');const chip=document.createElement('span');chip.className='cmd-chip';const label=document.createElement('span');label.textContent=c.join(' ')+(risky.has(name)?' ⚠':'');if(risky.has(name))label.title='This command can exercise the full OS permissions of the SlncTrZ runtime account.';const x=document.createElement('button');x.className='chip-x';x.title='Remove '+name;x.textContent='×';x.onclick=async()=>{if(!confirm('Remove command '+name+'?'))return;await removeCommand(name);await refresh()};chip.append(label,x);el.appendChild(chip)});if(list.length===0){const e=document.createElement('div');e.className='empty';e.textContent='No commands allowed.';el.appendChild(e)}}
+function renderCommands(list,state){const el=q('commands');el.innerHTML='';if(state&&state.status!=='ready'){const e=document.createElement('div');e.className='error';e.textContent=state.message||('Command catalog '+state.status+'.');el.appendChild(e);return}const risky=new Set(['bash','sh','powershell','cmd','python','python3','node','perl','ruby','sudo','su','docker','systemctl','apt','apt-get']);list.forEach(c=>{const name=String(c[0]||'');const chip=document.createElement('span');chip.className='cmd-chip';const label=document.createElement('span');label.textContent=c.join(' ')+(risky.has(name)?' ⚠':'');if(risky.has(name))label.title='This command can exercise the full OS permissions of the SlncTrZ runtime account.';const x=document.createElement('button');x.className='chip-x';x.title='Remove '+name;x.textContent='×';x.onclick=async()=>{if(!confirm('Remove command '+name+'?'))return;await removeCommand(name);await refresh()};chip.append(label,x);el.appendChild(chip)});if(list.length===0){const e=document.createElement('div');e.className='empty';e.textContent='No commands allowed.';el.appendChild(e)}}
 function renderMcp(list){const el=q('mcp');el.innerHTML='';list.forEach(p=>{const r=document.createElement('div');r.className='item';const main=document.createElement('div');main.className='grow';const title=document.createElement('div');title.textContent=p.name||p.id;const meta=document.createElement('div');meta.className='muted';meta.textContent=(p.tools||0)+' tools · '+(p.status||'Unavailable');main.append(title,meta);r.appendChild(main);r.appendChild(btn('Test','btn-deny',async()=>{await api('/owner/api/mcp/'+encodeURIComponent(p.id)+'/test',{method:'POST',body:'{}'});await refresh()}));r.appendChild(btn(p.enabled?'Disable':'Enable','btn-deny',async()=>{await api('/owner/api/mcp/'+encodeURIComponent(p.id),{method:'PATCH',body:JSON.stringify({enabled:!p.enabled})});await refresh()}));r.appendChild(btn('Sync','btn-deny',async()=>{await api('/owner/api/mcp/'+encodeURIComponent(p.id)+'/sync',{method:'POST',body:'{}'});await refresh()}));r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove MCP server '+p.id+'?'))return;await api('/owner/api/mcp/'+encodeURIComponent(p.id),{method:'DELETE',body:'{}'});await refresh()}));el.appendChild(r)});if(list.length===0){const e=document.createElement('div');e.className='empty';e.textContent='No MCP servers configured.';el.appendChild(e)}}
 async function session(){try{const d=await api('/owner/api/session');csrf=d.csrf;q('login').classList.add('hidden');q('app').classList.remove('hidden');await refresh()}catch{q('login').classList.remove('hidden');q('app').classList.add('hidden')}}
 q('signin').onclick=async()=>{clearError(q('login-error'));try{const d=await api('/owner/api/login',{method:'POST',body:JSON.stringify({secret:q('secret').value})});csrf=d.csrf;q('secret').value='';await session()}catch(e){showError(q('login-error'),String(e))}};
@@ -266,15 +266,45 @@ export function createOwnerWebConsole(options: {
     }
     return true;
   };
-  const commandsState = async (): Promise<{
-    readonly content: string;
-    readonly entries: readonly (readonly string[])[];
-  }> => {
+  const commandsState = async (): Promise<
+    | {
+        readonly status: "ready";
+        readonly content: string;
+        readonly entries: readonly (readonly string[])[];
+      }
+    | {
+        readonly status: "missing" | "unreadable" | "invalid";
+        readonly content: string;
+        readonly entries: readonly [];
+        readonly message: string;
+      }
+  > => {
+    let content: string;
     try {
-      const content = await readFile(options.statePaths.commandCatalogFile, "utf8");
-      return { content, entries: parseCommandAllowlist(JSON.parse(content) as unknown) };
-    } catch {
-      return { content: "", entries: [] };
+      content = await readFile(options.statePaths.commandCatalogFile, "utf8");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      return {
+        status: code === "ENOENT" ? "missing" : "unreadable",
+        content: "",
+        entries: [],
+        message:
+          code === "ENOENT"
+            ? "Command catalog is missing. Run repair to restore the discovered default catalog."
+            : `Command catalog is unreadable: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+    try {
+      const entries = parseCommandAllowlist(JSON.parse(content) as unknown);
+      compileCommandCatalog(entries);
+      return { status: "ready", content, entries };
+    } catch (error) {
+      return {
+        status: "invalid",
+        content,
+        entries: [],
+        message: `Command catalog is invalid: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   };
   const providerState = async () => {
@@ -370,6 +400,10 @@ export function createOwnerWebConsole(options: {
           paths: snapshot.normalized.kernelPolicy.readRoots ?? [],
           capabilities: snapshot.normalized.kernelPolicy.capabilities,
           commands: commands.entries,
+          commandCatalog: {
+            status: commands.status,
+            ...(commands.status === "ready" ? {} : { message: commands.message })
+          },
           mcpServers: await providerState(),
           ...(options.productInfo === undefined ? {} : { product: options.productInfo })
         });

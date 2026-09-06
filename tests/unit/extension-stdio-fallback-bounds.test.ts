@@ -87,6 +87,50 @@ function manifestFor(script: string, id = "legacy", startupTimeoutMs = 300): Ext
 }
 
 describe("stdio startup fallback bounds", () => {
+  it("gives a slow modern discovery half the startup budget before legacy fallback", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-modern-delay-"));
+    let adapter: ReturnType<typeof createStdioAdapter> | undefined;
+    try {
+      const script = join(root, "modern-delay.cjs");
+      await writeFile(
+        script,
+        [
+          "process.stdin.setEncoding('utf8');",
+          "let carry = '';",
+          "function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }",
+          "process.stdin.on('data', (chunk) => {",
+          "  carry += chunk;",
+          "  while (carry.includes('\\n')) {",
+          "    const index = carry.indexOf('\\n');",
+          "    const line = carry.slice(0, index);",
+          "    carry = carry.slice(index + 1);",
+          "    if (!line) continue;",
+          "    const request = JSON.parse(line);",
+          "    const reply = (payload) => send({ jsonrpc: '2.0', id: request.id, ...payload });",
+          "    if (request.method === 'server/discover') { setTimeout(() => reply({ result: { supportedVersions: ['2026-07-28'] } }), 700); continue; }",
+          "    if (request.method === 'initialize') { reply({ error: { code: -32601, message: 'legacy rejected' } }); continue; }",
+          "    if (request.method === 'tools/list') { reply({ result: { tools: [{ name: 'echo' }] } }); continue; }",
+          "    if (request.method === 'tools/call') { reply({ result: { content: [{ type: 'text', text: 'modern' }] } }); }",
+          "  }",
+          "});"
+        ].join("\n"),
+        "utf8"
+      );
+      const startupTimeoutMs = 1_800;
+      adapter = createStdioAdapter(
+        await compileExtensionManifest(manifestFor(script, "modern-delay", startupTimeoutMs))
+      );
+      const startedAt = Date.now();
+      await adapter.start();
+      expect((await adapter.listTools()).map((tool) => tool.canonicalId)).toEqual(["echo"]);
+      expect((await adapter.callTool("echo", {}, {})).text).toBe("modern");
+      expect(Date.now() - startedAt).toBeLessThan(startupTimeoutMs + 500);
+    } finally {
+      await adapter?.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   for (const mode of ["silent-discover", "exit-discover"] as const) {
     it(`falls back from ${mode} to a fresh legacy generation within the startup budget`, async () => {
       const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-fallback-"));

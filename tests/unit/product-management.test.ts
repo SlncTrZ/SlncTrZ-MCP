@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { access, chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { userPlatformLayout } from "../../src/standalone/platform-layout.js";
@@ -95,10 +95,10 @@ describe("installed product management", () => {
       version: "1.0.0",
       installMode: "user",
       authorityMode: "restricted",
-      commands: 0,
       installedIntegrity: "ok",
       gateway: "running"
     });
+    expect(status.commands).toBeGreaterThan(0);
     expect(JSON.stringify(status)).not.toContain("Owner Passphrase:");
 
     const beforePolicy = await readFile(join(f.stateRoot, "policy.json"), "utf8");
@@ -229,6 +229,99 @@ describe("installed product management", () => {
     );
   });
 
+  it.skipIf(process.platform !== "linux")(
+    "migrates legacy System Install service identity across update, rollback, and repair",
+    async () => {
+      const f = await fixture();
+      const metadataFile = join(f.stateRoot, "installation.json");
+      const metadata = JSON.parse(await readFile(metadataFile, "utf8")) as Record<string, unknown>;
+      metadata.installMode = "system";
+      metadata.serviceMode = "systemd";
+      await writeFile(metadataFile, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+      const serviceUnitRoot = await directory("slnctrz-management-systemd-");
+      const unitFile = join(serviceUnitRoot, "slnctrz-mcp.service");
+      await writeFile(
+        unitFile,
+        "[Service]\nUser=slnctrz\nGroup=slnctrz\nExecStart=/legacy/slnctrz-mcp\n",
+        "utf8"
+      );
+      const calls: string[] = [];
+      const run = async (command: string, args: readonly string[]) => {
+        calls.push(`${command} ${args.join(" ")}`);
+        return { code: 0, stdout: command === "systemctl" ? "running\n" : "", stderr: "" };
+      };
+      const management = {
+        stateRoot: f.stateRoot,
+        fetch: f.fetch,
+        run,
+        serviceUnitRoot,
+        isRoot: () => true,
+        sleep: async () => undefined
+      };
+
+      const unavailableRun = async (command: string, args: readonly string[]) =>
+        command === "systemctl" && args[0] === "is-system-running"
+          ? { code: 1, stdout: "offline\n", stderr: "" }
+          : { code: 0, stdout: "", stderr: "" };
+      await expect(
+        updateProduct(
+          { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+          { ...management, run: unavailableRun }
+        )
+      ).rejects.toThrow("service_manager_unavailable");
+      expect(
+        JSON.parse(await readFile(join(f.installRoot, "current.json"), "utf8")) as {
+          version: string;
+        }
+      ).toMatchObject({ version: "1.0.0" });
+      expect(await readFile(unitFile, "utf8")).toContain("User=slnctrz");
+
+      const updated = await updateProduct(
+        { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+        management
+      );
+
+      expect(updated).toMatchObject({ activation: { version: "1.1.0" }, restartRequired: false });
+      const unit = await readFile(unitFile, "utf8");
+      expect(unit).toContain(`User=${userInfo().username}`);
+      expect(unit).not.toContain("User=slnctrz");
+      expect(calls).toContain("systemctl daemon-reload");
+      expect(calls).toContain("systemctl restart slnctrz-mcp.service");
+      expect(calls.some((call) => call.startsWith(`chown -R ${userInfo().username}:`))).toBe(true);
+
+      calls.length = 0;
+      await expect(rollbackProduct({ ...management, run: unavailableRun })).rejects.toThrow(
+        "service_manager_unavailable"
+      );
+      expect(
+        JSON.parse(await readFile(join(f.installRoot, "current.json"), "utf8")) as {
+          version: string;
+        }
+      ).toMatchObject({ version: "1.1.0" });
+      expect(await readFile(unitFile, "utf8")).toBe(unit);
+
+      const rolled = await rollbackProduct(management);
+      expect(rolled).toMatchObject({ activation: { version: "1.0.0" }, restartRequired: false });
+      expect(await readFile(unitFile, "utf8")).toBe(unit);
+      expect(calls).not.toContain("systemctl daemon-reload");
+      expect(calls).toContain("systemctl restart slnctrz-mcp.service");
+
+      await writeFile(
+        unitFile,
+        "[Service]\nUser=slnctrz\nGroup=slnctrz\nExecStart=/legacy/slnctrz-mcp\n",
+        "utf8"
+      );
+      calls.length = 0;
+      const repaired = await repairProduct(management);
+      expect(repaired.changes).toContain("reconfigured_system_service_runtime_identity");
+      expect(repaired.restartRequired).toBe(true);
+      expect(await readFile(unitFile, "utf8")).toContain(`User=${userInfo().username}`);
+      expect(calls).toContain("systemctl daemon-reload");
+      expect(calls).not.toContain("systemctl restart slnctrz-mcp.service");
+    }
+  );
+
   it.skipIf(process.platform === "win32")(
     "doctor detects broad managed-state modes and repair reasserts privacy",
     async () => {
@@ -269,7 +362,13 @@ describe("installed product management", () => {
 
     const result = await repairProduct(management);
     expect(result.changes).toContain("restored_launcher");
-    expect(result.changes).toContain("restored_minimal_command_catalog");
+    expect(result.changes).toContain("restored_default_command_catalog");
+    const repairedCatalog = JSON.parse(
+      await readFile(join(f.stateRoot, "command.json"), "utf8")
+    ) as {
+      shell: { allowlist: { added: unknown[] } };
+    };
+    expect(repairedCatalog.shell.allowlist.added.length).toBeGreaterThan(0);
     await expect(access(join(f.stateRoot, "secrets", "owner-passphrase"))).rejects.toMatchObject({
       code: "ENOENT"
     });

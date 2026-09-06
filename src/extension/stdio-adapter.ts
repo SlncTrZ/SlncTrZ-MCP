@@ -346,7 +346,7 @@ export function createStdioAdapter(
     let fallback = false;
     const probeBudgetMs = Math.max(
       1,
-      Math.min(remainingStartupMs(), Math.max(1, Math.floor(manifest.startupTimeoutMs / 3)))
+      Math.min(remainingStartupMs(), Math.max(1, Math.floor(manifest.startupTimeoutMs / 2)))
     );
     try {
       const response = await sendBounded(

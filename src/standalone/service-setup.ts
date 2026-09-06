@@ -3,9 +3,10 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ProductSetupResult } from "./product-setup.js";
 import { resolveApplicationRoot } from "../owner/managed-state.js";
 import { readStandaloneTextAsset } from "./assets.js";
+import type { InstallationMetadata } from "./installation-metadata.js";
+import type { RuntimeIdentity } from "./runtime-identity.js";
 
 export interface CommandResult {
   readonly code: number;
@@ -17,6 +18,12 @@ export type SystemCommandRunner = (
   command: string,
   args: readonly string[]
 ) => Promise<CommandResult>;
+
+export interface SystemServiceSetup {
+  readonly installation: InstallationMetadata;
+  readonly gatewayConfigFile: string;
+  readonly runtimeIdentity: RuntimeIdentity;
+}
 
 export interface SystemServiceDependencies {
   readonly run?: SystemCommandRunner;
@@ -65,10 +72,34 @@ function commandFailure(command: string, result: CommandResult): Error {
   return new Error(`service_setup_failed: ${command}: ${detail}`);
 }
 
-function renderUnit(template: string, setup: ProductSetupResult): string {
+function safeSystemdToken(value: string, label: string): string {
+  if (value.length === 0 || /[\r\n]/u.test(value)) {
+    throw new Error(`runtime_identity_invalid: ${label} is unsafe for systemd`);
+  }
+  return value;
+}
+
+function systemdEnvironment(name: string, value: string): string {
+  if (/[\u0000\r\n]/u.test(value)) {
+    throw new Error(`runtime_identity_invalid: ${name} contains an unsafe character`);
+  }
+  const escaped = value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  return `Environment="${name}=${escaped}"`;
+}
+
+function renderUnit(template: string, setup: SystemServiceSetup): string {
+  const runtimeUser = safeSystemdToken(setup.runtimeIdentity.username, "runtime user");
+  const runtimeGroup = safeSystemdToken(setup.runtimeIdentity.groupName, "runtime group");
+  const runtimePath = setup.runtimeIdentity.runtimePath;
   let rendered = template
     .replaceAll("/opt/slnctrz-mcp", setup.installation.installRoot)
-    .replaceAll("/etc/slnctrz-mcp/gateway.env", setup.gatewayConfigFile);
+    .replaceAll("/etc/slnctrz-mcp/gateway.env", setup.gatewayConfigFile)
+    .replace("User=__SLNCTRZ_RUNTIME_USER__", `User=${runtimeUser}`)
+    .replace("Group=__SLNCTRZ_RUNTIME_GROUP__", `Group=${runtimeGroup}`)
+    .replace(
+      'Environment="PATH=__SLNCTRZ_RUNTIME_PATH__"',
+      systemdEnvironment("PATH", runtimePath)
+    );
   if (setup.installation.stateRoot !== "/var/lib/slnctrz-mcp") {
     rendered = rendered.replace(
       "StateDirectory=slnctrz-mcp",
@@ -89,7 +120,7 @@ async function requireSuccess(
 }
 
 async function waitForHealth(
-  setup: ProductSetupResult,
+  setup: SystemServiceSetup,
   fetchImpl: typeof fetch,
   sleep: (ms: number) => Promise<void>
 ): Promise<void> {
@@ -110,14 +141,16 @@ async function waitForHealth(
   );
 }
 
-export async function activateSystemService(
-  setup: ProductSetupResult,
+export async function configureSystemService(
+  setup: SystemServiceSetup,
   dependencies: SystemServiceDependencies = {}
-): Promise<{ readonly unitFile: string; readonly serviceName: string }> {
+): Promise<{ readonly unitFile: string; readonly serviceName: string; readonly changed: boolean }> {
   if (setup.installation.installMode !== "system") {
-    throw new Error("System service activation requires a system installation");
+    throw new Error("System service configuration requires a system installation");
   }
-  if (process.platform !== "linux") throw new Error("System service activation requires Linux");
+  if (process.platform !== "linux") {
+    throw new Error("System service configuration requires Linux");
+  }
   const isRoot = dependencies.isRoot ?? (() => process.getuid?.() === 0);
   if (!isRoot()) throw new Error("permission_denied: system setup must run as root/sudo");
 
@@ -137,21 +170,12 @@ export async function activateSystemService(
     );
   }
 
-  const existingUser = await run("id", ["-u", "slnctrz"]);
-  if (existingUser.code !== 0) {
-    await requireSuccess(run, "useradd", [
-      "--system",
-      "--home-dir",
-      setup.installation.stateRoot,
-      "--shell",
-      "/usr/sbin/nologin",
-      "slnctrz"
-    ]);
-  }
+  const runtimeUser = setup.runtimeIdentity.username;
+  const runtimeGroup = setup.runtimeIdentity.groupName;
 
   const pathAccess = await run("runuser", [
     "-u",
-    "slnctrz",
+    runtimeUser,
     "--",
     "test",
     "-r",
@@ -159,29 +183,55 @@ export async function activateSystemService(
   ]);
   if (pathAccess.code !== 0) {
     throw new Error(
-      `path_os_permission_denied: runtime account slnctrz cannot read ${setup.installation.initialPath}`
+      `path_os_permission_denied: runtime account ${runtimeUser} cannot read ${setup.installation.initialPath}`
+    );
+  }
+  const pathWriteAccess = await run("runuser", [
+    "-u",
+    runtimeUser,
+    "--",
+    "test",
+    "-w",
+    setup.installation.initialPath
+  ]);
+  if (pathWriteAccess.code !== 0) {
+    throw new Error(
+      `path_os_permission_denied: runtime account ${runtimeUser} cannot write ${setup.installation.initialPath}`
     );
   }
 
-  await requireSuccess(run, "chown", ["-R", "slnctrz:slnctrz", setup.installation.stateRoot]);
+  await requireSuccess(run, "chown", [
+    "-R",
+    `${runtimeUser}:${runtimeGroup}`,
+    setup.installation.stateRoot
+  ]);
   await requireSuccess(run, "chown", ["-R", "root:root", setup.installation.installRoot]);
   await requireSuccess(run, "chown", ["-R", "root:root", setup.installation.configRoot]);
 
   const serviceUnitRoot = dependencies.serviceUnitRoot ?? "/etc/systemd/system";
   await mkdir(serviceUnitRoot, { recursive: true, mode: 0o755 });
   const unitFile = join(serviceUnitRoot, "slnctrz-mcp.service");
-  await atomicFile(
-    unitFile,
-    renderUnit(await asset("config/systemd/slnctrz-mcp.service"), setup),
-    0o644
-  );
+  const expectedUnit = renderUnit(await asset("config/systemd/slnctrz-mcp.service"), setup);
+  const existingUnit = await readFile(unitFile, "utf8").catch(() => undefined);
+  const changed = existingUnit !== expectedUnit;
+  if (changed) {
+    await atomicFile(unitFile, expectedUnit, 0o644);
+    await requireSuccess(run, "systemctl", ["daemon-reload"]);
+  }
+  return { unitFile, serviceName: "slnctrz-mcp.service", changed };
+}
 
-  await requireSuccess(run, "systemctl", ["daemon-reload"]);
-  await requireSuccess(run, "systemctl", ["enable", "--now", "slnctrz-mcp.service"]);
+export async function activateSystemService(
+  setup: SystemServiceSetup,
+  dependencies: SystemServiceDependencies = {}
+): Promise<{ readonly unitFile: string; readonly serviceName: string }> {
+  const configured = await configureSystemService(setup, dependencies);
+  const run = dependencies.run ?? defaultRun;
+  await requireSuccess(run, "systemctl", ["enable", "--now", configured.serviceName]);
   await waitForHealth(
     setup,
     dependencies.fetch ?? fetch,
     dependencies.sleep ?? ((ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms)))
   );
-  return { unitFile, serviceName: "slnctrz-mcp.service" };
+  return configured;
 }

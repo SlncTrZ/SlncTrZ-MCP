@@ -127,6 +127,7 @@ describe("Owner Console product surface", () => {
     });
     expect(await state.json()).toMatchObject({
       authorityMode: "restricted",
+      commandCatalog: { status: "ready" },
       product: {
         version: "1.2.3",
         buildCommit: "abc123",
@@ -134,6 +135,7 @@ describe("Owner Console product surface", () => {
       }
     });
 
+    const commandsBeforeAuthority = await readFile(paths.commandCatalogFile, "utf8");
     const authority = await fetch(`${origin}/owner/api/authority`, {
       method: "PUT",
       headers: {
@@ -145,6 +147,7 @@ describe("Owner Console product surface", () => {
     });
     expect(authority.status).toBe(200);
     expect(operations).toEqual([{ kind: "set-authority-mode", authorityMode: "autonomous" }]);
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(commandsBeforeAuthority);
 
     const priorCommands = await readFile(paths.commandCatalogFile, "utf8");
     const candidateCommands = JSON.stringify({ shell: { allowlist: { added: ["node"] } } });
@@ -191,6 +194,11 @@ describe("Owner Console product surface", () => {
     expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(invalidBefore);
 
     await rm(paths.commandCatalogFile, { force: true });
+    const missingState = await fetch(`${origin}/owner/api/commands`, { headers: { cookie } });
+    const missingStateText = await missingState.text();
+    expect(missingStateText).toContain('"status":"missing"');
+    expect(missingStateText).toContain('"entries":[]');
+    expect(missingStateText).toContain("Command catalog is missing");
     commandReloadMode = "failed";
     const absentRejected = await fetch(`${origin}/owner/api/commands`, {
       method: "PUT",
@@ -205,6 +213,22 @@ describe("Owner Console product surface", () => {
     await expect(readFile(paths.commandCatalogFile, "utf8")).rejects.toMatchObject({
       code: "ENOENT"
     });
+    await writeFile(paths.commandCatalogFile, priorCommands, "utf8");
+
+    await writeFile(paths.commandCatalogFile, "{not-json\n", "utf8");
+    const invalidState = await fetch(`${origin}/owner/api/commands`, { headers: { cookie } });
+    const invalidStateText = await invalidState.text();
+    expect(invalidStateText).toContain('"status":"invalid"');
+    expect(invalidStateText).toContain('"entries":[]');
+    expect(invalidStateText).toContain("Command catalog is invalid");
+    await rm(paths.commandCatalogFile, { force: true });
+    await mkdir(paths.commandCatalogFile);
+    const unreadableState = await fetch(`${origin}/owner/api/commands`, { headers: { cookie } });
+    const unreadableStateText = await unreadableState.text();
+    expect(unreadableStateText).toContain('"status":"unreadable"');
+    expect(unreadableStateText).toContain('"entries":[]');
+    expect(unreadableStateText).toContain("Command catalog is unreadable");
+    await rm(paths.commandCatalogFile, { recursive: true, force: true });
     await writeFile(paths.commandCatalogFile, priorCommands, "utf8");
 
     commandReloadMode = "activated";

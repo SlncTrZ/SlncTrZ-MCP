@@ -27,6 +27,7 @@ import {
   resolveApplicationRoot,
   type ManagedStatePaths
 } from "../owner/managed-state.js";
+import { provisionDefaultCommandCatalog } from "../owner/command-catalog-provisioning.js";
 import { createMcpProviderStore } from "../owner/mcp-provider-store.js";
 import { DEFAULT_MAX_PERSISTED_AUDIT_ROWS } from "../observability/sqlite-audit.js";
 import { readStandaloneTextAsset } from "./assets.js";
@@ -45,6 +46,8 @@ import {
 } from "./installation-metadata.js";
 import { OFFICIAL_RELEASE_MANIFEST_URL } from "./product-setup.js";
 import { userPlatformLayout } from "./platform-layout.js";
+import { resolveRuntimeIdentity, runtimeCanExecuteBinary } from "./runtime-identity.js";
+import { configureSystemService } from "./service-setup.js";
 import { currentReleaseTarget } from "./release-manifest.js";
 import { readClientEnvironmentFile, readRuntimeEnvironmentFile } from "./runtime-env-file.js";
 
@@ -98,6 +101,7 @@ export interface ManagementDependencies {
   }>;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly serviceUnitRoot?: string;
+  readonly isRoot?: () => boolean;
 }
 
 async function defaultRun(
@@ -269,6 +273,29 @@ async function gatewayReachable(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function configureInstalledSystemService(
+  context: InstalledProductContext,
+  dependencies: ManagementDependencies
+): Promise<boolean> {
+  if (context.installation.installMode !== "system") return false;
+  const runtimeIdentity = resolveRuntimeIdentity({ installMode: "system" });
+  const configured = await configureSystemService(
+    {
+      installation: context.installation,
+      gatewayConfigFile: join(context.installation.configRoot, "gateway.env"),
+      runtimeIdentity
+    },
+    {
+      ...(dependencies.run === undefined ? {} : { run: dependencies.run }),
+      ...(dependencies.serviceUnitRoot === undefined
+        ? {}
+        : { serviceUnitRoot: dependencies.serviceUnitRoot }),
+      ...(dependencies.isRoot === undefined ? {} : { isRoot: dependencies.isRoot })
+    }
+  );
+  return configured.changed;
 }
 
 async function restartSystemService(
@@ -860,6 +887,9 @@ export async function updateProduct(
       ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch })
     }
   );
+  if (context.installation.installMode === "system") {
+    await configureInstalledSystemService(context, dependencies);
+  }
   const activation = await installStandaloneRelease({
     installRoot: context.installation.installRoot,
     manifest,
@@ -877,6 +907,9 @@ export async function rollbackProduct(
   dependencies: ManagementDependencies = {}
 ): Promise<{ readonly activation: ActivationRecord; readonly restartRequired: boolean }> {
   const context = await discoverInstalledProduct(dependencies);
+  if (context.installation.installMode === "system") {
+    await configureInstalledSystemService(context, dependencies);
+  }
   const activation = await rollbackStandaloneRelease({
     installRoot: context.installation.installRoot
   });
@@ -981,13 +1014,23 @@ export async function repairProduct(
 
   try {
     await access(context.statePaths.commandCatalogFile, constants.F_OK);
-  } catch {
-    await atomicText(
-      context.statePaths.commandCatalogFile,
-      await productAsset("config/commands.minimal.json"),
-      0o600
-    );
-    changes.push("restored_minimal_command_catalog");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const runtimeIdentity = resolveRuntimeIdentity({
+      installMode: context.installation.installMode
+    });
+    const commandCatalog = await provisionDefaultCommandCatalog({
+      paths: context.statePaths,
+      appRoot: resolveApplicationRoot(),
+      pathValue: runtimeIdentity.runtimePath,
+      ...(context.installation.installMode === "system"
+        ? {
+            verifyResolvedBinary: (binary: string) =>
+              runtimeCanExecuteBinary(runtimeIdentity, binary)
+          }
+        : {})
+    });
+    if (commandCatalog.status === "created") changes.push("restored_default_command_catalog");
   }
 
   try {
@@ -1000,9 +1043,12 @@ export async function repairProduct(
     // Never regenerate a missing credential during repair.
   }
 
+  const systemServiceChanged = await configureInstalledSystemService(context, dependencies);
+  if (systemServiceChanged) changes.push("reconfigured_system_service_runtime_identity");
+
   return {
     changes: Object.freeze(changes),
-    restartRequired: changes.includes("restored_launcher")
+    restartRequired: changes.includes("restored_launcher") || systemServiceChanged
   };
 }
 

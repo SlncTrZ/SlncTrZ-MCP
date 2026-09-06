@@ -7,7 +7,7 @@ SlncTrZ-MCP is designed to be useful for real work. Its autonomy setting tells t
 Choose **Restricted** when you want to explicitly curate the model-facing capability surface.
 
 - Core file tools normally operate inside configured **Paths**.
-- `core.exec` starts executables authorized by **Commands** (`command.json`).
+- `core.exec` starts executables authorized by **Commands** (`command.json`). Fresh setup discovers the initial list from the platform candidate template and keeps only executables available on the machine.
 - `task.start` uses that same command/Path authority when launching an asynchronous Runner task.
 - Execution cwd is constrained to configured Paths.
 - Secret-path and canonical-containment checks remain active for core file tools.
@@ -54,7 +54,7 @@ Recommended for:
 | New user evaluating SlncTrZ                                 | **Restricted**, then switch to Autonomous if desired |
 | Dedicated automation box under a dedicated OS account       | **Autonomous** is usually appropriate                |
 
-The most important boundary is the **OS account running SlncTrZ**. A dedicated user account is the cleanest way to give the model broad autonomy without granting access to another user's private data.
+The most important boundary is the **OS account running SlncTrZ**. Normal installation intentionally runs the gateway as the real user who installed it; System Install does not invent a separate service account. If you want a dedicated OS-account boundary, create/use that account as the actual installer/owner of the gateway rather than expecting SlncTrZ to create one implicitly.
 
 Logical coordination tools (`task.create/list/get/claim/release/complete/fail/cancel`) do not widen either autonomy mode. Their instructions/results are workspace context only, not capability grants. Task Runtime state is in-memory and is cleared by a gateway restart.
 

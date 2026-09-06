@@ -11,6 +11,15 @@ import {
 } from "../../src/standalone/service-setup.js";
 
 const cleanup: string[] = [];
+const runtimeIdentity = Object.freeze({
+  username: "test-owner",
+  uid: 1001,
+  gid: 1001,
+  groupName: "test-owner",
+  home: "/home/test-owner",
+  runtimePath: process.env.PATH ?? "/usr/bin"
+});
+
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
@@ -41,9 +50,16 @@ function releaseFetch(bytes: Buffer): typeof fetch {
     })) as typeof fetch;
 }
 
+const setupDependencies = (bytes: Buffer) => ({
+  fetch: releaseFetch(bytes),
+  checkPort: async () => undefined,
+  resolveRuntimeIdentity: () => runtimeIdentity,
+  verifyRuntimeBinary: () => true
+});
+
 describe("system service setup", () => {
   it.skipIf(process.platform !== "linux")(
-    "creates the service account when absent, renders the unit, enables service, and health-checks",
+    "uses the invoking runtime account, renders the unit, enables service, and health-checks",
     async () => {
       const root = await directory("slnctrz-system-setup-");
       const workspace = await directory("slnctrz-system-workspace-");
@@ -57,13 +73,12 @@ describe("system service setup", () => {
           stateRoot: join(root, "state"),
           configRoot: join(root, "config")
         },
-        { fetch: releaseFetch(Buffer.from("system-release")), checkPort: async () => undefined }
+        setupDependencies(Buffer.from("system-release"))
       );
 
       const calls: string[] = [];
       const run: SystemCommandRunner = async (command, args) => {
         calls.push(`${command} ${args.join(" ")}`);
-        if (command === "id") return { code: 1, stdout: "", stderr: "missing" };
         return { code: 0, stdout: "", stderr: "" };
       };
       const unitRoot = join(root, "systemd");
@@ -76,20 +91,29 @@ describe("system service setup", () => {
       });
 
       expect(calls[0]).toBe("systemctl is-system-running");
-      expect(calls.some((call) => call.startsWith("useradd "))).toBe(true);
+      expect(calls.some((call) => call.startsWith("useradd "))).toBe(false);
+      expect(calls).toContain(`runuser -u ${runtimeIdentity.username} -- test -r ${workspace}`);
+      expect(calls).toContain(`runuser -u ${runtimeIdentity.username} -- test -w ${workspace}`);
+      expect(calls).toContain(
+        `chown -R ${runtimeIdentity.username}:${runtimeIdentity.groupName} ${setup.installation.stateRoot}`
+      );
       expect(calls).toContain("systemctl daemon-reload");
       expect(calls).toContain("systemctl enable --now slnctrz-mcp.service");
       expect(result.serviceName).toBe("slnctrz-mcp.service");
       const unit = await readFile(result.unitFile, "utf8");
+      expect(unit).toContain(`User=${runtimeIdentity.username}`);
+      expect(unit).toContain(`Group=${runtimeIdentity.groupName}`);
+      expect(unit).toContain(`Environment=\"PATH=${runtimeIdentity.runtimePath}\"`);
       expect(unit).toContain(`WorkingDirectory=${setup.installation.installRoot}`);
       expect(unit).toContain(`EnvironmentFile=${setup.gatewayConfigFile}`);
       expect(unit).toContain(`ExecStart=${setup.installation.installRoot}/slnctrz-mcp-launcher`);
       expect(unit).not.toContain("/usr/bin/node");
       expect(unit).not.toContain("owner.env");
+      expect(unit).not.toContain("User=slnctrz");
     }
   );
 
-  it("fails before account/filesystem mutation when systemd is unavailable", async () => {
+  it("fails before filesystem mutation when systemd is unavailable", async () => {
     if (process.platform !== "linux") return;
     const root = await directory("slnctrz-system-no-systemd-");
     const workspace = await directory("slnctrz-system-no-systemd-workspace-");
@@ -102,7 +126,7 @@ describe("system service setup", () => {
         stateRoot: join(root, "state"),
         configRoot: join(root, "config")
       },
-      { fetch: releaseFetch(Buffer.from("system-release")), checkPort: async () => undefined }
+      setupDependencies(Buffer.from("system-release"))
     );
     const calls: string[] = [];
     const run: SystemCommandRunner = async (command, args) => {
@@ -131,7 +155,7 @@ describe("system service setup", () => {
         stateRoot: join(root, "state"),
         configRoot: join(root, "config")
       },
-      { fetch: releaseFetch(Buffer.from("system-release")), checkPort: async () => undefined }
+      setupDependencies(Buffer.from("system-release"))
     );
     await expect(activateSystemService(setup, { isRoot: () => false })).rejects.toThrow(
       "permission_denied"

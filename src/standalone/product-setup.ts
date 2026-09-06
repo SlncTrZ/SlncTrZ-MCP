@@ -12,7 +12,6 @@ import {
   rm,
   writeFile
 } from "node:fs/promises";
-import { userInfo } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { resolveOwnerSecret } from "../auth/owner-secret-store.js";
@@ -39,6 +38,12 @@ import {
   type SetupAuthorityMode
 } from "./installation-metadata.js";
 import { userPlatformLayout } from "./platform-layout.js";
+import { provisionDefaultCommandCatalog } from "../owner/command-catalog-provisioning.js";
+import {
+  resolveRuntimeIdentity,
+  runtimeCanExecuteBinary,
+  type RuntimeIdentity
+} from "./runtime-identity.js";
 
 export const OFFICIAL_RELEASE_MANIFEST_URL =
   "https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest/download/manifest.json";
@@ -69,6 +74,7 @@ export interface ProductSetupResult {
   readonly mcpEndpoint: string;
   readonly ownerConsoleUrl: string;
   readonly runtimeAccount: string;
+  readonly runtimeIdentity: RuntimeIdentity;
   /** Auto-provisioned static confidential-client credentials for OAuth-protected servers. */
   readonly staticClientId: string;
   /** Path of the generated/edited client.env. */
@@ -80,10 +86,19 @@ export interface ProductSetupResult {
 export interface ProductSetupDependencies {
   readonly fetch?: typeof fetch;
   readonly checkPort?: (host: string, port: number) => Promise<void>;
+  readonly resolveRuntimeIdentity?: (installMode: InstallMode) => RuntimeIdentity;
+  readonly verifyRuntimeBinary?: (
+    identity: RuntimeIdentity,
+    binary: string
+  ) => boolean | Promise<boolean>;
 }
 
-function userDefaults(): { installRoot: string; stateRoot: string; configRoot: string } {
-  const layout = userPlatformLayout();
+function userDefaults(home: string): {
+  installRoot: string;
+  stateRoot: string;
+  configRoot: string;
+} {
+  const layout = userPlatformLayout(process.platform, process.env, home);
   return {
     installRoot: layout.installRoot,
     stateRoot: layout.stateRoot,
@@ -149,20 +164,6 @@ async function setupAsset(key: string): Promise<string> {
   const embedded = readStandaloneTextAsset(key);
   if (embedded !== undefined) return embedded;
   return readFile(join(resolveApplicationRoot(), key), "utf8");
-}
-
-async function ensureGeneralUserCommandCatalog(path: string): Promise<void> {
-  try {
-    await access(path, constants.F_OK);
-    return;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await writeFile(path, await setupAsset("config/commands.minimal.json"), {
-    encoding: "utf8",
-    mode: 0o600,
-    flag: "wx"
-  });
 }
 
 function runtimeEnvironment(input: {
@@ -252,7 +253,9 @@ export async function prepareProductSetup(
   if (installMode === "system" && process.platform !== "linux") {
     throw new Error("System setup is currently supported only on Linux");
   }
-  const defaults = installMode === "user" ? userDefaults() : systemDefaults();
+  const runtimeIdentity =
+    dependencies.resolveRuntimeIdentity?.(installMode) ?? resolveRuntimeIdentity({ installMode });
+  const defaults = installMode === "user" ? userDefaults(runtimeIdentity.home) : systemDefaults();
   const installRoot = requireAbsolute(request.installRoot ?? defaults.installRoot, "Install root");
   const stateRoot = requireAbsolute(request.stateRoot ?? defaults.stateRoot, "State root");
   const configRoot = requireAbsolute(request.configRoot ?? defaults.configRoot, "Config root");
@@ -293,7 +296,18 @@ export async function prepareProductSetup(
   });
 
   await ensureManagedStateLayout(statePaths);
-  await ensureGeneralUserCommandCatalog(statePaths.commandCatalogFile);
+  await provisionDefaultCommandCatalog({
+    paths: statePaths,
+    appRoot: resolveApplicationRoot(),
+    pathValue: runtimeIdentity.runtimePath,
+    ...(installMode === "system"
+      ? {
+          verifyResolvedBinary: (binary: string) =>
+            dependencies.verifyRuntimeBinary?.(runtimeIdentity, binary) ??
+            runtimeCanExecuteBinary(runtimeIdentity, binary)
+        }
+      : {})
+  });
   await initializeDefaultWorkspace({ paths: statePaths, root: initialPath, authorityMode });
   const owner = await resolveOwnerSecret({ secretFile: statePaths.ownerPassphraseFile });
 
@@ -302,7 +316,7 @@ export async function prepareProductSetup(
   await atomicTextFile(gatewayConfigFile, gatewayEnvFile(environment), 0o600);
   const staticClient = await ensureClientEnvFile(configRoot);
 
-  const platformLayout = userPlatformLayout();
+  const platformLayout = userPlatformLayout(process.platform, process.env, runtimeIdentity.home);
   const launcherFile = join(installRoot, platformLayout.launcherFileName);
   if (platformLayout.launcherKind === "native-copy") {
     await copyFile(await resolveCurrentStandaloneExecutable(installRoot), launcherFile);
@@ -370,7 +384,8 @@ export async function prepareProductSetup(
     launcherFile,
     mcpEndpoint,
     ownerConsoleUrl: `${runtimeConfig.publicMcpUrl.origin}/owner`,
-    runtimeAccount: installMode === "system" ? "slnctrz" : userInfo().username,
+    runtimeAccount: runtimeIdentity.username,
+    runtimeIdentity,
     staticClientId: staticClient.clientId,
     staticClientFile: staticClient.file,
     ...(staticClient.created ? { firstRunStaticClientSecret: staticClient.clientSecret } : {})

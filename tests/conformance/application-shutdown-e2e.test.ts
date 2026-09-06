@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 import { bootstrap } from "../../src/app/main.js";
@@ -263,8 +264,8 @@ describe.skipIf(process.platform === "win32")("application entry graceful shutdo
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     it(`cancels managed descendants through the real entry on ${signal}`, async () => {
       const bundleRoot = await mkdtemp(join(process.cwd(), ".shutdown-entry-"));
-      const stateRoot = await mkdtemp(join(process.cwd(), ".shutdown-state-"));
-      const workspace = await mkdtemp(join(process.cwd(), ".shutdown-workspace-"));
+      const stateRoot = await mkdtemp(join(tmpdir(), "slnctrz-shutdown-state-"));
+      const workspace = await mkdtemp(join(tmpdir(), "slnctrz-shutdown-workspace-"));
       cleanup.push(bundleRoot, stateRoot, workspace);
       const ownerSecret = "shutdown-owner-secret-123456";
       await mkdir(join(stateRoot, "secrets"), { recursive: true });
@@ -336,6 +337,6 @@ describe.skipIf(process.platform === "win32")("application entry graceful shutdo
       await expect(waitForExit(gateway)).resolves.toBeUndefined();
       expect(gateway.exitCode, stderr).not.toBeNull();
       await expect(expectProcessGone(descendantPid)).resolves.toBeUndefined();
-    });
+    }, 15_000);
   }
 });

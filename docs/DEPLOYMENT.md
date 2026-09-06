@@ -53,12 +53,12 @@ install: /opt/slnctrz-mcp
 state:   /var/lib/slnctrz-mcp
 config:  /etc/slnctrz-mcp
 service: slnctrz-mcp.service
-account: slnctrz
+account: invoking OS user (validated SUDO_USER when setup runs through sudo)
 ```
 
-System setup requires root/sudo, requires an operational systemd service manager, creates or reuses the dedicated `slnctrz` account, verifies that account can read the Initial Path, installs the systemd unit, enables/starts it, and health-checks the gateway. Linux hosts without operational systemd should use User Install/foreground mode instead of pretending System Install succeeded.
+System setup requires root/sudo and an operational systemd service manager, but privileged authority is used only for system installation operations. The runtime identity is the real non-root user that invoked setup; under `sudo`, setup validates and resolves `SUDO_USER`, renders that user/group into the systemd unit, verifies the user can read and write the Initial Path, installs the unit, enables/starts it, and health-checks the gateway. No dedicated `slnctrz` account is created. Linux hosts without operational systemd should use User Install/foreground mode instead of pretending System Install succeeded.
 
-The runtime process should not run as root. Uninstall intentionally retains the `slnctrz` OS account because setup may have reused a pre-existing identity; remove it manually only after verifying no other workload uses it.
+The runtime process must not run as root. The generated systemd unit also carries the runtime PATH used for command discovery so Restricted catalog provisioning and later strict runtime compilation resolve against the same command search path. Updating a legacy System Install re-renders the unit before restart, so an older `User=slnctrz` service is migrated to the validated invoking user without changing the persisted installation metadata schema or rewriting owner-managed `command.json`.
 
 ## Local mode
 
@@ -129,7 +129,7 @@ Setup requires an existing readable Path.
 
 User mode defaults to the setup process current working directory if `--path` is omitted. For predictable installation, pass `--path` explicitly.
 
-System mode requires an explicit Path. Setup additionally checks readability as the `slnctrz` runtime account before enabling the service.
+System mode requires an explicit Path. Setup additionally checks read and write access as the resolved invoking runtime user before enabling the service.
 
 Gateway authorization does not replace OS permissions. A configured Path that the runtime account cannot traverse/read will still fail.
 
@@ -140,7 +140,7 @@ Gateway authorization does not replace OS permissions. A configured Path that th
 - built-in file tools stay within configured Paths;
 - `core.exec` requires an approved command catalog entry;
 - `task.start` uses the same command/Path authority as `core.exec`;
-- fresh general-user setup starts with an empty command allowlist.
+- fresh setup loads the platform candidate template (`commands.json` on Linux, `commands.win32.json` on Windows), filters out executables unavailable to the runtime user, persists only the usable subset, and then compiles it strictly;
 
 ### Autonomous
 

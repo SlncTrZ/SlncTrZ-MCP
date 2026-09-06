@@ -4,15 +4,14 @@ This inventory classifies security-sensitive scripts, configuration templates, a
 
 ## Production / end-user runtime
 
-| Path                                     | Classification                     | Purpose                                                                                       |
-| ---------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| `scripts/install.sh`                     | production bootstrap               | Public Linux x64 + Windows Git Bash bootstrap; target detection, checksum verification, setup |
-| `config/systemd/slnctrz-mcp-launcher.sh` | production launcher                | Resolves active immutable SEA and parses strict non-secret runtime config keys                |
-| `config/systemd/slnctrz-mcp.service`     | production System Install template | Dedicated `slnctrz` systemd service                                                           |
-| `config/systemd/gateway.env.example`     | production/admin example           | Advanced non-secret runtime configuration example                                             |
-| `config/commands.minimal.json`           | production default                 | Fresh general-user Restricted command catalog                                                 |
-| `config/commands.json`                   | developer/source default           | Broader POSIX developer command catalog                                                       |
-| `config/commands.win32.json`             | developer/source default           | Windows developer command catalog                                                             |
+| Path                                     | Classification                       | Purpose                                                                                       |
+| ---------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `scripts/install.sh`                     | production bootstrap                 | Public Linux x64 + Windows Git Bash bootstrap; target detection, checksum verification, setup |
+| `config/systemd/slnctrz-mcp-launcher.sh` | production launcher                  | Resolves active immutable SEA and parses strict non-secret runtime config keys                |
+| `config/systemd/slnctrz-mcp.service`     | production System Install template   | systemd service rendered for the real invoking runtime user                                   |
+| `config/systemd/gateway.env.example`     | production/admin example             | Advanced non-secret runtime configuration example                                             |
+| `config/commands.json`                   | production Linux candidate catalog   | Linux command candidates filtered to runtime-user-available executables during provisioning   |
+| `config/commands.win32.json`             | production Windows candidate catalog | Windows command candidates filtered to locally available executables during provisioning      |
 
 ## Release / CI
 
@@ -49,6 +48,7 @@ This inventory classifies security-sensitive scripts, configuration templates, a
 | Path                                  | Classification                | Purpose                                                                                                                                                                    |
 | ------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/generate-owner-verifier.mjs` | **legacy compatibility only** | Generates pre-recovery-file `SLNCTRZ_OWNER_SECRET_HASH` verifier state. It is not the current owner credential setup path and prints a legacy warning on every invocation. |
+| `config/commands.minimal.json`        | **legacy compatibility only** | Historical empty Restricted catalog template. Current setup/runtime bootstrap/repair use platform candidate discovery and do not embed or consume this file.               |
 
 Current deployments use the managed Owner Passphrase recovery file:
 

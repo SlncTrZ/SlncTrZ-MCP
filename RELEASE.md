@@ -190,10 +190,11 @@ sudo SLNCTRZ_E2E_ALLOW_SYSTEM=1 \
 The script refuses to run when:
 
 - not root;
+- there is no validated non-root `SUDO_USER` invoking identity;
 - explicit destructive E2E opt-in is absent;
 - SlncTrZ managed roots already exist.
 
-It verifies dedicated `slnctrz` account/service behavior, health, status/doctor, and default-uninstall state preservation.
+It verifies that systemd runs as the real invoking user, state ownership and workspace access match that user, no dedicated service account is required, and health/status/doctor/default-uninstall state preservation all succeed.
 
 Do not run this script on a production gateway.
 

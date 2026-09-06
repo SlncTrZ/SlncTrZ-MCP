@@ -50,7 +50,7 @@ The following invariants apply to the current schema-v2 product model:
 1. Public MCP requests require valid OAuth authorization before tool dispatch.
 2. Restricted filesystem operations stay inside configured Paths and enforce the restricted secret-path policy.
 3. Autonomous filesystem operations follow gateway OS-user authority; they must not be described as restricted-path containment.
-4. Restricted execution requires an authorized Path plus a command-catalog match; autonomous execution follows OS-user authority.
+4. Restricted execution requires an authorized Path plus a strict command-catalog match; default provisioning may filter unavailable platform candidates before persistence, but the kernel compiler itself never silently accepts unresolved entries.
 5. `task.start` uses the same execution authority as `core.exec`; Task Runtime is not a second privilege path.
 6. Writable Paths do not by themselves grant execution authority in restricted mode.
 7. Extension credentials are provider-scoped and are not exposed in MCP metadata, normal errors or audit payloads.
@@ -82,7 +82,7 @@ If durable audit storage is enabled, the same privacy boundary applies to persis
 
 Standalone production deployments use the self-contained verified SEA and do **not** require a system Node.js installation. Source/developer deployments must use the package engine contract `>=22.13.0 <25`.
 
-System Install should use the dedicated non-root `slnctrz` account, preserve `NoNewPrivileges`/capability hardening where compatible with configured Paths, and run immutable versioned artifacts through the generated launcher rather than copying individual compiled files into a live tree.
+System Install uses root/sudo only for privileged setup operations and runs the gateway as the validated real non-root invoking user. It must preserve `NoNewPrivileges`/capability hardening where compatible with configured Paths, render the runtime user/group and command-discovery PATH into systemd, and run immutable versioned artifacts through the generated launcher rather than copying individual compiled files into a live tree.
 
 Public deployment must use HTTPS for non-loopback MCP/OAuth identity. The separately authenticated control plane remains loopback-only and must not be reverse-proxied publicly.
 

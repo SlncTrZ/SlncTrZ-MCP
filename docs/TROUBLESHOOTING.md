@@ -117,20 +117,20 @@ Run the supported setup/update migration path so the legacy policy is backed up 
 
 ### path_os_permission_denied
 
-A configured Path exists in gateway policy but the runtime OS account cannot read/traverse it.
+A configured Path exists in gateway policy but the runtime OS account cannot perform the required read/write/traverse operation.
 
 Actions:
 
 - fix filesystem ownership/mode/ACL;
 - or remove/change the Path in Owner Console.
 
-For System Install, test permissions as the `slnctrz` account.
+For System Install, test permissions as the real invoking user shown by setup/systemd (`User=` in `slnctrz-mcp.service`). SlncTrZ-MCP does not create a dedicated service account.
 
 ### command_catalog_invalid
 
 `command.json` is malformed or contains invalid command entries.
 
-If the file is missing, `repair` may restore the minimal empty catalog. If it exists but is invalid, inspect it rather than deleting it automatically.
+If the file is missing, `repair` recreates the platform default by filtering the shipped candidate template to executables available to the runtime user, then strictly compiles the persisted subset. If `command.json` exists but is invalid or unreadable, inspect/fix it explicitly; repair does not overwrite owner-managed content.
 
 ### owner_secret_missing
 
@@ -234,7 +234,7 @@ For System Install, service restart/health failure is surfaced. Inspect service 
 `repair` may:
 
 - restore the generated launcher;
-- restore a missing minimal command catalog;
+- restore a missing discovered/default command catalog from the platform candidate template;
 - clean stale staging files;
 - correct safe Owner Passphrase mode;
 - restore a missing install identity marker only after current release integrity verifies.
@@ -257,7 +257,7 @@ Before deleting managed roots it verifies independent install-root and state ins
 
 Default uninstall preserves config and state.
 
-For System Install, the `slnctrz` OS account is retained intentionally even after purge because setup may have reused an existing account. Automatic `userdel` would risk deleting an OS identity not exclusively owned by SlncTrZ-MCP. Remove the account manually only after verifying it is unused.
+System Install runs under the real invoking non-root OS user and does not create a dedicated `slnctrz` account. Uninstall therefore removes only product-managed roots selected by the uninstall mode and never attempts to delete the user's OS account.
 
 ## Collecting support evidence
 

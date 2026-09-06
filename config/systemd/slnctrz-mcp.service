@@ -6,9 +6,10 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-User=slnctrz
-Group=slnctrz
+User=__SLNCTRZ_RUNTIME_USER__
+Group=__SLNCTRZ_RUNTIME_GROUP__
 WorkingDirectory=/opt/slnctrz-mcp
+Environment="PATH=__SLNCTRZ_RUNTIME_PATH__"
 
 # Runtime-specific hostnames and ports stay outside version control.
 EnvironmentFile=/etc/slnctrz-mcp/gateway.env

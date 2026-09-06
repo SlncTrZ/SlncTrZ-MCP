@@ -85,7 +85,6 @@ await writeFile(
     assets: {
       "SlncHertine.woff2": join(root, "src", "assets", "fonts", "SlncHertine.woff2"),
       "config/commands.json": join(root, "config", "commands.json"),
-      "config/commands.minimal.json": join(root, "config", "commands.minimal.json"),
       "config/commands.win32.json": join(root, "config", "commands.win32.json"),
       "config/systemd/slnctrz-mcp.service": join(root, "config", "systemd", "slnctrz-mcp.service"),
       "config/systemd/slnctrz-mcp-launcher.sh": join(

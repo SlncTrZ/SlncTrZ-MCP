@@ -110,7 +110,7 @@ sudo sh /tmp/slnctrz-install.sh \
   --path /srv/slnctrz-workspace
 ```
 
-System mode creates/uses the dedicated `slnctrz` runtime account, verifies that account can read the initial Path, installs the systemd service, starts it, and health-checks it. Use a Path the service account is intentionally allowed to access.
+System mode uses root/sudo only for privileged installation work. The gateway itself runs as the real invoking OS user (for `sudo`, the validated non-root `SUDO_USER`), and setup verifies that runtime user can read and write the initial Path before enabling the systemd service. SlncTrZ-MCP does not create a dedicated `slnctrz` account.
 
 ### Local vs public setup
 
@@ -156,7 +156,7 @@ Keep the Owner Passphrase private. It controls the Owner Console and the authent
 2. Sign in with the Owner Passphrase.
 3. Confirm **Autonomy**. Restricted is the recommended default.
 4. Review **Paths**.
-5. Review **Commands**. Fresh Restricted setup starts with an empty command allowlist.
+5. Review **Commands**. Fresh Restricted setup starts with a platform-specific discovered catalog: SlncTrZ filters the shipped candidate template to executables that are actually available on the machine, then persists and strictly compiles only that usable subset.
 6. Add MCP Servers only when you need them.
 
 The main owner-facing concepts are:
@@ -319,7 +319,7 @@ Rollback activates the recorded previous verified release. User state remains se
 slnctrz-mcp repair
 ```
 
-Repair is intentionally limited. It may restore known non-secret launch/config assets, safe file modes, an absent minimal command catalog, or stale staging state. It does **not** silently replace a missing Owner Passphrase, delete customer policy/provider state, change authority, or roll back a release.
+Repair is intentionally limited. It may restore known non-secret launch/config assets, safe file modes, a missing discovered/default command catalog, or stale staging state. Existing `command.json` bytes are preserved; repair does **not** silently replace a missing Owner Passphrase, delete customer policy/provider state, change authority, or roll back a release.
 
 ### Rotate the Owner Passphrase
 
@@ -349,7 +349,7 @@ Purge program, config, state, and credentials:
 slnctrz-mcp uninstall --yes --purge
 ```
 
-Destructive uninstall validates independent install-root and state identity markers before deleting managed roots. On System Install, the dedicated `slnctrz` OS account is intentionally retained because setup may have reused a pre-existing account and the product cannot safely prove exclusive ownership of that OS identity. Remove it manually only after confirming nothing else uses it.
+Destructive uninstall validates independent install-root and state identity markers before deleting managed roots. System Install does not create or own a dedicated OS account, so uninstall never attempts to delete the invoking user's account.
 
 ## Backup and recovery
 
@@ -383,7 +383,7 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 Important properties:
 
 - owner configuration is separate from model-facing tools;
-- Restricted mode defaults to no Commands on a fresh general-user setup;
+- fresh Restricted setup discovers a usable command subset from the platform candidate template, while the strict compiler still rejects invalid/unresolved persisted entries;
 - file roots are canonicalized and checked;
 - `core.search` explicit-root scope is enforced within configured Paths;
 - installer redirects are bounded and validated as HTTPS;

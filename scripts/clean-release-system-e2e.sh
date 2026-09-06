@@ -7,9 +7,15 @@ if [ "${SLNCTRZ_E2E_ALLOW_SYSTEM:-}" != "1" ]; then
   exit 2
 fi
 if [ "$(id -u)" -ne 0 ]; then
-  echo "refusing: System Install E2E must run as root" >&2
+  echo "refusing: System Install E2E must run through sudo/root authority" >&2
   exit 2
 fi
+runtime_user=${SUDO_USER:-}
+if [ -z "$runtime_user" ] || [ "$runtime_user" = "root" ] || ! id "$runtime_user" >/dev/null 2>&1; then
+  echo "refusing: System Install E2E requires a valid non-root SUDO_USER invoking identity" >&2
+  exit 2
+fi
+runtime_group=$(id -gn "$runtime_user")
 if [ -e /opt/slnctrz-mcp ] || [ -e /var/lib/slnctrz-mcp ] || [ -e /etc/slnctrz-mcp ]; then
   echo "refusing: existing SlncTrZ managed roots detected" >&2
   exit 2
@@ -28,13 +34,23 @@ port=43124
 cleanup_workspace() { rm -rf "$workspace"; }
 trap cleanup_workspace EXIT HUP INT TERM
 mkdir -p "$workspace"
+chown "$runtime_user:$runtime_group" "$workspace"
 chmod 0755 "$workspace"
 
-SLNCTRZ_RELEASE_URL="$release_url"   sh "$(dirname "$0")/install.sh"   --mode system   --port "$port"   --path "$workspace"
+SLNCTRZ_RELEASE_URL="$release_url" \
+  sh "$(dirname "$0")/install.sh" \
+  --mode system \
+  --port "$port" \
+  --path "$workspace"
 
 binary="/opt/slnctrz-mcp/versions/$version/slnctrz-mcp"
 test -x "$binary"
 systemctl is-active --quiet slnctrz-mcp.service
+test "$(systemctl show -p User --value slnctrz-mcp.service)" = "$runtime_user"
+test "$(systemctl show -p Group --value slnctrz-mcp.service)" = "$runtime_group"
+test "$(stat -c '%U' /var/lib/slnctrz-mcp)" = "$runtime_user"
+runuser -u "$runtime_user" -- test -r "$workspace"
+runuser -u "$runtime_user" -- test -w "$workspace"
 curl --fail --silent "http://127.0.0.1:$port/healthz" >/dev/null
 SLNCTRZ_STATE_ROOT=/var/lib/slnctrz-mcp "$binary" status --json
 SLNCTRZ_STATE_ROOT=/var/lib/slnctrz-mcp "$binary" doctor --json |
@@ -51,4 +67,9 @@ test -d /var/lib/slnctrz-mcp
 test -d /etc/slnctrz-mcp
 ! systemctl is-active --quiet slnctrz-mcp.service
 
-printf '%s\n'   "clean_system_install=pass"   "tag=$tag"   "version=$version"   "default_uninstall_preserved_state=pass"
+printf '%s\n' \
+  "clean_system_install=pass" \
+  "tag=$tag" \
+  "version=$version" \
+  "runtime_user=$runtime_user" \
+  "default_uninstall_preserved_state=pass"

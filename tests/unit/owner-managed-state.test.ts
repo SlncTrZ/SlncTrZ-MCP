@@ -9,7 +9,8 @@ import {
   ensureRuntimeWorkspacePolicy,
   initializeDefaultWorkspace,
   loadCommandCatalogState,
-  managedStatePaths
+  managedStatePaths,
+  resolveApplicationRoot
 } from "../../src/owner/managed-state.js";
 
 const cleanup: string[] = [];
@@ -73,18 +74,17 @@ describe("managed owner state", () => {
     expect(compiled.kernelPolicy.runRoots).toEqual([workspaceRoot]);
   });
 
-  it("distinguishes missing and invalid command catalogs without broadening authority", async () => {
-    const { paths, workspaceRoot } = await fixture();
+  it("provisions a missing command catalog and diagnoses invalid existing content without broadening authority", async () => {
+    const { paths } = await fixture();
 
-    const missing = await loadCommandCatalogState(paths, workspaceRoot);
-    expect(missing).toEqual({
-      status: "missing",
-      path: paths.commandCatalogFile,
-      errorCode: "command_catalog_missing"
-    });
+    const provisioned = await loadCommandCatalogState(paths, resolveApplicationRoot());
+    expect(provisioned.status).toBe("ready");
+    if (provisioned.status === "ready") {
+      expect(provisioned.catalog.rules.length).toBeGreaterThan(0);
+    }
 
     await writeFile(paths.commandCatalogFile, "{not-json\n", "utf8");
-    const invalid = await loadCommandCatalogState(paths, workspaceRoot);
+    const invalid = await loadCommandCatalogState(paths, resolveApplicationRoot());
     expect(invalid.status).toBe("invalid");
     if (invalid.status === "invalid") {
       expect(invalid.errorCode).toBe("command_catalog_invalid");

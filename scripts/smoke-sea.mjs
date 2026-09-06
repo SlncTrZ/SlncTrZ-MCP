@@ -3,7 +3,7 @@
 import { randomBytes, scryptSync } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -141,6 +141,18 @@ await new Promise((resolvePromise, reject) => {
     }
     resolvePromise();
   });
-}).finally(() => rm(stateRoot, { recursive: true, force: true }));
+});
 
-console.log(`SEA ${nativeTarget} gateway bootstrap + embedded asset smoke test passed`);
+try {
+  const commandState = JSON.parse(await readFile(join(stateRoot, "command.json"), "utf8"));
+  const entries = commandState?.shell?.allowlist?.added;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error("SEA default command catalog smoke test produced no usable commands");
+  }
+} finally {
+  await rm(stateRoot, { recursive: true, force: true });
+}
+
+console.log(
+  `SEA ${nativeTarget} gateway bootstrap + embedded asset + default command catalog smoke test passed`
+);

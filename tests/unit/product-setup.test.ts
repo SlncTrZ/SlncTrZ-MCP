@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadPolicyDocument } from "../../src/policy/policy-config.js";
@@ -53,7 +53,7 @@ async function roots() {
 }
 
 describe("product setup", () => {
-  it("creates a local user installation without a public URL and hands off the passphrase once", async () => {
+  it("creates a local user installation under the current OS user and preserves owner command edits", async () => {
     const paths = await roots();
     const fetch = releaseFetch(Buffer.from("standalone-bytes"));
     const request = {
@@ -70,6 +70,8 @@ describe("product setup", () => {
     const first = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
     expect(first.mcpEndpoint).toBe("http://127.0.0.1:9123/mcp");
     expect(first.ownerConsoleUrl).toBe("http://127.0.0.1:9123/owner");
+    expect(first.runtimeAccount).toBe(userInfo().username);
+    expect(first.runtimeIdentity.home).toBe(userInfo().homedir);
     expect(first.ownerPassphraseState).toBe("created");
     expect(first.firstRunOwnerPassphrase).toHaveLength(32);
     expect(await loadPolicyDocument(join(paths.stateRoot, "policy.json"))).toMatchObject({
@@ -80,10 +82,20 @@ describe("product setup", () => {
     expect(config).toContain("SLNCTRZ_PORT=9123");
     expect(config).not.toContain("SLNCTRZ_PUBLIC_URL");
 
+    const freshCatalog = JSON.parse(
+      await readFile(join(paths.stateRoot, "command.json"), "utf8")
+    ) as {
+      shell: { allowlist: { added: unknown[] } };
+    };
+    expect(freshCatalog.shell.allowlist.added.length).toBeGreaterThan(0);
+
+    const ownerCatalog = `${JSON.stringify({ shell: { allowlist: { added: [] } } }, null, 2)}\n`;
+    await writeFile(join(paths.stateRoot, "command.json"), ownerCatalog, "utf8");
     const second = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
     expect(second.installation.installationId).toBe(first.installation.installationId);
     expect(second.ownerPassphraseState).toBe("preserved");
     expect(second.firstRunOwnerPassphrase).toBeUndefined();
+    expect(await readFile(join(paths.stateRoot, "command.json"), "utf8")).toBe(ownerCatalog);
   });
 
   it("writes explicit public HTTPS configuration without coupling it to the listener host", async () => {
@@ -131,7 +143,6 @@ describe("product setup", () => {
     expect(file).toContain("SLNCTRZ_CLIENT_ID=slnctrz-mcp");
     expect(file).toContain(`SLNCTRZ_CLIENT_SECRET=${first.firstRunStaticClientSecret}`);
 
-    // An operator edits the secret; a reinstall must preserve it, not regenerate it.
     const operatorSecret = "custom-operator-secret";
     await writeFile(
       first.staticClientFile,
@@ -153,6 +164,14 @@ describe("product setup", () => {
     "requires an explicit initial Path for system mode",
     async () => {
       const paths = await roots();
+      const runtimeIdentity = Object.freeze({
+        username: "test-owner",
+        uid: 1001,
+        gid: 1001,
+        groupName: "test-owner",
+        home: "/home/test-owner",
+        runtimePath: process.env.PATH ?? "/usr/bin"
+      });
       await expect(
         prepareProductSetup(
           {
@@ -162,7 +181,12 @@ describe("product setup", () => {
             stateRoot: paths.stateRoot,
             configRoot: paths.configRoot
           },
-          { fetch: releaseFetch(Buffer.from("standalone-bytes")), checkPort: async () => undefined }
+          {
+            fetch: releaseFetch(Buffer.from("standalone-bytes")),
+            checkPort: async () => undefined,
+            resolveRuntimeIdentity: () => runtimeIdentity,
+            verifyRuntimeBinary: () => true
+          }
         )
       ).rejects.toThrow("explicit Initial Path");
     }
