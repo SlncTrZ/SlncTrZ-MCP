@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compileCommandCatalog } from "../../src/kernel/command-catalog.js";
 import { compilePolicyDocument, loadPolicyDocument } from "../../src/policy/policy-config.js";
+import { buildActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
+import { createPolicySnapshotStore } from "../../src/policy/policy-store.js";
 import {
   ensureManagedStateLayout,
   ensureRuntimeWorkspacePolicy,
@@ -91,6 +93,41 @@ describe("managed owner state", () => {
       expect(invalid.path).toBe(paths.commandCatalogFile);
       expect(invalid.message.length).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps an existing mixed valid/missing catalog strict across startup and reload", async () => {
+    const { paths, workspaceRoot } = await fixture();
+    await initializeDefaultWorkspace({ paths, root: workspaceRoot });
+    const missingBinary = "slnctrz-definitely-missing-command";
+    const ownerBytes = `${JSON.stringify(
+      { shell: { allowlist: { added: ["node", missingBinary] } } },
+      null,
+      2
+    )}\n`;
+    await writeFile(paths.commandCatalogFile, ownerBytes, "utf8");
+
+    const loadSnapshot = async () => {
+      const commandState = await loadCommandCatalogState(paths, resolveApplicationRoot());
+      const compiled = await compilePolicyDocument(
+        await loadPolicyDocument(paths.policyFile),
+        commandState.status === "ready" ? commandState.catalog : undefined
+      );
+      return { commandState, snapshot: buildActivePolicySnapshot(compiled) };
+    };
+
+    const startup = await loadSnapshot();
+    expect(startup.commandState.status).toBe("invalid");
+    expect(startup.snapshot.normalized.kernelPolicy.capabilities).not.toContain("core.exec");
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(ownerBytes);
+
+    const store = createPolicySnapshotStore(
+      async () => (await loadSnapshot()).snapshot,
+      startup.snapshot
+    );
+    const reload = await store.reload();
+    expect(reload).toMatchObject({ activated: true, result: "activated" });
+    expect(store.capture().normalized.kernelPolicy.capabilities).not.toContain("core.exec");
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(ownerBytes);
   });
 
   it.skipIf(process.platform === "win32")(

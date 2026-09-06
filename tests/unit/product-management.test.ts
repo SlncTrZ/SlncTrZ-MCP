@@ -230,6 +230,195 @@ describe("installed product management", () => {
   });
 
   it.skipIf(process.platform !== "linux")(
+    "does not strand the running legacy service when an update fails after migration preflight",
+    async () => {
+      const f = await fixture();
+      const metadataFile = join(f.stateRoot, "installation.json");
+      const metadata = JSON.parse(await readFile(metadataFile, "utf8")) as Record<string, unknown>;
+      metadata.installMode = "system";
+      metadata.serviceMode = "systemd";
+      await writeFile(metadataFile, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+      const serviceUnitRoot = await directory("slnctrz-management-preflight-");
+      await writeFile(
+        join(serviceUnitRoot, "slnctrz-mcp.service"),
+        "[Service]\nUser=slnctrz\nGroup=slnctrz\nExecStart=/legacy/slnctrz-mcp\n",
+        "utf8"
+      );
+      let stateOwner = "slnctrz";
+      const calls: string[] = [];
+      const run = async (command: string, args: readonly string[]) => {
+        calls.push(`${command} ${args.join(" ")}`);
+        if (command === "chown" && args.at(-1) === f.stateRoot) {
+          stateOwner = String(args[1]).split(":", 1)[0] ?? stateOwner;
+        }
+        return {
+          code: 0,
+          stdout: command === "systemctl" && args[0] === "is-system-running" ? "running\n" : "",
+          stderr: ""
+        };
+      };
+      const failingFetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1]
+      ) => {
+        const url = String(input);
+        if (url.includes("manifest")) return f.fetch(input, init);
+        return new Response("artifact download failed", { status: 500 });
+      }) as typeof fetch;
+
+      await expect(
+        updateProduct(
+          { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+          {
+            stateRoot: f.stateRoot,
+            fetch: failingFetch,
+            run,
+            serviceUnitRoot,
+            isRoot: () => true,
+            sleep: async () => undefined
+          }
+        )
+      ).rejects.toThrow("Standalone artifact download failed");
+
+      expect(stateOwner, "legacy service must retain state access after failed update").toBe(
+        "slnctrz"
+      );
+      expect(calls.some((call) => call.startsWith(`chown -R ${userInfo().username}:`))).toBe(false);
+      expect(
+        JSON.parse((await readFile(join(f.installRoot, "current.json"), "utf8")) as string) as {
+          version: string;
+        }
+      ).toMatchObject({ version: "1.0.0" });
+    }
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "rolls back state ownership, unit identity, and active release when restart fails after migration",
+    async () => {
+      const f = await fixture();
+      const metadataFile = join(f.stateRoot, "installation.json");
+      const metadata = JSON.parse(await readFile(metadataFile, "utf8")) as Record<string, unknown>;
+      metadata.installMode = "system";
+      metadata.serviceMode = "systemd";
+      await writeFile(metadataFile, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+      const serviceUnitRoot = await directory("slnctrz-management-rollback-");
+      const unitFile = join(serviceUnitRoot, "slnctrz-mcp.service");
+      const legacyUnit = "[Service]\nUser=slnctrz\nGroup=slnctrz\nExecStart=/legacy/slnctrz-mcp\n";
+      await writeFile(unitFile, legacyUnit, "utf8");
+      let stateOwner = "slnctrz";
+      let restartCount = 0;
+      const ownershipTransitions: string[] = [];
+      const effectiveUnitValue = async (key: "User" | "Group") => {
+        const unit = await readFile(unitFile, "utf8");
+        return new RegExp(`^${key}=([^\\r\\n]+)`, "m").exec(unit)?.[1] ?? "";
+      };
+      const run = async (command: string, args: readonly string[]) => {
+        if (command === "systemctl" && args[0] === "is-system-running") {
+          return { code: 0, stdout: "running\n", stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=User")) {
+          return { code: 0, stdout: `${await effectiveUnitValue("User")}\n`, stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=Group")) {
+          return { code: 0, stdout: `${await effectiveUnitValue("Group")}\n`, stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=MainPID")) {
+          return { code: 0, stdout: "8100\n", stderr: "" };
+        }
+        if (command === "chown" && args.at(-1) === f.stateRoot) {
+          stateOwner = String(args[1]).split(":", 1)[0] ?? stateOwner;
+          ownershipTransitions.push(stateOwner);
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        if (command === "systemctl" && args[0] === "restart") {
+          restartCount += 1;
+          return restartCount === 1
+            ? { code: 1, stdout: "", stderr: "forced restart failure" }
+            : { code: 0, stdout: "", stderr: "" };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      const oldProcessCanReadState = () => stateOwner === "slnctrz";
+
+      await expect(
+        updateProduct(
+          { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+          {
+            stateRoot: f.stateRoot,
+            fetch: f.fetch,
+            run,
+            serviceUnitRoot,
+            isRoot: () => true,
+            sleep: async () => undefined
+          }
+        )
+      ).rejects.toThrow("service_setup_failed: systemctl restart slnctrz-mcp.service");
+
+      expect(ownershipTransitions).toEqual([userInfo().username, "slnctrz"]);
+      expect(stateOwner).toBe("slnctrz");
+      expect(oldProcessCanReadState()).toBe(true);
+      expect(await readFile(unitFile, "utf8")).toBe(legacyUnit);
+      expect(restartCount).toBe(2);
+      expect(
+        JSON.parse(await readFile(join(f.installRoot, "current.json"), "utf8")) as {
+          version: string;
+        }
+      ).toMatchObject({ version: "1.0.0" });
+    }
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "restores the old activation when an effective systemd override blocks migration",
+    async () => {
+      const f = await fixture();
+      const metadataFile = join(f.stateRoot, "installation.json");
+      const metadata = JSON.parse(await readFile(metadataFile, "utf8")) as Record<string, unknown>;
+      metadata.installMode = "system";
+      metadata.serviceMode = "systemd";
+      await writeFile(metadataFile, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+      const serviceUnitRoot = await directory("slnctrz-management-dropin-");
+      const unitFile = join(serviceUnitRoot, "slnctrz-mcp.service");
+      const legacyUnit = "[Service]\nUser=slnctrz\nGroup=slnctrz\nExecStart=/legacy/slnctrz-mcp\n";
+      await writeFile(unitFile, legacyUnit, "utf8");
+      const run = async (command: string, args: readonly string[]) => {
+        if (command === "systemctl" && args[0] === "is-system-running")
+          return { code: 0, stdout: "running\n", stderr: "" };
+        if (command === "systemctl" && args.includes("--property=User"))
+          return { code: 0, stdout: "slnctrz\n", stderr: "" };
+        if (command === "systemctl" && args.includes("--property=Group"))
+          return { code: 0, stdout: "slnctrz\n", stderr: "" };
+        if (command === "systemctl" && args.includes("--property=MainPID"))
+          return { code: 0, stdout: "8200\n", stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      };
+
+      await expect(
+        updateProduct(
+          { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+          {
+            stateRoot: f.stateRoot,
+            fetch: f.fetch,
+            run,
+            serviceUnitRoot,
+            isRoot: () => true,
+            sleep: async () => undefined
+          }
+        )
+      ).rejects.toThrow("service_identity_overridden");
+
+      expect(await readFile(unitFile, "utf8")).toBe(legacyUnit);
+      expect(
+        JSON.parse(await readFile(join(f.installRoot, "current.json"), "utf8")) as {
+          version: string;
+        }
+      ).toMatchObject({ version: "1.0.0" });
+    }
+  );
+
+  it.skipIf(process.platform !== "linux")(
     "migrates legacy System Install service identity across update, rollback, and repair",
     async () => {
       const f = await fixture();
@@ -247,9 +436,33 @@ describe("installed product management", () => {
         "utf8"
       );
       const calls: string[] = [];
+      let mainPid = 7001;
+      const effectiveUnitValue = async (key: "User" | "Group") => {
+        const unit = await readFile(unitFile, "utf8");
+        return new RegExp(`^${key}=([^\\r\\n]+)`, "m").exec(unit)?.[1] ?? "";
+      };
       const run = async (command: string, args: readonly string[]) => {
         calls.push(`${command} ${args.join(" ")}`);
-        return { code: 0, stdout: command === "systemctl" ? "running\n" : "", stderr: "" };
+        if (command === "systemctl" && args[0] === "is-system-running") {
+          return { code: 0, stdout: "running\n", stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=User")) {
+          return { code: 0, stdout: `${await effectiveUnitValue("User")}\n`, stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=Group")) {
+          return { code: 0, stdout: `${await effectiveUnitValue("Group")}\n`, stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=MainPID")) {
+          return { code: 0, stdout: `${mainPid}\n`, stderr: "" };
+        }
+        if (command === "systemctl" && args[0] === "restart") {
+          mainPid += 1;
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        if (command === "ps") {
+          return { code: 0, stdout: `${userInfo().uid} ${userInfo().gid}\n`, stderr: "" };
+        }
+        return { code: 0, stdout: "", stderr: "" };
       };
       const management = {
         stateRoot: f.stateRoot,
@@ -372,6 +585,17 @@ describe("installed product management", () => {
     await expect(access(join(f.stateRoot, "secrets", "owner-passphrase"))).rejects.toMatchObject({
       code: "ENOENT"
     });
+  });
+
+  it("preserves an existing valid-empty legacy catalog during repair", async () => {
+    const f = await fixture();
+    const emptyCatalog = `${JSON.stringify({ shell: { allowlist: { added: [] } } }, null, 2)}\n`;
+    await writeFile(join(f.stateRoot, "command.json"), emptyCatalog, "utf8");
+
+    const result = await repairProduct({ stateRoot: f.stateRoot, fetch: f.fetch });
+
+    expect(result.changes).not.toContain("restored_default_command_catalog");
+    expect(await readFile(join(f.stateRoot, "command.json"), "utf8")).toBe(emptyCatalog);
   });
 
   it("rotates the owner passphrase explicitly and requires restart", async () => {

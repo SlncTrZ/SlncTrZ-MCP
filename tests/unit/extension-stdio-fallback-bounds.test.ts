@@ -87,14 +87,16 @@ function manifestFor(script: string, id = "legacy", startupTimeoutMs = 300): Ext
 }
 
 describe("stdio startup fallback bounds", () => {
-  it("gives a slow modern discovery half the startup budget before legacy fallback", async () => {
+  it("does not infer legacy from a slow modern-only discovery", async () => {
     const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-modern-delay-"));
     let adapter: ReturnType<typeof createStdioAdapter> | undefined;
     try {
       const script = join(root, "modern-delay.cjs");
+      const legacyAttemptFile = join(root, "legacy-attempted");
       await writeFile(
         script,
         [
+          "const { writeFileSync } = require('node:fs');",
           "process.stdin.setEncoding('utf8');",
           "let carry = '';",
           "function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }",
@@ -107,8 +109,8 @@ describe("stdio startup fallback bounds", () => {
           "    if (!line) continue;",
           "    const request = JSON.parse(line);",
           "    const reply = (payload) => send({ jsonrpc: '2.0', id: request.id, ...payload });",
-          "    if (request.method === 'server/discover') { setTimeout(() => reply({ result: { supportedVersions: ['2026-07-28'] } }), 700); continue; }",
-          "    if (request.method === 'initialize') { reply({ error: { code: -32601, message: 'legacy rejected' } }); continue; }",
+          "    if (request.method === 'server/discover') { setTimeout(() => reply({ result: { supportedVersions: ['2026-07-28'] } }), 1100); continue; }",
+          `    if (request.method === 'initialize') { writeFileSync(${JSON.stringify(legacyAttemptFile)}, ''); reply({ error: { code: -32601, message: 'legacy rejected' } }); continue; }`,
           "    if (request.method === 'tools/list') { reply({ result: { tools: [{ name: 'echo' }] } }); continue; }",
           "    if (request.method === 'tools/call') { reply({ result: { content: [{ type: 'text', text: 'modern' }] } }); }",
           "  }",
@@ -122,16 +124,94 @@ describe("stdio startup fallback bounds", () => {
       );
       const startedAt = Date.now();
       await adapter.start();
+      const elapsedMs = Date.now() - startedAt;
       expect((await adapter.listTools()).map((tool) => tool.canonicalId)).toEqual(["echo"]);
       expect((await adapter.callTool("echo", {}, {})).text).toBe("modern");
-      expect(Date.now() - startedAt).toBeLessThan(startupTimeoutMs + 500);
+      expect(elapsedMs).toBeGreaterThanOrEqual(1_050);
+      expect(elapsedMs).toBeLessThan(startupTimeoutMs + 300);
+      await expect(readFile(legacyAttemptFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await adapter?.stop();
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  for (const mode of ["silent-discover", "exit-discover"] as const) {
+  it("does not infer legacy from a silent discovery timeout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-silent-discover-"));
+    let adapter: ReturnType<typeof createStdioAdapter> | undefined;
+    try {
+      const fixture = await legacyFixture(root, "silent-discover");
+      const startupTimeoutMs = 1_800;
+      adapter = createStdioAdapter(
+        await compileExtensionManifest(
+          manifestFor(fixture.script, "silent-discover", startupTimeoutMs)
+        )
+      );
+      const startedAt = Date.now();
+      await expect(adapter.start()).rejects.toMatchObject({ code: "provider_timeout" });
+      const elapsedMs = Date.now() - startedAt;
+      expect(elapsedMs).toBeGreaterThanOrEqual(1_600);
+      expect(elapsedMs).toBeLessThan(startupTimeoutMs + 300);
+      const probePid = Number(await readFile(fixture.probePidFile, "utf8"));
+      await expect(waitGone(probePid)).resolves.toBeUndefined();
+      await expect(readFile(fixture.legacyPidFile, "utf8")).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+    } finally {
+      await adapter?.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("selects legacy from an explicit slow method-not-found without stealing fallback time", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-slow-legacy-"));
+    let adapter: ReturnType<typeof createStdioAdapter> | undefined;
+    try {
+      const script = join(root, "slow-legacy.cjs");
+      const protocolFile = join(root, "protocol-selected");
+      await writeFile(
+        script,
+        [
+          "const { writeFileSync } = require('node:fs');",
+          "process.stdin.setEncoding('utf8');",
+          "let carry = '';",
+          "function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }",
+          "process.stdin.on('data', (chunk) => {",
+          "  carry += chunk;",
+          "  while (carry.includes('\\n')) {",
+          "    const index = carry.indexOf('\\n');",
+          "    const line = carry.slice(0, index);",
+          "    carry = carry.slice(index + 1);",
+          "    if (!line) continue;",
+          "    const request = JSON.parse(line);",
+          "    const reply = (payload) => send({ jsonrpc: '2.0', id: request.id, ...payload });",
+          "    if (request.method === 'server/discover') { setTimeout(() => reply({ error: { code: -32601, message: 'method not found' } }), 650); continue; }",
+          `    if (request.method === 'initialize') { setTimeout(() => { writeFileSync(${JSON.stringify(protocolFile)}, 'legacy'); reply({ result: { protocolVersion: '2025-11-25' } }); }, 500); continue; }`,
+          "    if (request.method === 'tools/list') { reply({ result: { tools: [{ name: 'echo' }] } }); continue; }",
+          "    if (request.method === 'tools/call') { reply({ result: { content: [{ type: 'text', text: 'legacy' }] } }); }",
+          "  }",
+          "});"
+        ].join("\n"),
+        "utf8"
+      );
+      const startupTimeoutMs = 1_800;
+      adapter = createStdioAdapter(
+        await compileExtensionManifest(manifestFor(script, "slow-legacy", startupTimeoutMs))
+      );
+      const startedAt = Date.now();
+      await adapter.start();
+      const elapsedMs = Date.now() - startedAt;
+      expect((await adapter.callTool("echo", {}, {})).text).toBe("legacy");
+      expect(await readFile(protocolFile, "utf8")).toBe("legacy");
+      expect(elapsedMs).toBeGreaterThanOrEqual(1_100);
+      expect(elapsedMs).toBeLessThan(startupTimeoutMs + 300);
+    } finally {
+      await adapter?.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const mode of ["exit-discover"] as const) {
     it(`falls back from ${mode} to a fresh legacy generation within the startup budget`, async () => {
       const root = await mkdtemp(join(tmpdir(), "slnctrz-stdio-fallback-"));
       let adapter: ReturnType<typeof createStdioAdapter> | undefined;
@@ -311,6 +391,7 @@ describe("stdio explicit stop during discovery", () => {
     let restarting: Promise<void> | undefined;
     try {
       const fixture = await legacyFixture(root, "silent-discover");
+      const healthy = await legacyFixture(root, "healthy");
       adapter = createStdioAdapter(
         await compileExtensionManifest(manifestFor(fixture.script, "legacy", 3_000))
       );
@@ -320,6 +401,7 @@ describe("stdio explicit stop during discovery", () => {
       );
       const oldPid = await waitForPid(fixture.probePidFile);
       const stopping = adapter.stop();
+      await writeFile(fixture.script, await readFile(healthy.script, "utf8"), "utf8");
       restarting = adapter.start();
       await stopping;
 
@@ -327,11 +409,13 @@ describe("stdio explicit stop during discovery", () => {
       await restarting;
       expect((await adapter.listTools()).map((tool) => tool.canonicalId)).toEqual(["echo"]);
       expect(adapter.health()).toBe("ready");
-      const legacyPid = await waitForPid(fixture.legacyPidFile);
+      const legacyPid = await waitForPid(healthy.legacyPidFile);
       expect(legacyPid).not.toBe(oldPid);
       const pids = (await readdir(root))
-        .filter((entry) => entry.startsWith(fixture.spawnPrefix))
-        .map((entry) => Number(entry.slice(fixture.spawnPrefix.length)));
+        .filter(
+          (entry) => entry.startsWith(fixture.spawnPrefix) || entry.startsWith(healthy.spawnPrefix)
+        )
+        .map((entry) => Number(entry.slice(entry.lastIndexOf(".") + 1)));
       expect(pids).toHaveLength(3);
       await Promise.all(pids.filter((pid) => pid !== legacyPid).map(waitGone));
       await adapter.stop();

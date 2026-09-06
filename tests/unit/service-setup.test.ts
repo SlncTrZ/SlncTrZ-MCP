@@ -30,10 +30,11 @@ async function directory(prefix: string): Promise<string> {
   return value;
 }
 
-function releaseFetch(bytes: Buffer): typeof fetch {
+function releaseFetch(bytes: Buffer, buildCommit?: string): typeof fetch {
   const manifest = JSON.stringify({
     schemaVersion: 1,
     version: "1.2.3",
+    ...(buildCommit === undefined ? {} : { buildCommit }),
     artifacts: [
       {
         target: currentReleaseTarget(),
@@ -77,8 +78,18 @@ describe("system service setup", () => {
       );
 
       const calls: string[] = [];
+      let restarted = false;
       const run: SystemCommandRunner = async (command, args) => {
         calls.push(`${command} ${args.join(" ")}`);
+        if (command === "systemctl" && args[0] === "restart") restarted = true;
+        if (command === "systemctl" && args.includes("--property=User"))
+          return { code: 0, stdout: `${runtimeIdentity.username}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=Group"))
+          return { code: 0, stdout: `${runtimeIdentity.groupName}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=MainPID"))
+          return { code: 0, stdout: restarted ? "222\n" : "111\n", stderr: "" };
+        if (command === "ps")
+          return { code: 0, stdout: `${runtimeIdentity.uid} ${runtimeIdentity.gid}\n`, stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       };
       const unitRoot = join(root, "systemd");
@@ -98,7 +109,11 @@ describe("system service setup", () => {
         `chown -R ${runtimeIdentity.username}:${runtimeIdentity.groupName} ${setup.installation.stateRoot}`
       );
       expect(calls).toContain("systemctl daemon-reload");
-      expect(calls).toContain("systemctl enable --now slnctrz-mcp.service");
+      expect(calls).toContain("systemctl enable slnctrz-mcp.service");
+      expect(calls).toContain("systemctl restart slnctrz-mcp.service");
+      expect(result.mainPid).toBe(222);
+      expect(result.uid).toBe(runtimeIdentity.uid);
+      expect(result.gid).toBe(runtimeIdentity.gid);
       expect(result.serviceName).toBe("slnctrz-mcp.service");
       const unit = await readFile(result.unitFile, "utf8");
       expect(unit).toContain(`User=${runtimeIdentity.username}`);
@@ -161,4 +176,174 @@ describe("system service setup", () => {
       "permission_denied"
     );
   });
+
+  it.skipIf(process.platform !== "linux")(
+    "restarts an already-active service before accepting health from the new runtime",
+    async () => {
+      const root = await directory("slnctrz-system-active-");
+      const workspace = await directory("slnctrz-system-active-workspace-");
+      const setup = await prepareProductSetup(
+        {
+          installMode: "system",
+          port: 9131,
+          initialPath: workspace,
+          manifestUrl: "https://updates.example.test/manifest.json",
+          installRoot: join(root, "install"),
+          stateRoot: join(root, "state"),
+          configRoot: join(root, "config")
+        },
+        setupDependencies(Buffer.from("system-release"))
+      );
+      let restarted = false;
+      const calls: string[] = [];
+      const run: SystemCommandRunner = async (command, args) => {
+        calls.push(`${command} ${args.join(" ")}`);
+        if (command === "systemctl" && args[0] === "restart") restarted = true;
+        if (command === "systemctl" && args.includes("--property=User"))
+          return { code: 0, stdout: `${runtimeIdentity.username}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=Group"))
+          return { code: 0, stdout: `${runtimeIdentity.groupName}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=MainPID"))
+          return { code: 0, stdout: restarted ? "444\n" : "333\n", stderr: "" };
+        if (command === "ps")
+          return { code: 0, stdout: `${runtimeIdentity.uid} ${runtimeIdentity.gid}\n`, stderr: "" };
+        return {
+          code: 0,
+          stdout: command === "systemctl" && args[0] === "is-system-running" ? "running\n" : "",
+          stderr: ""
+        };
+      };
+
+      await activateSystemService(setup, {
+        run,
+        serviceUnitRoot: join(root, "systemd"),
+        isRoot: () => true,
+        fetch: async () => new Response('{"status":"ok"}', { status: 200 }),
+        sleep: async () => undefined
+      });
+
+      expect(restarted).toBe(true);
+      expect(calls).toContain("systemctl restart slnctrz-mcp.service");
+    }
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "attests a new PID, runtime UID/GID, version, and build before accepting activation",
+    async () => {
+      const root = await directory("slnctrz-system-attest-");
+      const workspace = await directory("slnctrz-system-attest-workspace-");
+      const bytes = Buffer.from("system-release-with-build");
+      const buildCommit = "new-build-commit";
+      const setup = await prepareProductSetup(
+        {
+          installMode: "system",
+          port: 9133,
+          initialPath: workspace,
+          manifestUrl: "https://updates.example.test/manifest.json",
+          installRoot: join(root, "install"),
+          stateRoot: join(root, "state"),
+          configRoot: join(root, "config")
+        },
+        {
+          ...setupDependencies(bytes),
+          fetch: releaseFetch(bytes, buildCommit)
+        }
+      );
+      expect(setup.activation.buildCommit).toBe(buildCommit);
+
+      let restarted = false;
+      let healthObservedAfterRestartedPid = false;
+      const run: SystemCommandRunner = async (command, args) => {
+        if (command === "systemctl" && args[0] === "restart") restarted = true;
+        if (command === "systemctl" && args.includes("--property=User"))
+          return { code: 0, stdout: `${runtimeIdentity.username}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=Group"))
+          return { code: 0, stdout: `${runtimeIdentity.groupName}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=MainPID"))
+          return { code: 0, stdout: restarted ? "9022\n" : "9011\n", stderr: "" };
+        if (command === "ps")
+          return { code: 0, stdout: `${runtimeIdentity.uid} ${runtimeIdentity.gid}\n`, stderr: "" };
+        return {
+          code: 0,
+          stdout: command === "systemctl" && args[0] === "is-system-running" ? "running\n" : "",
+          stderr: ""
+        };
+      };
+      const activationFetch = (async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/healthz")) {
+          healthObservedAfterRestartedPid = restarted;
+          return new Response('{"status":"ok","source":"could-be-old"}', { status: 200 });
+        }
+        if (url.endsWith(":3101/status")) {
+          const passphrase = (await readFile(setup.ownerPassphraseFile, "utf8")).trim();
+          expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${passphrase}`);
+          return new Response(JSON.stringify({ status: "ok", version: "1.2.3", buildCommit }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      }) as typeof fetch;
+
+      const result = await activateSystemService(setup, {
+        run,
+        serviceUnitRoot: join(root, "systemd"),
+        isRoot: () => true,
+        fetch: activationFetch,
+        sleep: async () => undefined
+      });
+
+      expect(healthObservedAfterRestartedPid).toBe(true);
+      expect(result).toMatchObject({
+        mainPid: 9022,
+        uid: runtimeIdentity.uid,
+        gid: runtimeIdentity.gid,
+        version: "1.2.3",
+        buildCommit
+      });
+    }
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "rejects a systemd drop-in that overrides the requested runtime identity",
+    async () => {
+      const root = await directory("slnctrz-system-override-");
+      const workspace = await directory("slnctrz-system-override-workspace-");
+      const setup = await prepareProductSetup(
+        {
+          installMode: "system",
+          port: 9132,
+          initialPath: workspace,
+          manifestUrl: "https://updates.example.test/manifest.json",
+          installRoot: join(root, "install"),
+          stateRoot: join(root, "state"),
+          configRoot: join(root, "config")
+        },
+        setupDependencies(Buffer.from("system-release"))
+      );
+      const run: SystemCommandRunner = async (command, args) => {
+        if (command === "systemctl" && args[0] === "is-system-running") {
+          return { code: 0, stdout: "running\n", stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=User")) {
+          return { code: 0, stdout: "slnctrz\n", stderr: "" };
+        }
+        if (command === "systemctl" && args.includes("--property=Group")) {
+          return { code: 0, stdout: "slnctrz\n", stderr: "" };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      };
+
+      await expect(
+        activateSystemService(setup, {
+          run,
+          serviceUnitRoot: join(root, "systemd"),
+          isRoot: () => true,
+          fetch: async () => new Response('{"status":"ok"}', { status: 200 }),
+          sleep: async () => undefined
+        })
+      ).rejects.toThrow("service_identity_overridden");
+    }
+  );
 });

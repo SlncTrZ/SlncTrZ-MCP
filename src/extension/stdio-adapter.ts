@@ -344,10 +344,6 @@ export function createStdioAdapter(
     assertCurrentStartup(epoch);
     const probe = spawnGeneration();
     let fallback = false;
-    const probeBudgetMs = Math.max(
-      1,
-      Math.min(remainingStartupMs(), Math.max(1, Math.floor(manifest.startupTimeoutMs / 2)))
-    );
     try {
       const response = await sendBounded(
         probe,
@@ -355,7 +351,7 @@ export function createStdioAdapter(
           method: "server/discover",
           params: modernParams({})
         },
-        probeBudgetMs
+        remainingStartupMs()
       );
       assertCurrentStartup(epoch);
       if (response.error !== undefined) {
@@ -373,10 +369,9 @@ export function createStdioAdapter(
     } catch (error) {
       // Explicit stop invalidates this attempt; it must never trigger legacy fallback.
       assertCurrentStartup(epoch);
-      if (
-        error instanceof AdapterError &&
-        (error.code === "provider_timeout" || error.code === "provider_unavailable")
-      ) {
+      if (error instanceof AdapterError && error.code === "provider_unavailable") {
+        // Process termination can indicate a legacy server that cannot handle server/discover.
+        // A mere timeout is not protocol evidence: never guess legacy from slowness.
         fallback = true;
       } else {
         stopGeneration(probe);

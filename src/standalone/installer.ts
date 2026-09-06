@@ -33,10 +33,12 @@ const SEMVER =
   /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const BUILD_COMMIT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 export const DEFAULT_MAX_STANDALONE_ARTIFACT_BYTES = 512 * 1024 * 1024;
 
 interface InstalledRelease {
   readonly version: string;
+  readonly buildCommit?: string;
   readonly target: ReleaseTarget;
   readonly fileName: string;
   readonly sha256: string;
@@ -133,6 +135,7 @@ function parseInstalledRelease(value: unknown, allowPreviousVersion = false): Ac
   const record = value as Record<string, unknown>;
   const allowed = [
     "version",
+    "buildCommit",
     "target",
     "fileName",
     "sha256",
@@ -145,6 +148,8 @@ function parseInstalledRelease(value: unknown, allowPreviousVersion = false): Ac
   if (
     typeof record.version !== "string" ||
     !SEMVER.test(record.version) ||
+    (record.buildCommit !== undefined &&
+      (typeof record.buildCommit !== "string" || !BUILD_COMMIT.test(record.buildCommit))) ||
     typeof record.target !== "string" ||
     !RELEASE_TARGETS.has(record.target as ReleaseTarget) ||
     typeof record.fileName !== "string" ||
@@ -165,6 +170,7 @@ function parseInstalledRelease(value: unknown, allowPreviousVersion = false): Ac
   }
   return {
     version: record.version,
+    ...(record.buildCommit === undefined ? {} : { buildCommit: record.buildCommit as string }),
     target: record.target as ReleaseTarget,
     fileName: record.fileName,
     sha256: record.sha256,
@@ -206,6 +212,27 @@ async function readActivation(installRoot: string): Promise<ActivationRecord | u
   return parseInstalledRelease(await readJson(path), true);
 }
 
+export async function readCurrentStandaloneActivation(
+  installRoot: string
+): Promise<ActivationRecord | undefined> {
+  validateInstallRoot(installRoot);
+  await assertSafeInstallLayout(installRoot);
+  return readActivation(installRoot);
+}
+
+export async function restoreStandaloneActivation(
+  installRoot: string,
+  activation: ActivationRecord
+): Promise<void> {
+  validateInstallRoot(installRoot);
+  await assertSafeInstallLayout(installRoot);
+  const installed = await readInstalledVersion(installRoot, activation.version);
+  if (installed === undefined || !sameRelease(installed, activation)) {
+    throw new Error("Standalone rollback activation is unavailable");
+  }
+  await writeActivation(installRoot, activation, NODE_INSTALLER_MUTATIONS);
+}
+
 async function readInstalledVersion(
   installRoot: string,
   version: string
@@ -220,6 +247,7 @@ async function readInstalledVersion(
 function sameRelease(left: InstalledRelease, right: InstalledRelease): boolean {
   return (
     left.version === right.version &&
+    left.buildCommit === right.buildCommit &&
     left.target === right.target &&
     left.fileName === right.fileName &&
     left.sha256 === right.sha256 &&
@@ -302,6 +330,7 @@ export async function installStandaloneRelease(
   }
   const installed: InstalledRelease = {
     version: manifest.version,
+    ...(manifest.buildCommit === undefined ? {} : { buildCommit: manifest.buildCommit }),
     target: artifact.target,
     fileName: artifact.fileName,
     sha256: artifact.sha256,

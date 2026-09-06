@@ -193,6 +193,50 @@ describe("Owner Console product surface", () => {
     expect(invalidCommands.status).toBe(400);
     expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(invalidBefore);
 
+    const missingBinary = "slnctrz-definitely-missing-command";
+    const parseableInvalid = JSON.stringify({
+      shell: { allowlist: { added: ["node", missingBinary] } }
+    });
+    await writeFile(paths.commandCatalogFile, parseableInvalid, "utf8");
+    const recoverableInvalid = await fetch(`${origin}/owner/api/commands`, {
+      headers: { cookie }
+    });
+    expect(await recoverableInvalid.json()).toMatchObject({
+      status: "invalid",
+      entries: [["node"], [missingBinary]]
+    });
+    const stateWithRecoverableInvalid = await fetch(`${origin}/owner/api/state`, {
+      headers: { cookie }
+    });
+    expect(await stateWithRecoverableInvalid.json()).toMatchObject({
+      commandCatalog: { status: "invalid" },
+      commands: [["node"], [missingBinary]]
+    });
+
+    const ownerPage = await (await fetch(`${origin}/owner`)).text();
+    expect(ownerPage).toContain("x.title='Remove '+name");
+    expect(ownerPage).not.toContain("el.appendChild(e);return}const risky");
+
+    commandReloadMode = "activated";
+    const recoveredCommands = await fetch(`${origin}/owner/api/commands`, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "x-slnctrz-csrf": csrf
+      },
+      body: JSON.stringify({ content: candidateCommands })
+    });
+    expect(recoveredCommands.status).toBe(200);
+    expect(await recoveredCommands.json()).toMatchObject({
+      activated: true,
+      entries: [["node"]]
+    });
+    const recoveredState = await fetch(`${origin}/owner/api/commands`, { headers: { cookie } });
+    expect(await recoveredState.json()).toMatchObject({ status: "ready", entries: [["node"]] });
+    expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(candidateCommands);
+    await writeFile(paths.commandCatalogFile, priorCommands, "utf8");
+
     await rm(paths.commandCatalogFile, { force: true });
     const missingState = await fetch(`${origin}/owner/api/commands`, { headers: { cookie } });
     const missingStateText = await missingState.text();

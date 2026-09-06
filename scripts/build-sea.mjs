@@ -129,12 +129,13 @@ const artifact = {
 const manifest = {
   schemaVersion: 1,
   version,
+  buildCommit,
   artifacts: [artifact]
 };
 await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 await writeFile(
   manifestFragmentFile,
-  `${JSON.stringify({ schemaVersion: 1, version, artifact }, null, 2)}\n`,
+  `${JSON.stringify({ schemaVersion: 1, version, buildCommit, artifact }, null, 2)}\n`,
   "utf8"
 );
 await writeFile(checksumsFile, `${sha256}  ${fileName}\n`, "utf8");

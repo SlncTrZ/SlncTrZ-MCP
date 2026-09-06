@@ -19,6 +19,7 @@ export interface ReleaseArtifact {
 export interface ReleaseManifest {
   readonly schemaVersion: 1;
   readonly version: string;
+  readonly buildCommit?: string;
   readonly artifacts: readonly ReleaseArtifact[];
 }
 
@@ -33,6 +34,7 @@ const SEMVER =
   /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const BUILD_COMMIT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -89,11 +91,18 @@ function parseArtifact(value: unknown): ReleaseArtifact {
 
 export function parseReleaseManifest(value: unknown): ReleaseManifest {
   const raw = record(value, "Release manifest");
-  exactKeys(raw, ["schemaVersion", "version", "artifacts"], "Release manifest");
+  exactKeys(raw, ["schemaVersion", "version", "buildCommit", "artifacts"], "Release manifest");
   if (raw.schemaVersion !== 1) throw new Error("Release manifest schemaVersion must be 1");
   const version = requiredString(raw.version, "Release manifest version");
   if (!SEMVER.test(version))
     throw new Error("Release manifest version must be semantic versioning");
+  const buildCommit = raw.buildCommit;
+  if (
+    buildCommit !== undefined &&
+    (typeof buildCommit !== "string" || !BUILD_COMMIT.test(buildCommit))
+  ) {
+    throw new Error("Release manifest buildCommit is invalid");
+  }
   if (!Array.isArray(raw.artifacts) || raw.artifacts.length === 0) {
     throw new Error("Release manifest artifacts must be a non-empty array");
   }
@@ -104,7 +113,12 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
     targets.add(parsed.target);
     return parsed;
   });
-  return Object.freeze({ schemaVersion: 1, version, artifacts: Object.freeze(artifacts) });
+  return Object.freeze({
+    schemaVersion: 1,
+    version,
+    ...(buildCommit === undefined ? {} : { buildCommit }),
+    artifacts: Object.freeze(artifacts)
+  });
 }
 
 export function selectReleaseArtifact(

@@ -16,6 +16,7 @@ await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
 
 let version;
+let buildCommit;
 const artifacts = [];
 const targets = new Set();
 for (const directory of inputDirectories) {
@@ -25,6 +26,7 @@ for (const directory of inputDirectories) {
   if (
     fragment.schemaVersion !== 1 ||
     typeof fragment.version !== "string" ||
+    (fragment.buildCommit !== undefined && typeof fragment.buildCommit !== "string") ||
     typeof fragment.artifact !== "object" ||
     fragment.artifact === null
   ) {
@@ -32,6 +34,8 @@ for (const directory of inputDirectories) {
   }
   if (version === undefined) version = fragment.version;
   if (fragment.version !== version) throw new Error("Target manifest versions differ");
+  if (buildCommit === undefined) buildCommit = fragment.buildCommit;
+  if (fragment.buildCommit !== buildCommit) throw new Error("Target manifest build commits differ");
 
   const artifact = fragment.artifact;
   if (
@@ -59,7 +63,12 @@ for (const directory of inputDirectories) {
 }
 
 artifacts.sort((left, right) => left.target.localeCompare(right.target));
-const manifest = { schemaVersion: 1, version, artifacts };
+const manifest = {
+  schemaVersion: 1,
+  version,
+  ...(buildCommit === undefined ? {} : { buildCommit }),
+  artifacts
+};
 await writeFile(
   join(outputDirectory, "manifest.json"),
   `${JSON.stringify(manifest, null, 2)}\n`,

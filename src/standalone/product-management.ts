@@ -34,6 +34,7 @@ import { readStandaloneTextAsset } from "./assets.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
 import {
   installStandaloneRelease,
+  readCurrentStandaloneActivation,
   resolveCurrentStandaloneExecutable,
   rollbackStandaloneRelease,
   verifyCurrentStandaloneIntegrity,
@@ -47,7 +48,11 @@ import {
 import { OFFICIAL_RELEASE_MANIFEST_URL } from "./product-setup.js";
 import { userPlatformLayout } from "./platform-layout.js";
 import { resolveRuntimeIdentity, runtimeCanExecuteBinary } from "./runtime-identity.js";
-import { configureSystemService } from "./service-setup.js";
+import {
+  activateSystemService,
+  configureSystemService,
+  preflightSystemService
+} from "./service-setup.js";
 import { currentReleaseTarget } from "./release-manifest.js";
 import { readClientEnvironmentFile, readRuntimeEnvironmentFile } from "./runtime-env-file.js";
 
@@ -275,49 +280,71 @@ async function gatewayReachable(
   }
 }
 
+function systemServiceDependencies(dependencies: ManagementDependencies) {
+  return {
+    ...(dependencies.run === undefined ? {} : { run: dependencies.run }),
+    ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+    ...(dependencies.sleep === undefined ? {} : { sleep: dependencies.sleep }),
+    ...(dependencies.serviceUnitRoot === undefined
+      ? {}
+      : { serviceUnitRoot: dependencies.serviceUnitRoot }),
+    ...(dependencies.isRoot === undefined ? {} : { isRoot: dependencies.isRoot })
+  };
+}
+
+function installedSystemServiceSetup(
+  context: InstalledProductContext,
+  options: {
+    readonly activation?: ActivationRecord;
+    readonly rollbackActivation?: ActivationRecord;
+  } = {}
+) {
+  return {
+    installation: context.installation,
+    gatewayConfigFile: join(context.installation.configRoot, "gateway.env"),
+    runtimeIdentity: resolveRuntimeIdentity({ installMode: "system" }),
+    ownerPassphraseFile: context.statePaths.ownerPassphraseFile,
+    ...options
+  };
+}
+
+async function preflightInstalledSystemService(
+  context: InstalledProductContext,
+  dependencies: ManagementDependencies
+): Promise<void> {
+  if (context.installation.installMode !== "system") return;
+  await preflightSystemService(
+    installedSystemServiceSetup(context),
+    systemServiceDependencies(dependencies)
+  );
+}
+
 async function configureInstalledSystemService(
   context: InstalledProductContext,
   dependencies: ManagementDependencies
 ): Promise<boolean> {
   if (context.installation.installMode !== "system") return false;
-  const runtimeIdentity = resolveRuntimeIdentity({ installMode: "system" });
   const configured = await configureSystemService(
-    {
-      installation: context.installation,
-      gatewayConfigFile: join(context.installation.configRoot, "gateway.env"),
-      runtimeIdentity
-    },
-    {
-      ...(dependencies.run === undefined ? {} : { run: dependencies.run }),
-      ...(dependencies.serviceUnitRoot === undefined
-        ? {}
-        : { serviceUnitRoot: dependencies.serviceUnitRoot }),
-      ...(dependencies.isRoot === undefined ? {} : { isRoot: dependencies.isRoot })
-    }
+    installedSystemServiceSetup(context),
+    systemServiceDependencies(dependencies)
   );
   return configured.changed;
 }
 
-async function restartSystemService(
+async function activateInstalledSystemService(
   context: InstalledProductContext,
+  activation: ActivationRecord,
+  rollbackActivation: ActivationRecord | undefined,
   dependencies: ManagementDependencies
 ): Promise<void> {
   if (context.installation.installMode !== "system") return;
-  const run = dependencies.run ?? defaultRun;
-  const result = await run("systemctl", ["restart", "slnctrz-mcp.service"]);
-  if (result.code !== 0) {
-    throw new Error(
-      `service_restart_failed: ${result.stderr.trim() || result.stdout.trim() || result.code}`
-    );
-  }
-  const fetchImpl = dependencies.fetch ?? fetch;
-  const sleep =
-    dependencies.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (await gatewayReachable(context.installation, fetchImpl)) return;
-    await sleep(250);
-  }
-  throw new Error("health_check_failed: gateway did not become healthy after service restart");
+  await activateSystemService(
+    installedSystemServiceSetup(context, {
+      activation,
+      ...(rollbackActivation === undefined ? {} : { rollbackActivation })
+    }),
+    systemServiceDependencies(dependencies)
+  );
 }
 
 async function loadPolicyState(context: InstalledProductContext) {
@@ -887,8 +914,13 @@ export async function updateProduct(
       ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch })
     }
   );
+  const rollbackActivation = await readCurrentStandaloneActivation(
+    context.installation.installRoot
+  );
   if (context.installation.installMode === "system") {
-    await configureInstalledSystemService(context, dependencies);
+    // This preflight is deliberately non-mutating: a failed artifact download must not change
+    // service identity, unit content, or state ownership under the still-running old process.
+    await preflightInstalledSystemService(context, dependencies);
   }
   const activation = await installStandaloneRelease({
     installRoot: context.installation.installRoot,
@@ -897,7 +929,7 @@ export async function updateProduct(
     ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch })
   });
   if (context.installation.installMode === "system") {
-    await restartSystemService(context, dependencies);
+    await activateInstalledSystemService(context, activation, rollbackActivation, dependencies);
     return { activation, restartRequired: false };
   }
   return { activation, restartRequired: true };
@@ -907,14 +939,17 @@ export async function rollbackProduct(
   dependencies: ManagementDependencies = {}
 ): Promise<{ readonly activation: ActivationRecord; readonly restartRequired: boolean }> {
   const context = await discoverInstalledProduct(dependencies);
+  const rollbackActivation = await readCurrentStandaloneActivation(
+    context.installation.installRoot
+  );
   if (context.installation.installMode === "system") {
-    await configureInstalledSystemService(context, dependencies);
+    await preflightInstalledSystemService(context, dependencies);
   }
   const activation = await rollbackStandaloneRelease({
     installRoot: context.installation.installRoot
   });
   if (context.installation.installMode === "system") {
-    await restartSystemService(context, dependencies);
+    await activateInstalledSystemService(context, activation, rollbackActivation, dependencies);
     return { activation, restartRequired: false };
   }
   return { activation, restartRequired: true };
