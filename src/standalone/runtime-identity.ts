@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { posix } from "node:path";
-import { userInfo } from "node:os";
+import { homedir, userInfo } from "node:os";
 
 export interface RuntimeIdentity {
   readonly username: string;
@@ -116,6 +116,10 @@ export function resolveRuntimeIdentity(options: RuntimeIdentityOptions = {}): Ru
   const platform = options.platform ?? process.platform;
   const environment = options.environment ?? process.env;
   const current = options.currentUser ?? userInfo();
+  // Honor $HOME for the real process identity (os.homedir() prefers $HOME over the passwd
+  // entry), while preserving an injected currentUser.home for tests and callers that pin it.
+  const currentHome =
+    options.currentUser === undefined ? homedir() || current.homedir : current.homedir;
 
   if (platform === "win32") {
     return Object.freeze({
@@ -123,7 +127,7 @@ export function resolveRuntimeIdentity(options: RuntimeIdentityOptions = {}): Ru
       uid: current.uid,
       gid: current.gid,
       groupName: current.username,
-      home: current.homedir,
+      home: currentHome,
       runtimePath: environment.PATH?.trim() || ""
     });
   }
@@ -132,7 +136,7 @@ export function resolveRuntimeIdentity(options: RuntimeIdentityOptions = {}): Ru
   let username = current.username;
   let uid = current.uid;
   let gid = current.gid;
-  let home = current.homedir;
+  let home = currentHome;
 
   if (currentUid === 0) {
     const sudoUser = environment.SUDO_USER?.trim();
