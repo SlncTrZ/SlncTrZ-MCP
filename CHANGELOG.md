@@ -2,6 +2,16 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.3
+
+Date: 2026-09-06
+
+### Changed
+
+- Align the runtime identity (user/group/PATH) in System installs so the gateway runs as the invoking non-root user (the `SUDO_USER`) instead of a fixed system account. The systemd unit is now templated (`User`/`Group`/`PATH` resolved at setup) and no longer creates a dedicated `slnctrz` account.
+- Provision the default command catalog without failing closed: only commands resolvable on the runtime PATH are retained, so a single missing binary no longer disables `core.exec` entirely.
+- Harden System service activation and recovery: preflight verifies the runtime account can read and write the Initial Path, installation attests the running process identity and release, and failed activation rolls back state/unit.
+
 ## 0.2.2
 
 Date: 2026-09-05
