@@ -1,10 +1,12 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPolicyDocument } from "../../src/policy/policy-config.js";
 import { runApplication } from "../../src/app/application-runner.js";
 import { runStandaloneCli, STANDALONE_VERSION } from "../../src/app/standalone-cli.js";
+import { currentReleaseTarget } from "../../src/standalone/release-manifest.js";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -14,6 +16,28 @@ afterEach(async () => {
 function output() {
   const lines: string[] = [];
   return { lines, write: (message: string) => lines.push(message) };
+}
+
+function releaseFetch(bytes: Buffer): typeof fetch {
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const target = currentReleaseTarget();
+  const manifest = JSON.stringify({
+    schemaVersion: 1,
+    version: "1.2.3",
+    artifacts: [
+      {
+        target,
+        url: "https://objects.example.test/slnctrz-mcp",
+        sha256,
+        sizeBytes: bytes.byteLength,
+        fileName: process.platform === "win32" ? "slnctrz-mcp.exe" : "slnctrz-mcp"
+      }
+    ]
+  });
+  return (async (input) =>
+    new Response(String(input).includes("manifest") ? manifest : bytes, {
+      status: 200
+    })) as typeof fetch;
 }
 
 describe("standalone CLI", () => {
@@ -53,6 +77,49 @@ describe("standalone CLI", () => {
       paths: [workspaceRoot],
       authorityMode: "restricted"
     });
+  });
+
+  it("forwards custom OAuth credentials through the setup command", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-cli-setup-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "slnctrz-cli-setup-workspace-"));
+    cleanup.push(root, workspaceRoot);
+    const configRoot = join(root, "config");
+    const captured = output();
+
+    await expect(
+      runStandaloneCli(
+        [
+          "setup",
+          "--port",
+          "9126",
+          "--path",
+          workspaceRoot,
+          "--manifest",
+          "https://updates.example.test/manifest.json",
+          "--install-root",
+          join(root, "install"),
+          "--state-root",
+          join(root, "state"),
+          "--config-root",
+          configRoot,
+          "--client-id",
+          "cli-client",
+          "--client-secret",
+          "cli-client-secret"
+        ],
+        {
+          output: captured,
+          fetch: releaseFetch(Buffer.from("standalone-bytes")),
+          environment: {},
+          checkPort: async () => undefined
+        }
+      )
+    ).resolves.toBe(true);
+
+    expect(captured.lines.join("\n")).toContain("Client ID: cli-client");
+    expect(await readFile(join(configRoot, "client.env"), "utf8")).toContain(
+      ["SLNCTRZ_CLIENT_ID=cli-client", "SLNCTRZ_CLIENT_SECRET=cli-client-secret"].join("\n")
+    );
   });
 
   it("maps bounded owner diagnostics to loopback control requests", async () => {

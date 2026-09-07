@@ -142,6 +142,10 @@ describe("product setup", () => {
     const file = await readFile(first.staticClientFile, "utf8");
     expect(file).toContain("SLNCTRZ_CLIENT_ID=slnctrz-mcp");
     expect(file).toContain(`SLNCTRZ_CLIENT_SECRET=${first.firstRunStaticClientSecret}`);
+    expect(file).toContain("https://claude.ai/api/mcp/auth_callback");
+    expect(file).toContain(
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+    );
 
     const operatorSecret = "custom-operator-secret";
     await writeFile(
@@ -158,6 +162,30 @@ describe("product setup", () => {
     expect(second.firstRunStaticClientSecret).toBeUndefined();
     const preserved = await readFile(second.staticClientFile, "utf8");
     expect(preserved).toContain(`SLNCTRZ_CLIENT_SECRET=${operatorSecret}`);
+  });
+
+  it("accepts an explicit static OAuth client ID and secret during setup", async () => {
+    const paths = await roots();
+    const result = await prepareProductSetup(
+      {
+        installMode: "user",
+        port: 9125,
+        initialPath: paths.workspace,
+        manifestUrl: "https://updates.example.test/manifest.json",
+        installRoot: paths.installRoot,
+        stateRoot: paths.stateRoot,
+        configRoot: paths.configRoot,
+        clientId: "custom-client",
+        clientSecret: "custom-client-secret"
+      },
+      { fetch: releaseFetch(Buffer.from("standalone-bytes")), checkPort: async () => undefined }
+    );
+
+    expect(result.staticClientId).toBe("custom-client");
+    expect(result.firstRunStaticClientSecret).toBeUndefined();
+    expect(await readFile(result.staticClientFile, "utf8")).toContain(
+      ["SLNCTRZ_CLIENT_ID=custom-client", "SLNCTRZ_CLIENT_SECRET=custom-client-secret"].join("\n")
+    );
   });
 
   it.skipIf(process.platform !== "linux")(

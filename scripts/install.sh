@@ -99,6 +99,8 @@ listen_host_set=false
 install_root_set=false
 state_root_set=false
 config_root_set=false
+client_id_set=false
+client_secret_set=false
 
 while [ "$#" -gt 0 ]; do
   option=$1
@@ -140,6 +142,14 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -gt 0 ] || { echo "error: missing --config-root value" >&2; exit 2; }
       config_root=$1; config_root_set=true; shift
       ;;
+    --client-id)
+      [ "$#" -gt 0 ] || { echo "error: missing --client-id value" >&2; exit 2; }
+      client_id=$1; client_id_set=true; shift
+      ;;
+    --client-secret)
+      [ "$#" -gt 0 ] || { echo "error: missing --client-secret value" >&2; exit 2; }
+      client_secret=$1; client_secret_set=true; shift
+      ;;
     --manifest)
       echo "error: bootstrap owns --manifest so setup stays pinned to the verified release" >&2
       exit 2
@@ -172,6 +182,8 @@ if [ "$listen_host_set" = true ]; then set -- "$@" --listen-host "$listen_host";
 if [ "$install_root_set" = true ]; then set -- "$@" --install-root "$install_root"; fi
 if [ "$state_root_set" = true ]; then set -- "$@" --state-root "$state_root"; fi
 if [ "$config_root_set" = true ]; then set -- "$@" --config-root "$config_root"; fi
+if [ "$client_id_set" = true ]; then set -- "$@" --client-id "$client_id"; fi
+if [ "$client_secret_set" = true ]; then set -- "$@" --client-secret "$client_secret"; fi
 
 # Pin setup to the same exact release location used for the checksum and bootstrap artifact.
 exec "$binary" setup --manifest "$RELEASE_URL/manifest.json" "$@"

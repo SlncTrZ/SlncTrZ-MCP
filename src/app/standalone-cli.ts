@@ -62,7 +62,7 @@ function help(): string {
     "Usage: slnctrz-mcp [command]",
     "",
     "Commands:",
-    "  setup [--mode user|system] [--port <1-65535>] [--path <absolute-path>] [--authority restricted|autonomous] [--public-url <https-url>]",
+    "  setup [--mode user|system] [--port <1-65535>] [--path <absolute-path>] [--authority restricted|autonomous] [--public-url <https-url>] [--client-id <id>] [--client-secret <secret>]",
     "  status [--json]",
     "  doctor [--json]",
     "  config show [--json]",
@@ -162,7 +162,9 @@ export async function runStandaloneCli(
       "--manifest",
       "--install-root",
       "--state-root",
-      "--config-root"
+      "--config-root",
+      "--client-id",
+      "--client-secret"
     ]);
     const mode = values.includes("--mode") ? option(values, "--mode") : "user";
     if (mode !== "user" && mode !== "system") throw new Error("--mode must be user or system");
@@ -200,6 +202,10 @@ export async function runStandaloneCli(
           : {}),
         ...(values.includes("--config-root")
           ? { configRoot: absolute(option(values, "--config-root")) }
+          : {}),
+        ...(values.includes("--client-id") ? { clientId: option(values, "--client-id") } : {}),
+        ...(values.includes("--client-secret")
+          ? { clientSecret: option(values, "--client-secret") }
           : {})
       },
       {

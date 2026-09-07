@@ -30,6 +30,11 @@ export interface RuntimeConfig {
   };
 }
 
+export const DEFAULT_STATIC_CLIENT_REDIRECT_URIS = Object.freeze([
+  "https://claude.ai/api/mcp/auth_callback",
+  "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+]);
+
 function parseCsv(value: string | undefined, fallback: readonly string[]): string[] {
   if (value === undefined) return [...fallback];
   const entries = value
@@ -120,9 +125,10 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
       clientId,
       clientSecret,
       clientName: environment.SLNCTRZ_CLIENT_NAME ?? "SlncTrZ-MCP",
-      redirectUris: parseCsv(environment.SLNCTRZ_CLIENT_REDIRECT_URIS, [
-        "https://claude.ai/api/mcp/auth_callback"
-      ])
+      redirectUris: parseCsv(
+        environment.SLNCTRZ_CLIENT_REDIRECT_URIS,
+        DEFAULT_STATIC_CLIENT_REDIRECT_URIS
+      )
     };
   }
 

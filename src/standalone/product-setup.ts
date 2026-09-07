@@ -21,7 +21,7 @@ import {
   managedStatePaths,
   resolveApplicationRoot
 } from "../owner/managed-state.js";
-import { readRuntimeConfig } from "../app/config.js";
+import { DEFAULT_STATIC_CLIENT_REDIRECT_URIS, readRuntimeConfig } from "../app/config.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
 import { currentReleaseTarget } from "./release-manifest.js";
 import {
@@ -60,6 +60,8 @@ export interface ProductSetupRequest {
   readonly stateRoot?: string;
   readonly configRoot?: string;
   readonly releaseChannel?: string;
+  readonly clientId?: string;
+  readonly clientSecret?: string;
 }
 
 export interface ProductSetupResult {
@@ -186,49 +188,80 @@ function safeEnvValue(value: string, key: string): string {
   return value;
 }
 
+export const DEFAULT_STATIC_CLIENT_ID = "slnctrz-mcp";
+
 const CLIENT_ENV_PATTERNS = Object.freeze({
   id: /^SLNCTRZ_CLIENT_ID=(.*)$/mu,
-  secret: /^SLNCTRZ_CLIENT_SECRET=(.*)$/mu
+  secret: /^SLNCTRZ_CLIENT_SECRET=(.*)$/mu,
+  name: /^SLNCTRZ_CLIENT_NAME=(.*)$/mu,
+  redirectUris: /^SLNCTRZ_CLIENT_REDIRECT_URIS=(.*)$/mu
 });
 
 /**
- * Auto-provision a static confidential-client file (configRoot/client.env) for a fresh
- * install, unless one already carries explicit credentials the owner set/edited. Reusing an
- * existing id/secret is mandatory so an operator edit survives a reinstall.
+ * Auto-provision a static confidential-client file (configRoot/client.env). Existing
+ * credentials survive setup unless the owner explicitly supplies a replacement ID or secret.
  */
-async function ensureClientEnvFile(configRoot: string): Promise<{
+async function ensureClientEnvFile(
+  configRoot: string,
+  requested: { clientId?: string; clientSecret?: string }
+): Promise<{
   file: string;
   clientId: string;
   clientSecret: string;
   created: boolean;
 }> {
   const file = join(configRoot, "client.env");
+  let existing = "";
   try {
-    const existing = await readFile(file, "utf8");
-    const clientId = existing.match(CLIENT_ENV_PATTERNS.id)?.[1];
-    const clientSecret = existing.match(CLIENT_ENV_PATTERNS.secret)?.[1];
-    if (
-      clientId !== undefined &&
-      clientId.length > 0 &&
-      clientSecret !== undefined &&
-      clientSecret.length > 0
-    ) {
-      return { file, clientId, clientSecret, created: false };
-    }
-  } catch {
-    // ENOENT: generate below.
+    existing = await readFile(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const clientId = "slnctrz-mcp";
-  const clientSecret = randomBytes(24).toString("hex");
+
+  const existingClientId = existing.match(CLIENT_ENV_PATTERNS.id)?.[1];
+  const existingClientSecret = existing.match(CLIENT_ENV_PATTERNS.secret)?.[1];
+  if (
+    requested.clientId === undefined &&
+    requested.clientSecret === undefined &&
+    existingClientId !== undefined &&
+    existingClientId.length > 0 &&
+    existingClientSecret !== undefined &&
+    existingClientSecret.length > 0
+  ) {
+    return {
+      file,
+      clientId: existingClientId,
+      clientSecret: existingClientSecret,
+      created: false
+    };
+  }
+
+  const clientId = safeEnvValue(
+    requested.clientId ?? existingClientId ?? DEFAULT_STATIC_CLIENT_ID,
+    "Client ID"
+  );
+  const requestedSecret =
+    requested.clientSecret ?? (existingClientSecret?.length ? existingClientSecret : undefined);
+  const clientSecret = safeEnvValue(
+    requestedSecret ?? randomBytes(24).toString("hex"),
+    "Client Secret"
+  );
+  if (clientId.length === 0) throw new Error("Client ID must not be empty");
+  if (clientSecret.length === 0) throw new Error("Client Secret must not be empty");
+
+  const clientName = existing.match(CLIENT_ENV_PATTERNS.name)?.[1] ?? "SlncTrZ-MCP";
+  const redirectUris =
+    existing.match(CLIENT_ENV_PATTERNS.redirectUris)?.[1] ??
+    DEFAULT_STATIC_CLIENT_REDIRECT_URIS.join(",");
   const content =
     [
       `SLNCTRZ_CLIENT_ID=${clientId}`,
       `SLNCTRZ_CLIENT_SECRET=${clientSecret}`,
-      "SLNCTRZ_CLIENT_NAME=SlncTrZ-MCP",
-      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback"
+      `SLNCTRZ_CLIENT_NAME=${clientName}`,
+      `SLNCTRZ_CLIENT_REDIRECT_URIS=${redirectUris}`
     ].join("\n") + "\n";
   await atomicTextFile(file, content, 0o600);
-  return { file, clientId, clientSecret, created: true };
+  return { file, clientId, clientSecret, created: requestedSecret === undefined };
 }
 
 function gatewayEnvFile(environment: NodeJS.ProcessEnv): string {
@@ -314,7 +347,10 @@ export async function prepareProductSetup(
   await mkdir(configRoot, { recursive: true, mode: 0o700 });
   const gatewayConfigFile = join(configRoot, "gateway.env");
   await atomicTextFile(gatewayConfigFile, gatewayEnvFile(environment), 0o600);
-  const staticClient = await ensureClientEnvFile(configRoot);
+  const staticClient = await ensureClientEnvFile(configRoot, {
+    ...(request.clientId === undefined ? {} : { clientId: request.clientId }),
+    ...(request.clientSecret === undefined ? {} : { clientSecret: request.clientSecret })
+  });
 
   const platformLayout = userPlatformLayout(process.platform, process.env, runtimeIdentity.home);
   const launcherFile = join(installRoot, platformLayout.launcherFileName);

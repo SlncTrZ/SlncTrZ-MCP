@@ -111,6 +111,18 @@ describe("readRuntimeConfig", () => {
     ).toThrowError("SLNCTRZ_MAX_DYNAMIC_CLIENTS must be a positive integer");
   });
 
+  it("includes Claude and Gemini callbacks for the default static OAuth client", () => {
+    const config = readRuntimeConfig({
+      SLNCTRZ_CLIENT_ID: "slnctrz-mcp",
+      SLNCTRZ_CLIENT_SECRET: "server-side-secret"
+    });
+
+    expect(config.staticClient?.redirectUris).toEqual([
+      "https://claude.ai/api/mcp/auth_callback",
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+    ]);
+  });
+
   it("rejects partial confidential-client credentials", () => {
     const base = {
       SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",

@@ -133,6 +133,18 @@ sh /tmp/slnctrz-install.sh \
 
 The public URL must be HTTPS and its path must be exactly `/mcp`. Reverse proxy/TLS setup is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+OAuth credentials are created automatically. To choose them during the first setup:
+
+```bash
+sh /tmp/slnctrz-install.sh \
+  --mode user \
+  --path "$HOME" \
+  --client-id my-mcp-client \
+  --client-secret 'replace-with-a-strong-secret'
+```
+
+If omitted, Client ID defaults to `slnctrz-mcp` and the installer generates a random Client Secret.
+
 ## What setup gives you
 
 A successful first setup prints:
@@ -144,7 +156,9 @@ A successful first setup prints:
 - MCP endpoint;
 - Owner Console URL;
 - **Owner Passphrase** on first creation only;
-- permanent Owner Passphrase recovery-file path.
+- permanent Owner Passphrase recovery-file path;
+- OAuth Client ID and first-run generated Client Secret;
+- the path to the editable OAuth client file.
 
 Ordinary reinstall preserves the existing installation identity, state, policy, provider configuration, and Owner Passphrase.
 
@@ -290,12 +304,15 @@ cat <stateRoot>/secrets/owner-passphrase   # owner passphrase
 
 The Client Secret is not echoed by `config show` (it is a secret); read it from the `client.env` file directly.
 
-**Customise / rotate:** edit `<configRoot>/client.env` (change `SLNCTRZ_CLIENT_ID`, `SLNCTRZ_CLIENT_SECRET`, optionally `SLNCTRZ_CLIENT_REDIRECT_URIS`), then restart the gateway. A reinstall or `update` **preserves** an existing `client.env` — it never silently overwrites your edits.
+**Customise during first setup:** pass `--client-id <id>` and/or `--client-secret <secret>` to `install.sh` or `slnctrz-mcp setup`. Avoid reusing a secret from another service.
+
+**Customise / rotate later:** edit `<configRoot>/client.env` (change `SLNCTRZ_CLIENT_ID`, `SLNCTRZ_CLIENT_SECRET`, optionally `SLNCTRZ_CLIENT_REDIRECT_URIS`), then restart the gateway. A reinstall or `update` **preserves** an existing `client.env` unless explicit `--client-id` or `--client-secret` setup arguments request a change.
 
 **Which clients need what:**
 
 - **ChatGPT / Grok** (dynamic-registration MCP clients) — **no `SLNCTRZ_CLIENT_ID` / `SLNCTRZ_CLIENT_SECRET` needed.** They register dynamically (`POST /register`), receive a public `client_id`, and authenticate with **PKCE** only. Point them at the MCP URL and approve the OAuth consent.
 - **Claude** — **requires `SLNCTRZ_CLIENT_ID` / `SLNCTRZ_CLIENT_SECRET`.** Configure the connector with `oauth` auth (method `client_secret_basic` / `client_secret_post`) using the credentials above, **complete the OAuth flow first**, then enter the **Owner Passphrase** at the consent screen. The default redirect URI is `https://claude.ai/api/mcp/auth_callback`.
+- **Gemini custom MCP** — use the same Client ID/Secret. Fresh installs also allow the Gemini callback `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org`. Register only this stable callback URI; do not copy a complete `/authorize?...state=...&code_challenge=...` URL into `client.env` because those parameters are transaction-specific.
 
 ### Update
 
