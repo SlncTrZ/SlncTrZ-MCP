@@ -106,10 +106,42 @@ describe("release manifest retrieval", () => {
     ).rejects.toThrow("loop");
   });
 
+  it("retries transient release-CDN failures but not permanent client errors", async () => {
+    let transientCalls = 0;
+    const transient = (async () => {
+      transientCalls += 1;
+      return transientCalls < 3
+        ? new Response("temporary", { status: 504 })
+        : new Response(document, { status: 200 });
+    }) as typeof fetch;
+    await expect(
+      fetchReleaseManifest("https://updates.example.test/stable.json", {
+        fetch: transient,
+        retryDelayMs: 0
+      })
+    ).resolves.toMatchObject({ version: "1.2.3" });
+    expect(transientCalls).toBe(3);
+
+    let permanentCalls = 0;
+    const permanent = (async () => {
+      permanentCalls += 1;
+      return new Response("missing", { status: 404 });
+    }) as typeof fetch;
+    await expect(
+      fetchReleaseManifest("https://updates.example.test/stable.json", {
+        fetch: permanent,
+        retryDelayMs: 0
+      })
+    ).rejects.toThrow("download failed");
+    expect(permanentCalls).toBe(1);
+  });
+
   it("rejects failed, oversized and malformed responses", async () => {
     await expect(
       fetchReleaseManifest("https://updates.example.test/stable.json", {
-        fetch: responder("no", 503)
+        fetch: responder("no", 503),
+        attempts: 2,
+        retryDelayMs: 0
       })
     ).rejects.toThrow("download failed");
     await expect(
