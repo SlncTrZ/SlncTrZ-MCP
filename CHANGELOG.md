@@ -2,6 +2,22 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.6
+
+Date: 2026-09-07
+
+### Fixed
+
+- Retry transient HTTP `429` and `5xx` responses while downloading the verified release manifest. Retries are bounded to seven attempts with capped backoff and remain abortable; permanent client errors and invalid release content still fail immediately.
+
+### Included
+
+- Carries the Gemini Spark OAuth install support introduced in the 0.2.5 candidate: automatic OAuth credentials, configurable Client ID/Secret, and the default Gemini callback alongside Claude.
+
+### Note
+
+- The 0.2.5 candidate was not promoted because GitHub's release CDN returned transient `504` responses for the newly uploaded `manifest.json` during both public clean-install jobs. Version 0.2.6 adds the bounded installer recovery required by that observed public-release path.
+
 ## 0.2.5
 
 Date: 2026-09-07
