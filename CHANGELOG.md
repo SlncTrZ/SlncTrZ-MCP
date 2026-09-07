@@ -2,6 +2,20 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.5
+
+Date: 2026-09-07
+
+### Added
+
+- Fresh installs now register the Gemini Spark custom-MCP callback alongside Claude's callback for the default static OAuth client. The stable Gemini redirect URI is allowlisted; transaction-specific `state` and PKCE `code_challenge` values are never persisted.
+- Add `--client-id` and `--client-secret` to both `install.sh` and `slnctrz-mcp setup`. Client ID still defaults to `slnctrz-mcp`, while an omitted Client Secret is generated automatically and stored in the private `client.env` file.
+
+### Compatibility / behavior notes
+
+- Existing `client.env` credentials and redirect allowlists remain preserved unless the owner explicitly supplies replacement setup arguments. Existing installations can add the Gemini callback by editing `SLNCTRZ_CLIENT_REDIRECT_URIS` and restarting the gateway.
+- No managed-state schema change. Claude, dynamic registration, PKCE, Owner approval, and MCP token validation retain their existing behavior.
+
 ## 0.2.4
 
 Date: 2026-09-06
