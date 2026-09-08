@@ -45,7 +45,7 @@ import {
   writeInstallationMetadata,
   type InstallationMetadata
 } from "./installation-metadata.js";
-import { OFFICIAL_RELEASE_MANIFEST_URL } from "./product-setup.js";
+import { ensureClientEnvFile, OFFICIAL_RELEASE_MANIFEST_URL } from "./product-setup.js";
 import { userPlatformLayout } from "./platform-layout.js";
 import { resolveRuntimeIdentity, runtimeCanExecuteBinary } from "./runtime-identity.js";
 import {
@@ -928,6 +928,7 @@ export async function updateProduct(
     target: currentReleaseTarget(),
     ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch })
   });
+  await ensureClientEnvFile(context.installation.configRoot, {});
   if (context.installation.installMode === "system") {
     await activateInstalledSystemService(context, activation, rollbackActivation, dependencies);
     return { activation, restartRequired: false };

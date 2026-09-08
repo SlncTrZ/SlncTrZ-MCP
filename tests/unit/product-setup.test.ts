@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadPolicyDocument } from "../../src/policy/policy-config.js";
 import { currentReleaseTarget } from "../../src/standalone/release-manifest.js";
-import { prepareProductSetup } from "../../src/standalone/product-setup.js";
+import {
+  migrateLegacyStaticClientRedirectUris,
+  prepareProductSetup
+} from "../../src/standalone/product-setup.js";
 
 const cleanup: string[] = [];
 
@@ -122,7 +125,7 @@ describe("product setup", () => {
     expect(config).toContain("SLNCTRZ_PUBLIC_URL=https://mcp.example.test/mcp");
   });
 
-  it("auto-provisions a static confidential client on first setup and preserves an edited secret", async () => {
+  it("auto-provisions OAuth and migrates the legacy callback without changing the secret", async () => {
     const paths = await roots();
     const fetch = releaseFetch(Buffer.from("standalone-bytes"));
     const request = {
@@ -162,6 +165,20 @@ describe("product setup", () => {
     expect(second.firstRunStaticClientSecret).toBeUndefined();
     const preserved = await readFile(second.staticClientFile, "utf8");
     expect(preserved).toContain(`SLNCTRZ_CLIENT_SECRET=${operatorSecret}`);
+    expect(preserved).toContain(
+      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback,https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+    );
+  });
+
+  it("preserves custom OAuth redirect allowlists", () => {
+    const customized = [
+      "SLNCTRZ_CLIENT_ID=custom-client",
+      "SLNCTRZ_CLIENT_SECRET=custom-secret",
+      "SLNCTRZ_CLIENT_NAME=Custom Client",
+      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://client.example.test/oauth/callback",
+      ""
+    ].join("\n");
+    expect(migrateLegacyStaticClientRedirectUris(customized)).toBe(customized);
   });
 
   it("accepts an explicit static OAuth client ID and secret during setup", async () => {

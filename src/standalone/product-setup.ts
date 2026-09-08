@@ -190,6 +190,7 @@ function safeEnvValue(value: string, key: string): string {
 
 export const DEFAULT_STATIC_CLIENT_ID = "slnctrz-mcp";
 
+const LEGACY_STATIC_CLIENT_REDIRECT_URIS = "https://claude.ai/api/mcp/auth_callback";
 const CLIENT_ENV_PATTERNS = Object.freeze({
   id: /^SLNCTRZ_CLIENT_ID=(.*)$/mu,
   secret: /^SLNCTRZ_CLIENT_SECRET=(.*)$/mu,
@@ -197,11 +198,22 @@ const CLIENT_ENV_PATTERNS = Object.freeze({
   redirectUris: /^SLNCTRZ_CLIENT_REDIRECT_URIS=(.*)$/mu
 });
 
+/** Add Gemini to the untouched legacy Claude-only allowlist without changing custom allowlists. */
+export function migrateLegacyStaticClientRedirectUris(content: string): string {
+  if (content.match(CLIENT_ENV_PATTERNS.redirectUris)?.[1] !== LEGACY_STATIC_CLIENT_REDIRECT_URIS) {
+    return content;
+  }
+  return content.replace(
+    CLIENT_ENV_PATTERNS.redirectUris,
+    `SLNCTRZ_CLIENT_REDIRECT_URIS=${DEFAULT_STATIC_CLIENT_REDIRECT_URIS.join(",")}`
+  );
+}
+
 /**
  * Auto-provision a static confidential-client file (configRoot/client.env). Existing
  * credentials survive setup unless the owner explicitly supplies a replacement ID or secret.
  */
-async function ensureClientEnvFile(
+export async function ensureClientEnvFile(
   configRoot: string,
   requested: { clientId?: string; clientSecret?: string }
 ): Promise<{
@@ -228,6 +240,8 @@ async function ensureClientEnvFile(
     existingClientSecret !== undefined &&
     existingClientSecret.length > 0
   ) {
+    const migrated = migrateLegacyStaticClientRedirectUris(existing);
+    if (migrated !== existing) await atomicTextFile(file, migrated, 0o600);
     return {
       file,
       clientId: existingClientId,

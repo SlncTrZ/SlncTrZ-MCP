@@ -2,6 +2,15 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.7
+
+Date: 2026-09-08
+
+### Fixed
+
+- Upgrades now provision the default static OAuth client when an older installation has no `client.env` file.
+- Upgrade and repeated-setup flows automatically add the Gemini Spark callback when the redirect allowlist is still the untouched legacy Claude-only default. Existing Client IDs and secrets are preserved, and custom redirect allowlists remain unchanged.
+
 ## 0.2.6
 
 Date: 2026-09-07
