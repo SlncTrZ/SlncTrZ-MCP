@@ -203,6 +203,29 @@ Return to local mode with:
 slnctrz-mcp config set public-url local
 ```
 
+## Gemini Spark does not return to its confirmation page
+
+Gemini Spark may leave its authorization tab in the background after SlncTrZ accepts the Owner
+Passphrase. In this case the server has approved the request, but the browser does not continue the
+Google redirect until that request is opened explicitly.
+
+1. Cancel the failed Gemini connection and start a new connection.
+2. After entering the configured Client ID and Client Secret, select **Continue**.
+3. On the SlncTrZ `/authorize` page, open browser DevTools and select **Network** before entering
+   the Owner Passphrase.
+4. Enter the passphrase and click **Approve exactly once**.
+5. In Network, right-click the request starting with
+   `https://oauth-redirect.googleusercontent.com/r/...` and select **Open in new tab**.
+6. Wait for Gemini's success/confirmation page. Do not reuse the old authorization page.
+
+Never refresh, go back, or approve the same transaction again: pending authorization transactions
+and authorization codes are single-use. Do not copy or share the Google redirect URL because it
+contains a temporary authorization `code` and `state`.
+
+This workaround is specific to the observed Gemini Spark flow. ChatGPT, Claude, and Grok normally
+complete the redirect automatically after one approval. It does not require a callback wildcard,
+manual `client.env` edits, or a gateway restart.
+
 ## OAuth reconnect after restart
 
 Dynamic client registrations are durable, but authorization-in-progress state, access tokens, and refresh tokens are intentionally process-memory state. After restart/update/rollback, a client may need to reconnect or complete OAuth authorization again.
