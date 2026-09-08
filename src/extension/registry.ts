@@ -104,7 +104,7 @@ export async function compileExtensionRegistry(
 ): Promise<CompiledExtensionRegistry> {
   const records: CompiledExtensionRecord[] = [];
   const providerIds = new Set<string>();
-  const toolIds = new Set<string>();
+  const toolIds = new Set<string>(["media.read_image"]);
 
   if (manifests.length > MAX_EXTENSIONS) {
     throw new ExtensionRegistryError(

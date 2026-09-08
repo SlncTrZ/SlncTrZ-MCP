@@ -54,17 +54,17 @@ function sameFile(
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-/** Read one strict UTF-8 file through a validated, bounded file handle. */
+/** Options shared by text and binary reads through a validated, bounded file handle. */
 export interface ReadOptions extends KernelExecutionOptions {
   readonly protectSecrets?: boolean;
 }
 
-export async function readContainedFile(
+export async function readContainedBytes(
   root: string | undefined,
   relPath: string,
   maxBytes: number = DEFAULT_MAX_READ_BYTES,
   execution: ReadOptions = {}
-): Promise<ReadResult> {
+): Promise<Buffer> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new ReadError("invalid_limit", "maxBytes must be a positive safe integer");
   }
@@ -130,23 +130,31 @@ export async function readContainedFile(
       throw new ReadError("too_large", `File exceeds the ${maxBytes}-byte read limit`);
     }
 
-    const hadBom = total >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
-
-    let content: string;
-    try {
-      content = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, total));
-    } catch {
-      throw new ReadError("invalid_encoding", "File is not valid UTF-8");
-    }
-
-    return {
-      content,
-      bytes: total,
-      encoding: "utf-8",
-      sha256: createHash("sha256").update(bytes.subarray(0, total)).digest("hex"),
-      hadBom
-    };
+    return Buffer.from(bytes.subarray(0, total));
   } finally {
     await handle.close();
   }
+}
+
+/** Text and image reads share the same bounded handle and containment checks. */
+export async function readContainedFile(
+  root: string | undefined,
+  relPath: string,
+  maxBytes: number = DEFAULT_MAX_READ_BYTES,
+  execution: ReadOptions = {}
+): Promise<ReadResult> {
+  const bytes = await readContainedBytes(root, relPath, maxBytes, execution);
+  let content: string;
+  try {
+    content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new ReadError("invalid_encoding", "File is not valid UTF-8");
+  }
+  return {
+    content,
+    bytes: bytes.length,
+    encoding: "utf-8",
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    hadBom: bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+  };
 }

@@ -37,7 +37,11 @@ function toolCatalogFingerprint(
   compiled: CompiledPolicyInput,
   extensionRuntime?: ExtensionRuntimeCatalog
 ): string {
-  const coreTools = ["core.ping", ...compiled.kernelPolicy.capabilities].sort();
+  const coreTools = [
+    "core.ping",
+    ...compiled.kernelPolicy.capabilities,
+    ...(compiled.kernelPolicy.capabilities.includes("core.read") ? ["media.read_image"] : [])
+  ].sort();
   const extensionTools = Object.values(compiled.extensionRegistry.toolIndex)
     .filter((tool) => extensionRuntime?.isReady(tool.providerId) ?? false)
     .map((tool) => {

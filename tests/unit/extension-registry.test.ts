@@ -139,3 +139,13 @@ describe("extension registry (canonical namespace, collisions, stable hash)", ()
 });
 
 void (null as unknown as CompiledExtensionRegistry);
+
+it("reserves media.read_image for the built-in reader", async () => {
+  await expect(
+    compileExtensionRegistry([
+      await stdioManifest("media", {
+        tools: [{ canonicalId: "media.read_image", riskClass: "read" }]
+      })
+    ])
+  ).rejects.toMatchObject({ code: "registry_collision" });
+});

@@ -25,6 +25,7 @@ import {
   editContainedFile
 } from "../kernel/fs-edit.js";
 import { ExecutionError } from "../kernel/execution.js";
+import { IMAGE_DISPLAY_GUIDANCE, readContainedImage } from "../kernel/fs-image.js";
 import { DEFAULT_MAX_READ_BYTES, ReadError, readContainedFile } from "../kernel/fs-read.js";
 import { isContainedPath, resolveBoundaryRoot } from "../kernel/fs-boundary.js";
 import {
@@ -223,6 +224,33 @@ async function readWithin(
   for (const root of candidates) {
     try {
       return await readContainedFile(root, path, maxBytes);
+    } catch (error) {
+      if (
+        error instanceof ReadError &&
+        (error.code === "invalid_path" ||
+          error.code === "not_found" ||
+          (error.code === "permission_denied" && error.message.includes("Path escapes")))
+      ) {
+        last = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw last ?? new ReadError("not_found", "File not found");
+}
+
+/** Image reads retain the same multi-root policy as text reads. */
+async function readImageWithin(
+  roots: readonly string[] | undefined,
+  fallback: string,
+  path: string,
+  signal?: AbortSignal
+) {
+  let last: ReadError | undefined;
+  for (const root of roots !== undefined && roots.length > 0 ? roots : [fallback]) {
+    try {
+      return await readContainedImage(root, path, signal === undefined ? {} : { signal });
     } catch (error) {
       if (
         error instanceof ReadError &&
@@ -656,6 +684,101 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               riskClass: "read",
               policyVersion: readAuthorization.policyVersion,
               decision: "allow",
+              result: auditResult,
+              durationMs: Math.max(0, Date.now() - startedAt)
+            });
+          }
+        })
+    );
+  }
+
+  const imageAuthorization = authorizedContext(kernelPolicy, options.principal, "core.read");
+  if (imageAuthorization !== undefined) {
+    server.registerTool(
+      "media.read_image",
+      {
+        title: "Read Image",
+        description:
+          "Read an original PNG/JPEG (4 MiB, 25 megapixels max) under core.read authority. " +
+          IMAGE_DISPLAY_GUIDANCE,
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ path: z.string().min(1) }).strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          const startedAt = Date.now();
+          let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
+          let auditDecision: "allow" | "deny" = "allow";
+          try {
+            const autonomous = imageAuthorization.authorityMode === "autonomous";
+            if (!autonomous && !isReadAllowed(imageAuthorization, args.path)) {
+              throw new ReadError(
+                "invalid_path",
+                "Path is not within the allowed documentation scope"
+              );
+            }
+            const target = autonomousPath(imageAuthorization.root, args.path);
+            const execution = { signal: context.http?.req?.signal };
+            const result = autonomous
+              ? await readContainedImage(target.root, target.relPath, {
+                  protectSecrets: false,
+                  ...(execution.signal === undefined ? {} : { signal: execution.signal })
+                })
+              : await readImageWithin(
+                  imageAuthorization.readRoots,
+                  imageAuthorization.root,
+                  args.path,
+                  execution.signal
+                );
+            return {
+              content: [
+                { type: "image" as const, data: result.data, mimeType: result.mimeType },
+                { type: "text" as const, text: IMAGE_DISPLAY_GUIDANCE }
+              ],
+              structuredContent: {
+                path: args.path,
+                name: basename(args.path),
+                bytes: result.bytes,
+                mimeType: result.mimeType,
+                width: result.width,
+                height: result.height,
+                sha256: result.sha256,
+                transformed: false,
+                validation: "container-headers",
+                displayGuidance: IMAGE_DISPLAY_GUIDANCE
+              }
+            };
+          } catch (error) {
+            if (
+              error instanceof ReadError &&
+              (error.code === "permission_denied" || error.code === "invalid_path")
+            )
+              auditDecision = "deny";
+            auditResult =
+              error instanceof ExecutionError && error.code === "cancelled"
+                ? "cancelled"
+                : error instanceof ExecutionError && error.code === "timeout"
+                  ? "timeout"
+                  : "error";
+            if (error instanceof ReadError || error instanceof ExecutionError) {
+              return errorResult(error);
+            }
+            throw error;
+          } finally {
+            emitToolAuditSafely(toolAudit, {
+              timestamp: new Date().toISOString(),
+              requestId: String(context.mcpReq.id),
+              clientId: imageAuthorization.clientId,
+              workspaceId: imageAuthorization.workspaceId,
+              toolId: "media.read_image",
+              riskClass: "read",
+              policyVersion: imageAuthorization.policyVersion,
+              decision: auditDecision,
               result: auditResult,
               durationMs: Math.max(0, Date.now() - startedAt)
             });
