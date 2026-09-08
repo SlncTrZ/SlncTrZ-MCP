@@ -22,6 +22,67 @@ function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
+const TRANSIENT_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET"
+]);
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        (error as { readonly name?: unknown }).name === "AbortError";
+}
+
+export function isTransientFetchError(error: unknown): boolean {
+  if (isAbortError(error)) return false;
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current);
+    const record = current as { readonly code?: unknown; readonly cause?: unknown };
+    if (typeof record.code === "string" && TRANSIENT_NETWORK_CODES.has(record.code)) return true;
+    if (current instanceof TypeError) return true;
+    current = record.cause;
+  }
+  return false;
+}
+
+export async function waitForNetworkRetry(
+  attempt: number,
+  baseDelayMs: number,
+  maxDelayMs: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (baseDelayMs === 0) return;
+  const delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(finish, delayMs);
+    function finish(): void {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }
+    function abort(): void {
+      clearTimeout(timer);
+      reject(new DOMException("aborted", "AbortError"));
+    }
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
 export async function fetchHttpsWithRedirects(
   input: string | URL,
   options: {

@@ -136,6 +136,35 @@ describe("release manifest retrieval", () => {
     expect(permanentCalls).toBe(1);
   });
 
+  it("retries transient fetch rejections but never retries cancellation", async () => {
+    let networkCalls = 0;
+    const intermittent = (async () => {
+      networkCalls += 1;
+      if (networkCalls < 3) throw new TypeError("fetch failed");
+      return new Response(document, { status: 200 });
+    }) as typeof fetch;
+    await expect(
+      fetchReleaseManifest("https://updates.example.test/stable.json", {
+        fetch: intermittent,
+        retryDelayMs: 0
+      })
+    ).resolves.toMatchObject({ version: "1.2.3" });
+    expect(networkCalls).toBe(3);
+
+    let abortCalls = 0;
+    const cancelled = (async () => {
+      abortCalls += 1;
+      throw new DOMException("aborted", "AbortError");
+    }) as typeof fetch;
+    await expect(
+      fetchReleaseManifest("https://updates.example.test/stable.json", {
+        fetch: cancelled,
+        retryDelayMs: 0
+      })
+    ).rejects.toThrow("aborted");
+    expect(abortCalls).toBe(1);
+  });
+
   it("rejects failed, oversized and malformed responses", async () => {
     await expect(
       fetchReleaseManifest("https://updates.example.test/stable.json", {

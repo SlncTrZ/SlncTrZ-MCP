@@ -18,7 +18,11 @@ import {
   type ReleaseManifest,
   type ReleaseTarget
 } from "./release-manifest.js";
-import { fetchHttpsWithRedirects } from "./https-fetch.js";
+import {
+  fetchHttpsWithRedirects,
+  isTransientFetchError,
+  waitForNetworkRetry
+} from "./https-fetch.js";
 
 const CURRENT_FILE = "current.json";
 const VERSION_METADATA = "release.json";
@@ -35,6 +39,9 @@ const SHA256 = /^[a-f0-9]{64}$/u;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const BUILD_COMMIT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 export const DEFAULT_MAX_STANDALONE_ARTIFACT_BYTES = 512 * 1024 * 1024;
+export const DEFAULT_STANDALONE_ARTIFACT_ATTEMPTS = 4;
+export const DEFAULT_STANDALONE_ARTIFACT_RETRY_DELAY_MS = 2_000;
+const MAX_STANDALONE_ARTIFACT_RETRY_DELAY_MS = 15_000;
 
 interface InstalledRelease {
   readonly version: string;
@@ -73,6 +80,8 @@ export interface InstallStandaloneReleaseOptions {
   readonly signal?: AbortSignal;
   readonly mutations?: Partial<InstallerMutations>;
   readonly maxArtifactBytes?: number;
+  readonly artifactAttempts?: number;
+  readonly artifactRetryDelayMs?: number;
 }
 
 function versionPath(installRoot: string, version: string): string {
@@ -277,14 +286,30 @@ async function downloadVerified(
   destination: string,
   fetchImpl: typeof fetch,
   mutations: InstallerMutations,
-  signal?: AbortSignal
+  signal: AbortSignal | undefined,
+  attempts: number,
+  retryDelayMs: number
 ): Promise<void> {
-  const response = await fetchHttpsWithRedirects(url, {
-    fetch: fetchImpl,
-    ...(signal === undefined ? {} : { signal }),
-    label: "Standalone artifact URL"
-  });
-  if (!response.ok || response.body === null) {
+  let response: Response | undefined;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      response = await fetchHttpsWithRedirects(url, {
+        fetch: fetchImpl,
+        ...(signal === undefined ? {} : { signal }),
+        label: "Standalone artifact URL"
+      });
+      break;
+    } catch (error) {
+      if (!isTransientFetchError(error) || attempt === attempts) throw error;
+      await waitForNetworkRetry(
+        attempt,
+        retryDelayMs,
+        MAX_STANDALONE_ARTIFACT_RETRY_DELAY_MS,
+        signal
+      );
+    }
+  }
+  if (response === undefined || !response.ok || response.body === null) {
     throw new Error("Standalone artifact download failed");
   }
   const hash = createHash("sha256");
@@ -328,6 +353,19 @@ export async function installStandaloneRelease(
   if (artifact.sizeBytes > maxArtifactBytes) {
     throw new Error("Standalone artifact exceeds product size ceiling");
   }
+  const artifactAttempts = options.artifactAttempts ?? DEFAULT_STANDALONE_ARTIFACT_ATTEMPTS;
+  const artifactRetryDelayMs =
+    options.artifactRetryDelayMs ?? DEFAULT_STANDALONE_ARTIFACT_RETRY_DELAY_MS;
+  if (!Number.isSafeInteger(artifactAttempts) || artifactAttempts < 1 || artifactAttempts > 10) {
+    throw new Error("Standalone artifact attempts must be an integer from 1 to 10");
+  }
+  if (
+    !Number.isSafeInteger(artifactRetryDelayMs) ||
+    artifactRetryDelayMs < 0 ||
+    artifactRetryDelayMs > 30_000
+  ) {
+    throw new Error("Standalone artifact retry delay must be an integer from 0 to 30000");
+  }
   const installed: InstalledRelease = {
     version: manifest.version,
     ...(manifest.buildCommit === undefined ? {} : { buildCommit: manifest.buildCommit }),
@@ -358,7 +396,9 @@ export async function installStandaloneRelease(
       join(stage, artifact.fileName),
       options.fetch ?? fetch,
       mutations,
-      options.signal
+      options.signal,
+      artifactAttempts,
+      artifactRetryDelayMs
     );
     await mutations.writeFile(join(stage, VERSION_METADATA), `${JSON.stringify(installed)}\n`, {
       encoding: "utf8",

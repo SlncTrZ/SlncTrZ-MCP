@@ -70,6 +70,53 @@ describe("standalone installer", () => {
     );
   });
 
+  it("retries transient artifact fetch failures before writing or activation", async () => {
+    const installRoot = await root();
+    const bytes = Buffer.from("release-after-network-recovery");
+    let calls = 0;
+    const intermittent = (async () => {
+      calls += 1;
+      if (calls < 3) throw new TypeError("fetch failed");
+      return new Response(bytes, { status: 200 });
+    }) as typeof fetch;
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest: release("1.2.3", bytes),
+        target: "linux-x64",
+        fetch: intermittent,
+        artifactRetryDelayMs: 0
+      })
+    ).resolves.toMatchObject({ version: "1.2.3" });
+    expect(calls).toBe(3);
+    await expect(currentVersion(installRoot)).resolves.toBe("1.2.3");
+  });
+
+  it("does not retry a cancelled artifact fetch", async () => {
+    const installRoot = await root();
+    const bytes = Buffer.from("cancelled-release");
+    let calls = 0;
+    const cancelled = (async () => {
+      calls += 1;
+      throw new DOMException("aborted", "AbortError");
+    }) as typeof fetch;
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest: release("1.2.3", bytes),
+        target: "linux-x64",
+        fetch: cancelled,
+        artifactRetryDelayMs: 0
+      })
+    ).rejects.toThrow("aborted");
+    expect(calls).toBe(1);
+    await expect(readFile(join(installRoot, "current.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
   it.skipIf(process.platform === "win32")(
     "publishes a service-readable executable release tree while keeping staging private",
     async () => {

@@ -2,6 +2,15 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.10
+
+Date: 2026-09-08
+
+### Fixed
+
+- Standalone updates now retry transient DNS, TCP, TLS transport, and connection-timeout failures while fetching both the release manifest and the versioned binary artifact. Retries are bounded and use exponential backoff.
+- Explicit cancellation, invalid HTTPS redirects, permanent HTTP failures, artifact size mismatches, and SHA-256 mismatches still fail immediately without weakening release verification.
+
 ## 0.2.9
 
 Date: 2026-09-08

@@ -5,7 +5,12 @@
  * Provenance: PLAN Phase 8 and ADR-008.
  */
 
-import { fetchHttpsWithRedirects, validateHttpsUrl } from "./https-fetch.js";
+import {
+  fetchHttpsWithRedirects,
+  isTransientFetchError,
+  validateHttpsUrl,
+  waitForNetworkRetry
+} from "./https-fetch.js";
 import { parseReleaseManifest, type ReleaseManifest } from "./release-manifest.js";
 
 export const DEFAULT_MAX_RELEASE_MANIFEST_BYTES = 1_048_576;
@@ -15,31 +20,6 @@ const MAX_RELEASE_MANIFEST_RETRY_DELAY_MS = 30_000;
 
 function retryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
-}
-
-async function waitBeforeRetry(
-  attempt: number,
-  baseDelayMs: number,
-  signal?: AbortSignal
-): Promise<void> {
-  if (baseDelayMs === 0) return;
-  const delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), MAX_RELEASE_MANIFEST_RETRY_DELAY_MS);
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(finish, delayMs);
-    function finish(): void {
-      signal?.removeEventListener("abort", abort);
-      resolve();
-    }
-    function abort(): void {
-      clearTimeout(timer);
-      reject(new DOMException("aborted", "AbortError"));
-    }
-    if (signal?.aborted) {
-      abort();
-      return;
-    }
-    signal?.addEventListener("abort", abort, { once: true });
-  });
 }
 
 export function validateReleaseManifestUrl(value: string): URL {
@@ -111,14 +91,30 @@ export async function fetchReleaseManifest(
 
   let response: Response | undefined;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    response = await fetchHttpsWithRedirects(parsedUrl, {
-      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-      label: "Release manifest URL"
-    });
+    try {
+      response = await fetchHttpsWithRedirects(parsedUrl, {
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        label: "Release manifest URL"
+      });
+    } catch (error) {
+      if (!isTransientFetchError(error) || attempt === attempts) throw error;
+      await waitForNetworkRetry(
+        attempt,
+        retryDelayMs,
+        MAX_RELEASE_MANIFEST_RETRY_DELAY_MS,
+        options.signal
+      );
+      continue;
+    }
     if (response.ok || !retryableStatus(response.status) || attempt === attempts) break;
     await response.body?.cancel().catch(() => undefined);
-    await waitBeforeRetry(attempt, retryDelayMs, options.signal);
+    await waitForNetworkRetry(
+      attempt,
+      retryDelayMs,
+      MAX_RELEASE_MANIFEST_RETRY_DELAY_MS,
+      options.signal
+    );
   }
   if (response === undefined || !response.ok) {
     throw new Error("Release manifest download failed");
