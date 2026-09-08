@@ -10,7 +10,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 import { readBoundedForm, readBoundedJson } from "../shared/http-body.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
-import { type OAuthService } from "./oauth-service.js";
+import { type OAuthService, type PendingAuthorizationResponse } from "./oauth-service.js";
 
 const AUTH_BODY_LIMIT_BYTES = 65_536;
 const REGISTRATION_LIMIT_PER_MINUTE = 20;
@@ -121,17 +121,23 @@ function sendOAuthError(res: ServerResponse, error: unknown): void {
 }
 
 function authorizationPage(
-  transactionId: string,
-  clientName: string,
-  scopes: readonly string[],
+  pending: PendingAuthorizationResponse,
   authenticationFailed = false
 ): string {
   const failure = authenticationFailed
     ? '<p class="error" role="alert">Owner authentication failed. Please verify your passphrase and try again.</p>'
     : "";
-  const scopeItems = scopes.length
-    ? scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")
+  const scopeItems = pending.scopes.length
+    ? pending.scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")
     : "<li>No additional access requested.</li>";
+  const registration =
+    pending.pendingRedirectRegistration === undefined
+      ? ""
+      : `<section class="registration" aria-label="New Gemini callback">
+<h2>New Gemini callback</h2>
+<p>Approving will register this exact callback for Client ID <strong>${escapeHtml(pending.clientId)}</strong>.</p>
+<code>${escapeHtml(pending.redirectUri)}</code>
+</section>`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -158,6 +164,7 @@ p.lead strong{color:#1a1d21;font-weight:600;word-break:break-word}
 .scope h2{margin:0 0 .5rem;font-size:.7rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#697586}
 .scope ul{margin:0;padding-left:1.1rem;color:#344054;font-size:.84rem;line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-word}
 .error{margin:0 0 1rem;padding:.7rem .85rem;background:#fef3f2;border:1px solid #fda29b;border-radius:10px;color:#b42318;font-size:.86rem}
+.registration{margin:0 0 1rem;padding:.8rem .9rem;background:#fffaeb;border:1px solid #fedf89;border-radius:10px;color:#7a2e0e;font-size:.82rem}.registration h2{margin:0 0 .35rem;font-size:.82rem}.registration p{margin:0 0 .45rem}.registration code{display:block;overflow-wrap:anywhere;color:#7a2e0e;font-size:.75rem}
 label{display:block;font-size:.85rem;font-weight:600;color:#1a1d21;margin:0 0 .4rem}
 input[type=password]{width:100%;padding:.7rem .8rem;font-size:.95rem;color:#1a1d21;background:#fff;border:1px solid #d0d5dd;border-radius:9px;font-family:inherit}
 input[type=password]:focus{outline:none;border-color:#2f5a9e;box-shadow:0 0 0 3px rgba(47,90,158,.18)}
@@ -181,6 +188,7 @@ body{background:#0f1115;color:#e6e8eb}
 p.lead{color:#9aa4b2}p.lead strong{color:#e6e8eb}
 .scope{background:#1b1f26;border-color:#262b33}.scope h2{color:#9aa4b2}.scope ul{color:#c2c8d0}
 .error{background:#2a1416;border-color:#7a2e2e;color:#f29b9b}
+.registration{background:#29200f;border-color:#6f5617;color:#f7cf6b}.registration code{color:#f7cf6b}
 label{color:#e6e8eb}
 input[type=password]{background:#0f1115;color:#e6e8eb;border-color:#333a44}
 input[type=password]:focus{border-color:#5b8def;box-shadow:0 0 0 3px rgba(91,141,239,.25)}
@@ -196,11 +204,12 @@ input[type=password]:focus{border-color:#5b8def;box-shadow:0 0 0 3px rgba(91,141
 <body><div class="brandmark">&nbsp;&nbsp;&nbsp;&nbsp;SlncTrZ&nbsp;&nbsp;&nbsp;&nbsp;</div><div class="neon-frame"><main class="card">
 <div class="brand"><span class="dot" aria-hidden="true"></span>SlncTrZ-MCP &middot; Authorization</div>
 <h1>Authorize this application</h1>
-<p class="lead"><strong>${escapeHtml(clientName)}</strong> is requesting access to your SlncTrZ-MCP server.</p>
+<p class="lead"><strong>${escapeHtml(pending.clientName)}</strong> is requesting access to your SlncTrZ-MCP server.</p>
 <div class="scope"><h2>Requested access</h2><ul>${scopeItems}</ul></div>
+${registration}
 ${failure}
 <form method="post" action="/authorize" autocomplete="off">
-<input type="hidden" name="transaction_id" value="${escapeHtml(transactionId)}">
+<input type="hidden" name="transaction_id" value="${escapeHtml(pending.transactionId)}">
 <label for="owner_secret">Owner passphrase</label>
 <input id="owner_secret" name="owner_secret" type="password" required minlength="16" maxlength="1024" autocomplete="off">
 <p class="hint">Set when the server was configured. Must be at least 16 characters.</p>
@@ -212,6 +221,10 @@ ${failure}
 <p class="foot">Only approve if you initiated this request. Denying stops the application from connecting.</p>
 <p class="signature">SlncTrZ-MCP</p>
 </main></div></body></html>`;
+}
+
+function deniedPage(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorization denied &middot; SlncTrZ-MCP</title></head><body><main><h1>Authorization denied</h1><p>The new callback was not registered. You may close this window.</p></main></body></html>`;
 }
 
 export class OAuthHttpRouter {
@@ -298,12 +311,7 @@ export class OAuthHttpRouter {
         }
         try {
           const pending = this.#service.beginAuthorization(uniqueParameters(url.searchParams));
-          sendHtml(
-            res,
-            200,
-            authorizationPage(pending.transactionId, pending.clientName, pending.scopes),
-            pending.redirectOrigin
-          );
+          sendHtml(res, 200, authorizationPage(pending), pending.redirectOrigin);
         } catch (error) {
           sendOAuthError(res, error);
         }
@@ -316,7 +324,12 @@ export class OAuthHttpRouter {
           const form = await readBoundedForm(req, AUTH_BODY_LIMIT_BYTES);
           transactionId = form.get("transaction_id") ?? "";
           if (form.get("decision") === "deny") {
-            this.#redirect(res, this.#service.denyAuthorization(transactionId));
+            const redirect = this.#service.denyAuthorization(transactionId);
+            if (redirect === undefined) {
+              sendHtml(res, 200, deniedPage(), this.#service.issuer.origin);
+            } else {
+              this.#redirect(res, redirect);
+            }
             return true;
           }
           const rateLimit = this.#ownerAttemptLimiter.consume(this.#peerKey(req));
@@ -330,12 +343,7 @@ export class OAuthHttpRouter {
         } catch (error) {
           if (error instanceof OAuthError && error.code === OAuthErrorCode.AccessDenied) {
             const pending = this.#service.authorizationDetails(transactionId);
-            sendHtml(
-              res,
-              401,
-              authorizationPage(pending.transactionId, pending.clientName, pending.scopes, true),
-              pending.redirectOrigin
-            );
+            sendHtml(res, 401, authorizationPage(pending, true), pending.redirectOrigin);
           } else {
             sendOAuthError(res, error);
           }

@@ -580,4 +580,228 @@ describe("OAuthService", () => {
     expect(nextId).not.toBe(clientId);
     expect(saved).toHaveLength(2);
   });
+
+  it("registers an unseen Gemini callback only after owner approval for the configured client ID", () => {
+    const clientId = "my-company-mcp";
+    const clientSecret = "server-side-client-secret";
+    const redirectUri =
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-account_123";
+    const saved: string[] = [];
+    const events: AuthAuditEvent[] = [];
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      staticClient: {
+        clientId,
+        clientSecret,
+        clientName: "Custom MCP",
+        redirectUris: ["https://claude.ai/api/mcp/auth_callback"]
+      },
+      staticRedirectStore: {
+        add: (savedClientId, savedRedirect) => {
+          expect(savedClientId).toBe(clientId);
+          if (!saved.includes(savedRedirect)) saved.push(savedRedirect);
+          return [...saved];
+        }
+      },
+      audit: (event) => events.push(event)
+    });
+    const verifier = "g".repeat(43);
+    const pending = service.beginAuthorization({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code_challenge: service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+
+    expect(pending).toMatchObject({
+      clientId,
+      redirectUri,
+      pendingRedirectRegistration: { provider: "gemini" }
+    });
+    expect(saved).toEqual([]);
+    const concurrent = service.beginAuthorization({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code_challenge: service.pkceChallenge("l".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+    expect(() => service.approveAuthorization(pending.transactionId, "wrong secret")).toThrow(
+      "Owner authentication failed"
+    );
+    expect(saved).toEqual([]);
+
+    const callback = service.approveAuthorization(pending.transactionId, OWNER_SECRET);
+    expect(saved).toEqual([redirectUri]);
+    expect(
+      service.approveAuthorization(concurrent.transactionId, OWNER_SECRET).searchParams.get("code")
+    ).not.toBeNull();
+    expect(saved).toEqual([redirectUri]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "static_client.redirect_registered",
+        outcome: "success",
+        clientId,
+        reason: "owner_approved"
+      })
+    );
+    expect(
+      events.filter((event) => event.type === "static_client.redirect_registered")
+    ).toHaveLength(1);
+    expect(JSON.stringify(events)).not.toContain(redirectUri);
+    expect(JSON.stringify(events)).not.toContain(clientSecret);
+
+    expect(
+      service.exchangeAuthorizationCode({
+        grant_type: "authorization_code",
+        code: callback.searchParams.get("code") ?? "",
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+        resource: RESOURCE.href
+      }).token_type
+    ).toBe("Bearer");
+
+    expect(() =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_challenge: service.pkceChallenge("h".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      })
+    ).not.toThrow();
+  });
+
+  it("rejects wildcard/lookalike Gemini callbacks and never mutates DCR clients", () => {
+    const clientId = "configured-client";
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      staticClient: {
+        clientId,
+        clientSecret: "secret",
+        redirectUris: ["https://claude.ai/api/mcp/auth_callback"]
+      },
+      staticRedirectStore: { add: () => [] }
+    });
+    const base = {
+      response_type: "code",
+      client_id: clientId,
+      code_challenge: service.pkceChallenge("j".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    };
+    for (const redirectUri of [
+      "https://oauth-redirect.googleusercontent.com/r/*",
+      "https://evil.oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-a",
+      "https://oauth-redirect.googleusercontent.com:444/r/user_bound_custom-mcp-a",
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-a?next=evil",
+      "https://oauth-redirect.googleusercontent.com/r/not-custom-mcp-a"
+    ]) {
+      expect(() => service.beginAuthorization({ ...base, redirect_uri: redirectUri })).toThrow(
+        "redirect_uri is not registered"
+      );
+    }
+
+    const dynamicClientId = registerTestClient(service);
+    expect(() =>
+      service.beginAuthorization({
+        ...base,
+        client_id: dynamicClientId,
+        redirect_uri: "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-dynamic"
+      })
+    ).toThrow("redirect_uri is not registered");
+  });
+
+  it("keeps an unapproved Gemini callback local on denial and on persistence failure", () => {
+    const redirectUri =
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-unapproved";
+    let writes = 0;
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      staticClient: {
+        clientId: "configured-client",
+        clientSecret: "secret",
+        redirectUris: ["https://claude.ai/api/mcp/auth_callback"]
+      },
+      staticRedirectStore: {
+        add: () => {
+          writes += 1;
+          throw new Error("disk full");
+        }
+      }
+    });
+    const begin = () =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: "configured-client",
+        redirect_uri: redirectUri,
+        code_challenge: service.pkceChallenge("k".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      });
+
+    const denied = begin();
+    expect(service.denyAuthorization(denied.transactionId)).toBeUndefined();
+    expect(writes).toBe(0);
+
+    const failed = begin();
+    expect(() => service.approveAuthorization(failed.transactionId, OWNER_SECRET)).toThrow(
+      "oauth_static_redirect_persistence_failed"
+    );
+    expect(writes).toBe(1);
+    expect(service.authorizationDetails(failed.transactionId).transactionId).toBe(
+      failed.transactionId
+    );
+
+    let now = 100;
+    const expiredWrites: string[] = [];
+    const expiringService = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      staticClient: {
+        clientId: "configured-client",
+        clientSecret: "secret",
+        redirectUris: ["https://claude.ai/api/mcp/auth_callback"]
+      },
+      staticRedirectStore: {
+        add: (_clientId, savedRedirect) => {
+          expiredWrites.push(savedRedirect);
+          return [...expiredWrites];
+        }
+      },
+      now: () => now
+    });
+    const expiring = expiringService.beginAuthorization({
+      response_type: "code",
+      client_id: "configured-client",
+      redirect_uri: redirectUri,
+      code_challenge: expiringService.pkceChallenge("o".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+    now += 601;
+    expect(() =>
+      expiringService.approveAuthorization(expiring.transactionId, OWNER_SECRET)
+    ).toThrow("Authorization transaction is invalid");
+    expect(expiredWrites).toEqual([]);
+  });
 });

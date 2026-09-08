@@ -2,6 +2,24 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.9
+
+Date: 2026-09-08
+
+### Added
+
+- Gemini Spark can now present a previously unseen user-bound callback during authorization. The existing Owner consent step displays and registers that exact callback for the currently configured static Client ID before issuing the authorization code; no manual callback edit or restart is required.
+- Owner-approved callbacks persist in the private, secret-free `<stateRoot>/oauth-static-redirects.json` store and survive restarts.
+
+### Security
+
+- Automatic registration is limited to exact HTTPS callbacks on `oauth-redirect.googleusercontent.com` whose path matches the bounded Gemini custom-MCP form. Wildcards, lookalike hosts, arbitrary HTTPS callbacks, DCR-client mutation, and persistence before Owner authentication remain rejected.
+- A denied, expired, or failed registration never persists the callback or redirects to an unapproved destination.
+
+### Changed
+
+- `slnctrz-mcp` remains the installation default Client ID, but Gemini registration now follows the actual configured Client ID. Fresh setup and upgrades no longer inject one account-specific Gemini callback into `client.env`; callbacks already present there remain untouched.
+
 ## 0.2.8
 
 Date: 2026-09-08

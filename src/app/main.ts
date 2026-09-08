@@ -13,6 +13,10 @@ import { createDynamicClientFileStore } from "../auth/dynamic-client-store.js";
 import { OAuthService } from "../auth/oauth-service.js";
 import { resolveOwnerSecret } from "../auth/owner-secret-store.js";
 import {
+  createStaticClientRedirectStore,
+  MAX_STATIC_CLIENT_REDIRECT_URIS
+} from "../auth/static-client-redirect-store.js";
+import {
   createJsonLineAuthAuditSink,
   createJournalAuthAuditSink
 } from "../observability/auth-audit.js";
@@ -159,6 +163,25 @@ export async function bootstrap(
     join(statePaths.root, "oauth-clients.json"),
     config.maxDynamicClients
   );
+  const staticRedirectStore = createStaticClientRedirectStore(statePaths.oauthStaticRedirectsFile);
+  const staticClient =
+    config.staticClient === undefined
+      ? undefined
+      : {
+          ...config.staticClient,
+          redirectUris: [
+            ...new Set([
+              ...config.staticClient.redirectUris,
+              ...staticRedirectStore.load(config.staticClient.clientId)
+            ])
+          ]
+        };
+  if (
+    staticClient !== undefined &&
+    staticClient.redirectUris.length > MAX_STATIC_CLIENT_REDIRECT_URIS
+  ) {
+    throw new Error("Static OAuth client redirect capacity exceeded");
+  }
   const oauthService = new OAuthService({
     issuer,
     resource: config.publicMcpUrl,
@@ -166,7 +189,7 @@ export async function bootstrap(
     maxDynamicClients: config.maxDynamicClients,
     audit: createJournalAuthAuditSink(auditJournal, createJsonLineAuthAuditSink(), metrics),
     dynamicClientStore,
-    ...(config.staticClient === undefined ? {} : { staticClient: config.staticClient })
+    ...(staticClient === undefined ? {} : { staticClient, staticRedirectStore })
   });
   const loadActivePolicy = async (policyFile: string): Promise<ActivePolicySnapshot> => {
     const document = await loadPolicyDocument(policyFile);

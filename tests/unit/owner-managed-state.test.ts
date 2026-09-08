@@ -28,6 +28,11 @@ async function fixture() {
 }
 
 describe("managed owner state", () => {
+  it("derives the static OAuth redirect store from the managed state root", async () => {
+    const { paths } = await fixture();
+    expect(paths.oauthStaticRedirectsFile).toBe(join(paths.root, "oauth-static-redirects.json"));
+  });
+
   it.skipIf(process.platform === "win32")(
     "reasserts private directory modes on an existing managed-state layout",
     async () => {

@@ -5,10 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadPolicyDocument } from "../../src/policy/policy-config.js";
 import { currentReleaseTarget } from "../../src/standalone/release-manifest.js";
-import {
-  migrateDefaultStaticClientRedirectUris,
-  prepareProductSetup
-} from "../../src/standalone/product-setup.js";
+import { prepareProductSetup } from "../../src/standalone/product-setup.js";
 
 const cleanup: string[] = [];
 
@@ -125,7 +122,7 @@ describe("product setup", () => {
     expect(config).toContain("SLNCTRZ_PUBLIC_URL=https://mcp.example.test/mcp");
   });
 
-  it("auto-provisions OAuth and migrates the legacy callback without changing the secret", async () => {
+  it("auto-provisions OAuth and preserves existing callbacks without changing the secret", async () => {
     const paths = await roots();
     const fetch = releaseFetch(Buffer.from("standalone-bytes"));
     const request = {
@@ -146,9 +143,7 @@ describe("product setup", () => {
     expect(file).toContain("SLNCTRZ_CLIENT_ID=slnctrz-mcp");
     expect(file).toContain(`SLNCTRZ_CLIENT_SECRET=${first.firstRunStaticClientSecret}`);
     expect(file).toContain("https://claude.ai/api/mcp/auth_callback");
-    expect(file).toContain(
-      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
-    );
+    expect(file).not.toContain("user_bound_custom-mcp");
 
     const operatorSecret = "custom-operator-secret";
     await writeFile(
@@ -166,37 +161,9 @@ describe("product setup", () => {
     const preserved = await readFile(second.staticClientFile, "utf8");
     expect(preserved).toContain(`SLNCTRZ_CLIENT_SECRET=${operatorSecret}`);
     expect(preserved).toContain(
-      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback,https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback"
     );
-  });
-
-  it("appends the current Gemini callback while preserving an older Gemini callback", () => {
-    const existing = [
-      "SLNCTRZ_CLIENT_ID=slnctrz-mcp",
-      "SLNCTRZ_CLIENT_SECRET=preserved-secret",
-      "SLNCTRZ_CLIENT_NAME=SlncTrZ-MCP",
-      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback,https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102591365441280672080-mcp_truongcongdinh_org",
-      ""
-    ].join("\n");
-    const migrated = migrateDefaultStaticClientRedirectUris(existing);
-    expect(migrated).toContain("SLNCTRZ_CLIENT_SECRET=preserved-secret");
-    expect(migrated).toContain(
-      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102591365441280672080-mcp_truongcongdinh_org"
-    );
-    expect(migrated).toContain(
-      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
-    );
-  });
-
-  it("preserves custom OAuth redirect allowlists for a custom client ID", () => {
-    const customized = [
-      "SLNCTRZ_CLIENT_ID=custom-client",
-      "SLNCTRZ_CLIENT_SECRET=custom-secret",
-      "SLNCTRZ_CLIENT_NAME=Custom Client",
-      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://client.example.test/oauth/callback",
-      ""
-    ].join("\n");
-    expect(migrateDefaultStaticClientRedirectUris(customized)).toBe(customized);
+    expect(preserved).not.toContain("user_bound_custom-mcp");
   });
 
   it("accepts an explicit static OAuth client ID and secret during setup", async () => {

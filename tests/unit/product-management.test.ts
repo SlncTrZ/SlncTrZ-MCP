@@ -207,7 +207,7 @@ describe("installed product management", () => {
     expect(installation.publicMcpUrl).toBeUndefined();
   });
 
-  it("updates and rolls back immutable releases while migrating legacy OAuth", async () => {
+  it("updates and rolls back immutable releases while preserving OAuth config", async () => {
     const f = await fixture();
     const management = { stateRoot: f.stateRoot, fetch: f.fetch };
     const clientSecret = "legacy-client-secret";
@@ -236,8 +236,9 @@ describe("installed product management", () => {
     const migratedClient = await readFile(join(f.configRoot, "client.env"), "utf8");
     expect(migratedClient).toContain(`SLNCTRZ_CLIENT_SECRET=${clientSecret}`);
     expect(migratedClient).toContain(
-      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback,https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback"
     );
+    expect(migratedClient).not.toContain("user_bound_custom-mcp");
 
     const rolled = await rollbackProduct(management);
     expect(rolled.activation.version).toBe("1.0.0");

@@ -12,6 +12,7 @@ export type AuthAuditEventType =
   | "client.registered"
   | "client.evicted"
   | "client.persistence_failed"
+  | "static_client.redirect_registered"
   | "authorization.approved"
   | "authorization.denied"
   | "authorization.failed"
@@ -28,7 +29,7 @@ export interface AuthAuditEvent {
   readonly type: AuthAuditEventType;
   readonly outcome: AuthAuditOutcome;
   readonly clientId?: string;
-  readonly reason?: "invalid_owner" | "invalid_token" | "client_mismatch";
+  readonly reason?: "invalid_owner" | "invalid_token" | "client_mismatch" | "owner_approved";
   readonly operation?: "registration" | "authorization" | "token" | "owner_authentication";
 }
 

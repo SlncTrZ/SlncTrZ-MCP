@@ -111,19 +111,16 @@ describe("readRuntimeConfig", () => {
     ).toThrowError("SLNCTRZ_MAX_DYNAMIC_CLIENTS must be a positive integer");
   });
 
-  it("includes Claude and Gemini callbacks for the default static OAuth client", () => {
+  it("uses only stable callbacks as fresh-install defaults", () => {
     const config = readRuntimeConfig({
       SLNCTRZ_CLIENT_ID: "slnctrz-mcp",
       SLNCTRZ_CLIENT_SECRET: "server-side-secret"
     });
 
-    expect(config.staticClient?.redirectUris).toEqual([
-      "https://claude.ai/api/mcp/auth_callback",
-      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
-    ]);
+    expect(config.staticClient?.redirectUris).toEqual(["https://claude.ai/api/mcp/auth_callback"]);
   });
 
-  it("adds the current Gemini callback in memory for an upgraded default client", () => {
+  it("preserves explicitly configured callbacks without injecting a user-bound callback", () => {
     const oldGeminiCallback =
       "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102591365441280672080-mcp_truongcongdinh_org";
     const config = readRuntimeConfig({
@@ -134,8 +131,7 @@ describe("readRuntimeConfig", () => {
 
     expect(config.staticClient?.redirectUris).toEqual([
       "https://claude.ai/api/mcp/auth_callback",
-      oldGeminiCallback,
-      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+      oldGeminiCallback
     ]);
   });
 

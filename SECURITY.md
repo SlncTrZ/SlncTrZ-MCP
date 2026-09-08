@@ -65,6 +65,7 @@ The following invariants apply to the current schema-v2 product model:
 16. Owner administration is not exposed as model-facing `owner.*` MCP tools.
 17. The local control plane is separately authenticated and must not be reachable as a public MCP route.
 18. Release artifacts must be checksum-verified before activation and should be attributable to an exact version/build provenance.
+19. OAuth redirect URIs remain exact-match values. A previously unseen Gemini custom-MCP callback may be persisted only for the configured static Client ID, only after successful Owner authentication, and only when it passes the bounded Google callback classifier; wildcard matching and DCR-client mutation are forbidden.
 
 ## Secrets
 

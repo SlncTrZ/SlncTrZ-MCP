@@ -37,6 +37,12 @@ interface RegisteredClient {
   readonly issuedAt: number;
 }
 
+interface PendingRedirectRegistration {
+  readonly clientId: string;
+  readonly redirectUri: string;
+  readonly provider: "gemini";
+}
+
 interface PendingAuthorization {
   readonly transactionId: string;
   readonly clientId: string;
@@ -46,6 +52,7 @@ interface PendingAuthorization {
   readonly scopes: readonly string[];
   readonly state?: string;
   readonly expiresAt: number;
+  readonly pendingRedirectRegistration?: PendingRedirectRegistration;
 }
 
 interface AuthorizationCodeRecord {
@@ -77,6 +84,10 @@ export interface OAuthServiceOptions {
   readonly dynamicClientStore?: {
     readonly load: () => readonly DynamicClientRecord[];
     readonly save: (clients: readonly DynamicClientRecord[]) => void;
+  };
+  /** Durable owner-approved redirect registrations for the configured static client. */
+  readonly staticRedirectStore?: {
+    readonly add: (clientId: string, redirectUri: string, updatedAt: number) => readonly string[];
   };
   /** Optional pre-registered confidential client for static-credential flows. */
   readonly staticClient?: {
@@ -113,10 +124,15 @@ export interface RegisteredClientResponse {
 
 export interface PendingAuthorizationResponse {
   readonly transactionId: string;
+  readonly clientId: string;
   readonly clientName: string;
   readonly redirectOrigin: string;
+  readonly redirectUri: string;
   readonly scopes: readonly string[];
   readonly expiresAt: number;
+  readonly pendingRedirectRegistration?: {
+    readonly provider: "gemini";
+  };
 }
 
 export interface OAuthTokenResponse {
@@ -210,6 +226,20 @@ function validateRedirectUri(value: string): string {
   return url.href;
 }
 
+function isGeminiRedirectRegistrationCandidate(redirectUri: string): boolean {
+  const url = safeUrl(redirectUri, "Invalid redirect URI");
+  return (
+    url.protocol === "https:" &&
+    url.hostname === "oauth-redirect.googleusercontent.com" &&
+    url.port === "" &&
+    url.username === "" &&
+    url.password === "" &&
+    url.search === "" &&
+    url.hash === "" &&
+    /^\/r\/user_bound_custom-mcp-[A-Za-z0-9_-]{1,512}$/u.test(url.pathname)
+  );
+}
+
 function safeUrl(value: string | URL, message: string): URL {
   try {
     return new URL(value);
@@ -241,6 +271,8 @@ export class OAuthService implements OAuthTokenVerifier {
   readonly #audit: AuthAuditSink;
   readonly #maxDynamicClients: number;
   readonly #dynamicClientStore?: OAuthServiceOptions["dynamicClientStore"];
+  readonly #staticRedirectStore?: OAuthServiceOptions["staticRedirectStore"];
+  readonly #staticClientId: string | undefined;
   readonly #clients = new Map<string, RegisteredClient>();
   readonly #dynamicClientIds = new Set<string>();
   readonly #onApproved: ((clientId: string) => Promise<void>) | undefined;
@@ -268,6 +300,11 @@ export class OAuthService implements OAuthTokenVerifier {
       throw new RangeError("maxDynamicClients must be a positive safe integer");
     }
     this.#dynamicClientStore = options.dynamicClientStore;
+    this.#staticRedirectStore = options.staticRedirectStore;
+    this.#staticClientId = options.staticClient?.clientId;
+    if (this.#staticRedirectStore !== undefined && this.#staticClientId === undefined) {
+      throw new Error("staticRedirectStore requires a configured static client");
+    }
     this.#onApproved = options.onAuthorizationApproved;
     this.#onAuthorized = options.onAuthorized;
     if (this.#dynamicClientStore !== undefined) {
@@ -287,11 +324,20 @@ export class OAuthService implements OAuthTokenVerifier {
     }
     if (options.staticClient !== undefined) {
       const { clientId, clientSecret, clientName, redirectUris } = options.staticClient;
+      if (this.#dynamicClientIds.has(clientId)) {
+        throw new Error("Static OAuth client ID collides with a dynamic client");
+      }
+      const normalizedRedirects = [...new Set(redirectUris.map(validateRedirectUri))];
+      if (normalizedRedirects.length > MAX_REDIRECT_URIS) {
+        throw new RangeError(
+          `Static client redirectUris must contain at most ${MAX_REDIRECT_URIS} entries`
+        );
+      }
       this.#clients.set(clientId, {
         clientId,
         clientSecret,
         ...(clientName === undefined ? {} : { clientName }),
-        redirectUris: [...new Set(redirectUris.map(validateRedirectUri))],
+        redirectUris: normalizedRedirects,
         issuedAt: this.#now()
       });
     }
@@ -439,8 +485,23 @@ export class OAuthService implements OAuthTokenVerifier {
     const redirectUri = validateRedirectUri(
       requiredString(parameters.redirect_uri, "redirect_uri")
     );
+    let pendingRedirectRegistration: PendingRedirectRegistration | undefined;
     if (!client.redirectUris.includes(redirectUri)) {
-      throw new OAuthError(OAuthErrorCode.InvalidGrant, "redirect_uri is not registered");
+      if (
+        clientId !== this.#staticClientId ||
+        this.#staticRedirectStore === undefined ||
+        this.#dynamicClientIds.has(clientId) ||
+        !isGeminiRedirectRegistrationCandidate(redirectUri)
+      ) {
+        throw new OAuthError(OAuthErrorCode.InvalidGrant, "redirect_uri is not registered");
+      }
+      if (client.redirectUris.length >= MAX_REDIRECT_URIS) {
+        throw new OAuthError(
+          OAuthErrorCode.InvalidGrant,
+          "redirect_uri registration capacity is exhausted"
+        );
+      }
+      pendingRedirectRegistration = { clientId, redirectUri, provider: "gemini" };
     }
 
     if (parameters.code_challenge_method !== "S256") {
@@ -463,16 +524,22 @@ export class OAuthService implements OAuthTokenVerifier {
       resource,
       scopes,
       expiresAt,
-      ...(parameters.state === undefined ? {} : { state: parameters.state })
+      ...(parameters.state === undefined ? {} : { state: parameters.state }),
+      ...(pendingRedirectRegistration === undefined ? {} : { pendingRedirectRegistration })
     };
     this.#pending.set(transactionId, pending);
 
     return {
       transactionId,
+      clientId,
       clientName: client.clientName ?? "MCP client",
       redirectOrigin: safeUrl(redirectUri, "Invalid redirect URI").origin,
+      redirectUri,
       scopes,
-      expiresAt
+      expiresAt,
+      ...(pendingRedirectRegistration === undefined
+        ? {}
+        : { pendingRedirectRegistration: { provider: pendingRedirectRegistration.provider } })
     };
   }
 
@@ -485,10 +552,19 @@ export class OAuthService implements OAuthTokenVerifier {
     const client = this.#clients.get(pending.clientId);
     return {
       transactionId,
+      clientId: pending.clientId,
       clientName: client?.clientName ?? "MCP client",
       redirectOrigin: safeUrl(pending.redirectUri, "Invalid redirect URI").origin,
+      redirectUri: pending.redirectUri,
       scopes: [...pending.scopes],
-      expiresAt: pending.expiresAt
+      expiresAt: pending.expiresAt,
+      ...(pending.pendingRedirectRegistration === undefined
+        ? {}
+        : {
+            pendingRedirectRegistration: {
+              provider: pending.pendingRedirectRegistration.provider
+            }
+          })
     };
   }
 
@@ -501,6 +577,42 @@ export class OAuthService implements OAuthTokenVerifier {
     if (!verifyOwnerSecret(ownerSecret, this.#ownerSecretHash)) {
       this.#emit("authorization.failed", "failure", pending.clientId, "invalid_owner");
       throw new OAuthError(OAuthErrorCode.AccessDenied, "Owner authentication failed");
+    }
+
+    const registration = pending.pendingRedirectRegistration;
+    if (registration !== undefined) {
+      const client = this.#clients.get(registration.clientId);
+      if (
+        client === undefined ||
+        registration.clientId !== pending.clientId ||
+        registration.clientId !== this.#staticClientId ||
+        this.#dynamicClientIds.has(registration.clientId) ||
+        !isGeminiRedirectRegistrationCandidate(registration.redirectUri) ||
+        (!client.redirectUris.includes(registration.redirectUri) &&
+          client.redirectUris.length >= MAX_REDIRECT_URIS) ||
+        this.#staticRedirectStore === undefined
+      ) {
+        throw new Error("oauth_static_redirect_registration_invalid");
+      }
+      const alreadyRegistered = client.redirectUris.includes(registration.redirectUri);
+      try {
+        this.#staticRedirectStore.add(registration.clientId, registration.redirectUri, this.#now());
+      } catch {
+        this.#emit("client.persistence_failed", "failure", registration.clientId);
+        throw new Error("oauth_static_redirect_persistence_failed");
+      }
+      this.#clients.set(registration.clientId, {
+        ...client,
+        redirectUris: [...new Set([...client.redirectUris, registration.redirectUri])]
+      });
+      if (!alreadyRegistered) {
+        this.#emit(
+          "static_client.redirect_registered",
+          "success",
+          registration.clientId,
+          "owner_approved"
+        );
+      }
     }
 
     this.#pending.delete(transactionId);
@@ -526,7 +638,7 @@ export class OAuthService implements OAuthTokenVerifier {
     return redirect;
   }
 
-  denyAuthorization(transactionId: string): URL {
+  denyAuthorization(transactionId: string): URL | undefined {
     this.#purgeExpired();
     const pending = this.#pending.get(transactionId);
     if (pending === undefined) {
@@ -534,6 +646,8 @@ export class OAuthService implements OAuthTokenVerifier {
     }
     this.#pending.delete(transactionId);
     this.#emit("authorization.denied", "success", pending.clientId);
+    if (pending.pendingRedirectRegistration !== undefined) return undefined;
+
     const redirect = safeUrl(pending.redirectUri, "Invalid redirect URI");
     redirect.searchParams.set("error", "access_denied");
     if (pending.state !== undefined) redirect.searchParams.set("state", pending.state);

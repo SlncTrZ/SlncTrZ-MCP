@@ -24,7 +24,6 @@ import {
 import {
   DEFAULT_STATIC_CLIENT_ID,
   DEFAULT_STATIC_CLIENT_REDIRECT_URIS,
-  GEMINI_SPARK_REDIRECT_URI,
   readRuntimeConfig
 } from "../app/config.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
@@ -200,23 +199,6 @@ const CLIENT_ENV_PATTERNS = Object.freeze({
   redirectUris: /^SLNCTRZ_CLIENT_REDIRECT_URIS=(.*)$/mu
 });
 
-/** Add the official Gemini callback to the default client without removing existing callbacks. */
-export function migrateDefaultStaticClientRedirectUris(content: string): string {
-  const clientId = content.match(CLIENT_ENV_PATTERNS.id)?.[1];
-  const redirectUris = content.match(CLIENT_ENV_PATTERNS.redirectUris)?.[1];
-  if (clientId !== DEFAULT_STATIC_CLIENT_ID || redirectUris === undefined) return content;
-  const entries = redirectUris
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-  if (entries.includes(GEMINI_SPARK_REDIRECT_URI)) return content;
-  const migrated = `${redirectUris}${redirectUris.trim().length === 0 ? "" : ","}${GEMINI_SPARK_REDIRECT_URI}`;
-  return content.replace(
-    CLIENT_ENV_PATTERNS.redirectUris,
-    `SLNCTRZ_CLIENT_REDIRECT_URIS=${migrated}`
-  );
-}
-
 /**
  * Auto-provision a static confidential-client file (configRoot/client.env). Existing
  * credentials survive setup unless the owner explicitly supplies a replacement ID or secret.
@@ -248,8 +230,6 @@ export async function ensureClientEnvFile(
     existingClientSecret !== undefined &&
     existingClientSecret.length > 0
   ) {
-    const migrated = migrateDefaultStaticClientRedirectUris(existing);
-    if (migrated !== existing) await atomicTextFile(file, migrated, 0o600);
     return {
       file,
       clientId: existingClientId,
@@ -282,7 +262,7 @@ export async function ensureClientEnvFile(
       `SLNCTRZ_CLIENT_NAME=${clientName}`,
       `SLNCTRZ_CLIENT_REDIRECT_URIS=${redirectUris}`
     ].join("\n") + "\n";
-  await atomicTextFile(file, migrateDefaultStaticClientRedirectUris(content), 0o600);
+  await atomicTextFile(file, content, 0o600);
   return { file, clientId, clientSecret, created: requestedSecret === undefined };
 }
 

@@ -22,6 +22,25 @@ Login with the **Owner Passphrase** (printed on first setup, or read from
 `<stateRoot>/secrets/owner-passphrase`). Keep it private — it controls the Owner Console and
 the authenticated loopback control plane.
 
+### Connect Gemini Spark without copying its callback
+
+Use the Client ID and Client Secret created by setup. The Client ID defaults to
+`slnctrz-mcp`, but a custom configured ID works the same way.
+
+When Gemini opens the authorization page with a new user-bound callback:
+
+1. Verify that the page shows the Client ID you configured.
+2. Verify the full callback belongs to
+   `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-...`.
+3. Enter the normal Owner Passphrase and approve.
+
+That single approval registers the exact callback and continues the OAuth flow. The approval is
+stored under `<stateRoot>/oauth-static-redirects.json`, survives restart, and does not contain the
+Client Secret. Do not add a wildcard and do not copy the complete `/authorize` URL into
+`client.env`; `state` and PKCE parameters belong only to the current transaction.
+
+Denying the request leaves the callback unregistered and does not redirect the browser to it.
+
 ---
 
 ## 2. Add a workspace Path

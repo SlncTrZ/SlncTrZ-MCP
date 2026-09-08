@@ -25,7 +25,8 @@ afterEach(async () => {
 
 async function startOAuthServer(
   staticClient?: OAuthServiceOptions["staticClient"],
-  audit?: AuthAuditSink
+  audit?: AuthAuditSink,
+  staticRedirectStore?: OAuthServiceOptions["staticRedirectStore"]
 ): Promise<{
   readonly origin: string;
   readonly service: OAuthService;
@@ -35,7 +36,8 @@ async function startOAuthServer(
     resource: new URL(RESOURCE),
     ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
     ...(staticClient === undefined ? {} : { staticClient }),
-    ...(audit === undefined ? {} : { audit })
+    ...(audit === undefined ? {} : { audit }),
+    ...(staticRedirectStore === undefined ? {} : { staticRedirectStore })
   });
   const server = createGatewayServer({ oauthService: service });
   servers.push(server);
@@ -164,6 +166,123 @@ describe("OAuth HTTP flow", () => {
       token_type: "Bearer",
       resource: RESOURCE
     });
+  });
+
+  it("owner-approves and persists an unseen Gemini callback in one HTTP flow", async () => {
+    const clientId = "custom-static-client";
+    const clientSecret = "server-side-client-secret";
+    const redirectUri =
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-http_flow";
+    const saved: string[] = [];
+    const { origin, service } = await startOAuthServer(
+      {
+        clientId,
+        clientSecret,
+        clientName: "Gemini MCP",
+        redirectUris: ["https://claude.ai/api/mcp/auth_callback"]
+      },
+      undefined,
+      {
+        add: (savedClientId, savedRedirect) => {
+          expect(savedClientId).toBe(clientId);
+          if (!saved.includes(savedRedirect)) saved.push(savedRedirect);
+          return [...saved];
+        }
+      }
+    );
+    const verifier = "i".repeat(43);
+    const authorizeUrl = new URL("/authorize", origin);
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code_challenge: service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE,
+      scope: "mcp:tools",
+      state: "gemini-state"
+    }).toString();
+
+    const page = await fetch(authorizeUrl);
+    const html = await page.text();
+    expect(page.status).toBe(200);
+    expect(html).toContain("New Gemini callback");
+    expect(html).toContain(clientId);
+    expect(html).toContain(redirectUri);
+    expect(saved).toEqual([]);
+    const transactionId = transactionFromHtml(html);
+
+    const approval = await fetch(`${origin}/authorize`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: transactionId,
+        owner_secret: OWNER_SECRET,
+        decision: "approve"
+      }),
+      redirect: "manual"
+    });
+    expect(approval.status).toBe(303);
+    expect(saved).toEqual([redirectUri]);
+    const callback = new URL(approval.headers.get("location") ?? "");
+    expect(callback.origin).toBe("https://oauth-redirect.googleusercontent.com");
+    expect(callback.searchParams.get("state")).toBe("gemini-state");
+
+    const token = await fetch(`${origin}/token`, {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: callback.searchParams.get("code") ?? "",
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+        resource: RESOURCE
+      })
+    });
+    expect(token.status).toBe(200);
+  });
+
+  it("does not redirect to an unseen Gemini callback when the owner denies it", async () => {
+    const redirectUri =
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-denied";
+    const { origin, service } = await startOAuthServer(
+      {
+        clientId: "custom-static-client",
+        clientSecret: "secret",
+        redirectUris: ["https://claude.ai/api/mcp/auth_callback"]
+      },
+      undefined,
+      {
+        add: () => {
+          throw new Error("must not persist");
+        }
+      }
+    );
+    const authorizeUrl = new URL("/authorize", origin);
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: "custom-static-client",
+      redirect_uri: redirectUri,
+      code_challenge: service.pkceChallenge("n".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE,
+      scope: "mcp:tools"
+    }).toString();
+    const page = await fetch(authorizeUrl);
+    const transactionId = transactionFromHtml(await page.text());
+
+    const denial = await fetch(`${origin}/authorize`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ transaction_id: transactionId, decision: "deny" }),
+      redirect: "manual"
+    });
+    expect(denial.status).toBe(200);
+    expect(denial.headers.get("location")).toBeNull();
+    expect(await denial.text()).toContain("callback was not registered");
   });
 
   it("completes DCR, owner authorization, PKCE exchange, and MCP Bearer auth", async () => {
