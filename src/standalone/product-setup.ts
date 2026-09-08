@@ -21,7 +21,12 @@ import {
   managedStatePaths,
   resolveApplicationRoot
 } from "../owner/managed-state.js";
-import { DEFAULT_STATIC_CLIENT_REDIRECT_URIS, readRuntimeConfig } from "../app/config.js";
+import {
+  DEFAULT_STATIC_CLIENT_ID,
+  DEFAULT_STATIC_CLIENT_REDIRECT_URIS,
+  GEMINI_SPARK_REDIRECT_URI,
+  readRuntimeConfig
+} from "../app/config.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
 import { currentReleaseTarget } from "./release-manifest.js";
 import {
@@ -188,9 +193,6 @@ function safeEnvValue(value: string, key: string): string {
   return value;
 }
 
-export const DEFAULT_STATIC_CLIENT_ID = "slnctrz-mcp";
-
-const LEGACY_STATIC_CLIENT_REDIRECT_URIS = "https://claude.ai/api/mcp/auth_callback";
 const CLIENT_ENV_PATTERNS = Object.freeze({
   id: /^SLNCTRZ_CLIENT_ID=(.*)$/mu,
   secret: /^SLNCTRZ_CLIENT_SECRET=(.*)$/mu,
@@ -198,14 +200,20 @@ const CLIENT_ENV_PATTERNS = Object.freeze({
   redirectUris: /^SLNCTRZ_CLIENT_REDIRECT_URIS=(.*)$/mu
 });
 
-/** Add Gemini to the untouched legacy Claude-only allowlist without changing custom allowlists. */
-export function migrateLegacyStaticClientRedirectUris(content: string): string {
-  if (content.match(CLIENT_ENV_PATTERNS.redirectUris)?.[1] !== LEGACY_STATIC_CLIENT_REDIRECT_URIS) {
-    return content;
-  }
+/** Add the official Gemini callback to the default client without removing existing callbacks. */
+export function migrateDefaultStaticClientRedirectUris(content: string): string {
+  const clientId = content.match(CLIENT_ENV_PATTERNS.id)?.[1];
+  const redirectUris = content.match(CLIENT_ENV_PATTERNS.redirectUris)?.[1];
+  if (clientId !== DEFAULT_STATIC_CLIENT_ID || redirectUris === undefined) return content;
+  const entries = redirectUris
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (entries.includes(GEMINI_SPARK_REDIRECT_URI)) return content;
+  const migrated = `${redirectUris}${redirectUris.trim().length === 0 ? "" : ","}${GEMINI_SPARK_REDIRECT_URI}`;
   return content.replace(
     CLIENT_ENV_PATTERNS.redirectUris,
-    `SLNCTRZ_CLIENT_REDIRECT_URIS=${DEFAULT_STATIC_CLIENT_REDIRECT_URIS.join(",")}`
+    `SLNCTRZ_CLIENT_REDIRECT_URIS=${migrated}`
   );
 }
 
@@ -240,7 +248,7 @@ export async function ensureClientEnvFile(
     existingClientSecret !== undefined &&
     existingClientSecret.length > 0
   ) {
-    const migrated = migrateLegacyStaticClientRedirectUris(existing);
+    const migrated = migrateDefaultStaticClientRedirectUris(existing);
     if (migrated !== existing) await atomicTextFile(file, migrated, 0o600);
     return {
       file,
@@ -274,7 +282,7 @@ export async function ensureClientEnvFile(
       `SLNCTRZ_CLIENT_NAME=${clientName}`,
       `SLNCTRZ_CLIENT_REDIRECT_URIS=${redirectUris}`
     ].join("\n") + "\n";
-  await atomicTextFile(file, content, 0o600);
+  await atomicTextFile(file, migrateDefaultStaticClientRedirectUris(content), 0o600);
   return { file, clientId, clientSecret, created: requestedSecret === undefined };
 }
 

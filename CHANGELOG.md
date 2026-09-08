@@ -2,6 +2,15 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.2.8
+
+Date: 2026-09-08
+
+### Fixed
+
+- The default `slnctrz-mcp` OAuth client now adds the current Gemini Spark callback in memory during startup whenever an older configured allowlist does not contain it. This closes the first-update bootstrap gap where migration code in the newly installed binary could not run until after the old updater completed.
+- Persistent migration now appends the current Gemini callback without removing older Gemini or owner-added callbacks. Custom Client IDs remain fully owner-controlled and are not expanded.
+
 ## 0.2.7
 
 Date: 2026-09-08

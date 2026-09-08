@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadPolicyDocument } from "../../src/policy/policy-config.js";
 import { currentReleaseTarget } from "../../src/standalone/release-manifest.js";
 import {
-  migrateLegacyStaticClientRedirectUris,
+  migrateDefaultStaticClientRedirectUris,
   prepareProductSetup
 } from "../../src/standalone/product-setup.js";
 
@@ -170,7 +170,25 @@ describe("product setup", () => {
     );
   });
 
-  it("preserves custom OAuth redirect allowlists", () => {
+  it("appends the current Gemini callback while preserving an older Gemini callback", () => {
+    const existing = [
+      "SLNCTRZ_CLIENT_ID=slnctrz-mcp",
+      "SLNCTRZ_CLIENT_SECRET=preserved-secret",
+      "SLNCTRZ_CLIENT_NAME=SlncTrZ-MCP",
+      "SLNCTRZ_CLIENT_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback,https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102591365441280672080-mcp_truongcongdinh_org",
+      ""
+    ].join("\n");
+    const migrated = migrateDefaultStaticClientRedirectUris(existing);
+    expect(migrated).toContain("SLNCTRZ_CLIENT_SECRET=preserved-secret");
+    expect(migrated).toContain(
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102591365441280672080-mcp_truongcongdinh_org"
+    );
+    expect(migrated).toContain(
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+    );
+  });
+
+  it("preserves custom OAuth redirect allowlists for a custom client ID", () => {
     const customized = [
       "SLNCTRZ_CLIENT_ID=custom-client",
       "SLNCTRZ_CLIENT_SECRET=custom-secret",
@@ -178,7 +196,7 @@ describe("product setup", () => {
       "SLNCTRZ_CLIENT_REDIRECT_URIS=https://client.example.test/oauth/callback",
       ""
     ].join("\n");
-    expect(migrateLegacyStaticClientRedirectUris(customized)).toBe(customized);
+    expect(migrateDefaultStaticClientRedirectUris(customized)).toBe(customized);
   });
 
   it("accepts an explicit static OAuth client ID and secret during setup", async () => {

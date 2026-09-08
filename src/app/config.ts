@@ -30,9 +30,12 @@ export interface RuntimeConfig {
   };
 }
 
+export const DEFAULT_STATIC_CLIENT_ID = "slnctrz-mcp";
+export const GEMINI_SPARK_REDIRECT_URI =
+  "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org";
 export const DEFAULT_STATIC_CLIENT_REDIRECT_URIS = Object.freeze([
   "https://claude.ai/api/mcp/auth_callback",
-  "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+  GEMINI_SPARK_REDIRECT_URI
 ]);
 
 function parseCsv(value: string | undefined, fallback: readonly string[]): string[] {
@@ -121,14 +124,20 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     if (clientId.length === 0 || clientSecret.length === 0) {
       throw new Error("Static client credentials must be non-empty");
     }
+    const configuredRedirectUris = parseCsv(
+      environment.SLNCTRZ_CLIENT_REDIRECT_URIS,
+      DEFAULT_STATIC_CLIENT_REDIRECT_URIS
+    );
+    const redirectUris =
+      clientId === DEFAULT_STATIC_CLIENT_ID &&
+      !configuredRedirectUris.includes(GEMINI_SPARK_REDIRECT_URI)
+        ? [...configuredRedirectUris, GEMINI_SPARK_REDIRECT_URI]
+        : configuredRedirectUris;
     staticClient = {
       clientId,
       clientSecret,
       clientName: environment.SLNCTRZ_CLIENT_NAME ?? "SlncTrZ-MCP",
-      redirectUris: parseCsv(
-        environment.SLNCTRZ_CLIENT_REDIRECT_URIS,
-        DEFAULT_STATIC_CLIENT_REDIRECT_URIS
-      )
+      redirectUris
     };
   }
 

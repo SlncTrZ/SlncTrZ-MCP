@@ -123,6 +123,34 @@ describe("readRuntimeConfig", () => {
     ]);
   });
 
+  it("adds the current Gemini callback in memory for an upgraded default client", () => {
+    const oldGeminiCallback =
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102591365441280672080-mcp_truongcongdinh_org";
+    const config = readRuntimeConfig({
+      SLNCTRZ_CLIENT_ID: "slnctrz-mcp",
+      SLNCTRZ_CLIENT_SECRET: "server-side-secret",
+      SLNCTRZ_CLIENT_REDIRECT_URIS: `https://claude.ai/api/mcp/auth_callback,${oldGeminiCallback}`
+    });
+
+    expect(config.staticClient?.redirectUris).toEqual([
+      "https://claude.ai/api/mcp/auth_callback",
+      oldGeminiCallback,
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-117020455475406554788-mcp_truongcongdinh_org"
+    ]);
+  });
+
+  it("does not expand redirect allowlists for a custom client ID", () => {
+    const config = readRuntimeConfig({
+      SLNCTRZ_CLIENT_ID: "custom-client",
+      SLNCTRZ_CLIENT_SECRET: "server-side-secret",
+      SLNCTRZ_CLIENT_REDIRECT_URIS: "https://client.example.test/oauth/callback"
+    });
+
+    expect(config.staticClient?.redirectUris).toEqual([
+      "https://client.example.test/oauth/callback"
+    ]);
+  });
+
   it("rejects partial confidential-client credentials", () => {
     const base = {
       SLNCTRZ_PUBLIC_URL: "https://mcp.example.com/mcp",
