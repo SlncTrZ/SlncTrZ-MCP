@@ -5,8 +5,16 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Invoke-Text([string]$FilePath, [string[]]$Arguments) {
-  $output = & $FilePath @Arguments 2>&1 | Out-String
-  if ($LASTEXITCODE -ne 0) {
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = & $FilePath @Arguments 2>&1 | Out-String
+    $exitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousPreference
+  }
+  if ($exitCode -ne 0) {
     throw "$FilePath $($Arguments -join ' ') failed:$([Environment]::NewLine)$output"
   }
   return $output.Trim()
@@ -42,7 +50,12 @@ Invoke-Text "node" @(
   "const [M,m]=process.versions.node.split('.').map(Number); if(M<22||M>=25||(M===22&&m<13)) process.exit(2)"
 ) | Out-Null
 
-Invoke-Text "gh" @("auth", "status", "-h", "github.com") | Out-Null
+try {
+  Invoke-Text "gh" @("auth", "status", "-h", "github.com") | Out-Null
+}
+catch {
+  throw "GitHub CLI authentication is not usable in this Windows session. Run 'gh auth login -h github.com', then rerun the preflight.$([Environment]::NewLine)$($_.Exception.Message)"
+}
 $canPush = Invoke-Text "gh" @("api", "repos/$Repository", "--jq", ".permissions.push")
 if ($canPush -ne "true") {
   throw "authenticated GitHub account does not report push permission for $Repository"
