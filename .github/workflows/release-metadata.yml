@@ -1,0 +1,50 @@
+name: Release metadata sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/releases/**"
+      - ".github/workflows/release-metadata.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-current-version:
+    name: sync current stable release notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve current version notes
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          tag="v${version}"
+          notes_file="docs/releases/${tag}.md"
+          test -f "${notes_file}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "notes_file=${notes_file}" >> "${GITHUB_OUTPUT}"
+
+      - name: Sync existing GitHub Release body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_NOTES_FILE: ${{ steps.release.outputs.notes_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "No published release exists for ${RELEASE_TAG}; tag publication will use the notes file later."
+            exit 0
+          fi
+          gh release edit "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "SlncTrZ-MCP ${RELEASE_TAG}" \
+            --notes-file "${RELEASE_NOTES_FILE}"

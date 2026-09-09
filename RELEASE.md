@@ -112,6 +112,19 @@ Any mismatch blocks promotion.
 
 `.github/workflows/standalone.yml` runs on manual dispatch and `v*` tags.
 
+For a native Windows release workstation, run this before pushing a release tag:
+
+```powershell
+npm run release:preflight:windows
+```
+
+The preflight fails unless the worktree is clean, the branch is `main`, local HEAD matches
+`origin/main`, Node is inside the supported range, GitHub CLI authentication can access this
+repository with push permission, and `docs/releases/v<version>.md` exists. On the project hosts,
+`/mnt/pc-dev/SlncTrZ-MCP` on the Linux gateway host and `H:\Develop\SlncTrZ-MCP` on the Windows
+workstation refer to the same development tree; release commands should still use the native path
+for the platform executing them.
+
 ### Quality
 
 Node 22 and Node 24:
@@ -137,6 +150,9 @@ Native target builds:
 ### Candidate publication
 
 On a tag only, the workflow creates a **prerelease candidate** containing the verified assets.
+The canonical GitHub Release body is `docs/releases/<tag>.md`; candidate publication fails if the
+tag-specific notes file is missing. Existing candidates are refreshed with the same notes file, so
+generated GitHub notes never replace support, migration, limitation, or rollback statements.
 
 It does not promote immediately.
 
@@ -337,7 +353,7 @@ Every public release should state:
 - known limitations;
 - rollback notes.
 
-`CHANGELOG.md` records product history. GitHub generated notes may supplement it but do not replace support/known-limitation statements.
+`CHANGELOG.md` records product history. The canonical public body lives at `docs/releases/v<version>.md` and is enforced by `docs:check`. Changes to the current version's release-note file on `main` are synchronized to an existing GitHub Release by `.github/workflows/release-metadata.yml` using the repository-scoped Actions token. GitHub generated notes may supplement the changelog but do not replace support/known-limitation statements.
 
 ## Final release blocking rule
 

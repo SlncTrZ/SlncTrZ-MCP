@@ -118,6 +118,21 @@ if (pkg.engines?.node !== ">=22.13.0 <25") {
 // Release line is derived from package.json through the single version module, so CI
 // never needs to hardcode a line. readVersion() throws if the shape is unsupported.
 const { releaseLine } = await readVersion();
+const currentReleaseNotes = await readFile(
+  join(root, "docs", "releases", `v${pkg.version}.md`),
+  "utf8"
+);
+for (const value of [
+  `# SlncTrZ-MCP v${pkg.version}`,
+  "## User-visible changes",
+  "## Security-relevant changes",
+  "## Migration / restart / reauthorization",
+  "## Supported / prebuilt targets",
+  "## Known limitations",
+  "## Rollback"
+]) {
+  requireText(currentReleaseNotes, value, "current release notes");
+}
 
 // Drift guard: the public docs must not reference a different release line (X.Y.x).
 function assertCurrentLineOnly(text, label) {

@@ -249,6 +249,9 @@ jobs:
     needs: aggregate-release
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Download canonical release bundle
         uses: actions/download-artifact@v8
         with:
@@ -259,6 +262,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          test -f "${notes_file}"
           assets=(
             artifact/slnctrz-mcp
             artifact/slnctrz-mcp.exe
@@ -271,6 +276,7 @@ jobs:
             gh release edit "${GITHUB_REF_NAME}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "SlncTrZ-MCP ${GITHUB_REF_NAME}" \
+              --notes-file "${notes_file}" \
               --prerelease
 
             gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" \
@@ -280,7 +286,7 @@ jobs:
             gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "SlncTrZ-MCP ${GITHUB_REF_NAME}" \
-              --generate-notes \
+              --notes-file "${notes_file}" \
               --prerelease \
               --verify-tag
           fi

@@ -31,6 +31,7 @@
     "check": "node scripts/check.mjs",
     "docs:check": "node scripts/docs-check.mjs",
     "release:gate": "node scripts/release-gate.mjs",
+    "release:preflight:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-workstation-preflight.ps1",
     "provenance:inventory": "node scripts/provenance-inventory.mjs",
     "benchmark": "npm run build && node scripts/benchmark.mjs",
     "benchmark:harness": "npm run build && node scripts/benchmark-harness.mjs"
