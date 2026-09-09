@@ -1,7 +1,7 @@
 {
   "name": "slnctrz-mcp",
-  "version": "0.2.10",
-  "description": "Universal MCP Gateway — a local-first, policy-controlled MCP infrastructure gateway connecting AI clients to controlled local capabilities.",
+  "version": "0.3.0",
+  "description": "Coding harness over MCP — global instructions, progressive Agent Skills and policy-controlled tools for chat clients and coding agents.",
   "license": "Apache-2.0",
   "type": "module",
   "private": true,
@@ -32,7 +32,8 @@
     "docs:check": "node scripts/docs-check.mjs",
     "release:gate": "node scripts/release-gate.mjs",
     "provenance:inventory": "node scripts/provenance-inventory.mjs",
-    "benchmark": "npm run build && node scripts/benchmark.mjs"
+    "benchmark": "npm run build && node scripts/benchmark.mjs",
+    "benchmark:harness": "npm run build && node scripts/benchmark-harness.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.3.0",
@@ -48,6 +49,7 @@
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   }
 }

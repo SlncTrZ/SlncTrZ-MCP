@@ -64,7 +64,7 @@
 
 - Bất cứ khi nào cần dùng skill (tạo mới / tải về / sử dụng): **load & lưu skill vào `skills/` ở root** — mỗi skill 1 thư mục con `skills/<skill-name>/`, kèm `SKILL.md` theo chuẩn skill.
 - Đường dẫn chuẩn: `./skills/<skill-name>/SKILL.md` (gốc repo).
-- Khi cài / build SlncTrZ-MCP, thư mục `skills/` được tự tạo (postinstall → `scripts/ensure-skills-dir.mjs`).
+- Source postinstall tạo repo `skills/`; v0.3.0 đóng gói các starter skills và khởi tạo global runtime tại `<stateRoot>/harness/skills/`. Hai vị trí có mục đích riêng; đọc `docs/HARNESS.md` khi sửa cơ chế harness.
 - Phạm vi: **chỉ áp dụng cho dự án này**. Pi có cơ chế lưu skill riêng (dưới `.pi/...`) — không dùng chung; skill gắn với dự án gom về `skills/`.
 
 ---

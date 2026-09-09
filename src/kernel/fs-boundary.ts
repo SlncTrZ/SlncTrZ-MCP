@@ -4,7 +4,7 @@
  */
 
 import { lstat, realpath, stat } from "node:fs/promises";
-import { basename, dirname, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 const DENIED_DIRECTORY_NAMES = new Set([
   ".aws",
@@ -77,7 +77,8 @@ export function assertNonSecretPath(path: string): void {
 }
 
 export function isContainedPath(rootReal: string, targetReal: string): boolean {
-  return targetReal === rootReal || targetReal.startsWith(rootReal + sep);
+  const rel = relative(rootReal, targetReal);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /**

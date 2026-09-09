@@ -1,5 +1,9 @@
-/** Product setup orchestration: verified release + managed state + runtime config + installation identity. */
+/** Product setup orchestration: verified release + managed state + runtime config + installation identity.
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-09-09
+ */
 
+import { ensureHarnessLayout } from "../context/provisioning.js";
+import { readRuntimeEnvironmentFile } from "./runtime-env-file.js";
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import {
@@ -69,6 +73,7 @@ export interface ProductSetupRequest {
 }
 
 export interface ProductSetupResult {
+  readonly harnessRoot?: string;
   readonly installation: InstallationMetadata;
   readonly activation: ActivationRecord;
   readonly ownerPassphraseFile: string;
@@ -272,7 +277,8 @@ function gatewayEnvFile(environment: NodeJS.ProcessEnv): string {
     "SLNCTRZ_PORT",
     "SLNCTRZ_PUBLIC_URL",
     "SLNCTRZ_OWNER_WEB_ENABLED",
-    "SLNCTRZ_STATE_ROOT"
+    "SLNCTRZ_STATE_ROOT",
+    "SLNCTRZ_HARNESS_ROOT"
   ];
   return `${ordered
     .filter((key) => environment[key] !== undefined)
@@ -308,6 +314,13 @@ export async function prepareProductSetup(
     stateRoot,
     ...(request.publicMcpUrl === undefined ? {} : { publicMcpUrl: request.publicMcpUrl })
   });
+  try {
+    const previous = await readRuntimeEnvironmentFile(join(configRoot, "gateway.env"));
+    if (previous.SLNCTRZ_HARNESS_ROOT !== undefined)
+      environment.SLNCTRZ_HARNESS_ROOT = previous.SLNCTRZ_HARNESS_ROOT;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   // Reuse runtime validation so setup cannot generate a configuration the gateway would reject.
   const runtimeConfig = readRuntimeConfig(environment);
 
@@ -331,6 +344,7 @@ export async function prepareProductSetup(
   });
 
   await ensureManagedStateLayout(statePaths);
+  await ensureHarnessLayout(runtimeConfig.harnessRoot ?? join(stateRoot, "harness"));
   await provisionDefaultCommandCatalog({
     paths: statePaths,
     appRoot: resolveApplicationRoot(),
@@ -410,6 +424,7 @@ export async function prepareProductSetup(
   return {
     installation,
     activation,
+    harnessRoot: runtimeConfig.harnessRoot ?? join(stateRoot, "harness"),
     ownerPassphraseFile: statePaths.ownerPassphraseFile,
     ...(firstRunOwnerPassphrase === undefined ? {} : { firstRunOwnerPassphrase }),
     ownerPassphraseState:

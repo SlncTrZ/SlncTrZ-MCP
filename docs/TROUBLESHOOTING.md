@@ -321,3 +321,16 @@ Do not claim that every corrupt image is detected or that user-visible rendering
 See [Images in chat](IMAGES.md) for the verified attachment workflow and release boundaries.
 An audio attachment playing for the user is also not proof that the model can hear it;
 the tested session explicitly rejected audio input.
+
+## Coding context and skills
+
+If tools return `context_required`, refresh the MCP tool catalog and call `context.bootstrap`.
+Pass its `contextToken` as `slnctrzContext` with work calls. `context_stale` means instructions,
+skills, policy or the receipt lifetime changed: bootstrap again and load relevant skills again.
+Preflight rejection means the requested operation was not executed; do not apply that assumption
+to arbitrary command failures.
+
+Check `core.ping.harness` or `slnctrz-mcp config show --json` for the actual global root. Unreadable,
+oversized or invalid UTF-8 AGENTS.md files block context; malformed individual skills are listed in
+diagnostics. Skill scripts are not automatically executed or given permissions. A missing project
+AGENTS.md is normal. See [HARNESS.md](HARNESS.md) for limits and recovery.

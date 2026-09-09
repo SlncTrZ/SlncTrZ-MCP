@@ -1,7 +1,8 @@
-# User Guide — Owner Console: add Paths and MCP servers
+# User Guide — Owner Console, coding harness, and MCP servers
 
 > Applies to the installed standalone SlncTrZ-MCP gateway. The Owner Console is the
-> owner-only admin surface for the workspace Paths and connected MCP servers.
+> owner-only admin surface for Autonomy, Paths, Commands, and connected MCP servers. Editable
+> global coding instructions and skills live separately under the configured harness root.
 
 ## 1. Access the Owner Console
 
@@ -59,8 +60,9 @@ Denying the request leaves the callback unregistered and does not redirect the b
 
 ## 2. Add a workspace Path
 
-File tools (`read_file`, `write_file`, `edit`, `search`) operate **only** inside configured
-**Paths**. A Path is the workspace boundary the gateway grants to file tools.
+In Restricted mode, built-in file tools (`core.read`, `core.search`, `core.write`, `core.edit`,
+and `media.read_image` when advertised) operate inside configured **Paths**. A Path is the
+filesystem boundary the gateway grants to those restricted-mode operations.
 
 **Steps (Owner Console → Paths → Add):**
 
@@ -188,3 +190,19 @@ support that, the agent must report the limitation. See [Images in chat](IMAGES.
 Gateway model help is delivered by `core.ping` and the model guide. The CLI's `--help`
 points to that workflow. `<provider>.help`, such as the KB provider's help, documents only
 the external provider and does not define built-in gateway image capabilities.
+
+## 7. Global coding instructions and skills
+
+Edit the global `AGENTS.md` printed by setup, then add skills beneath the adjacent `skills/`
+directory. Both live under `<stateRoot>/harness/` by default and survive upgrades. You can work on
+repositories without creating a project `AGENTS.md`; project instructions and project skills are
+optional overlays selected by `context.bootstrap({projectRoot})`.
+
+The agent receives global instructions and compact skill metadata through `context.bootstrap`, then
+loads a selected `SKILL.md` and referenced text resources on demand with `skills.read`. Ordinary
+core, image, task, and provider calls require the returned context receipt. If instructions or the
+skill catalog change, the old receipt becomes stale before side effects and the agent bootstraps
+again. `core.ping`, context lifecycle tools, and owned `task.cancel` remain available for recovery.
+
+After upgrading to v0.3.0, refresh your client's MCP tool catalog before work. See
+[Coding harness](HARNESS.md) and [Coding-agent integration](CODING_AGENTS.md).

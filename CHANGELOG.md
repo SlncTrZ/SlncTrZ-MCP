@@ -2,6 +2,30 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.0
+
+Date: 2026-09-09
+
+### Added
+
+- Automatic global AGENTS.md discovery with optional authorized project instructions.
+- Mandatory coding-context bootstrap receipts for ordinary gateway tools; argument and MCP metadata delivery.
+- Agent Skills catalog, activation and on-demand text resources with bounded YAML/filesystem validation.
+- Preserved global installation layout and bundled code-review/debug-and-test skills.
+- Coding-agent integration guide, migration/help guidance and authenticated legacy/modern conformance coverage.
+- Original PNG/JPEG reads with client image-display guidance carried forward from the image feature branch.
+
+### Changed
+
+- Product positioning moves from a capability gateway to a coding harness over MCP.
+- Clients upgrading from 0.2 must refresh tools and bootstrap context before ordinary work calls.
+- ADR-027 supersedes ADR-009's manual instruction-source declaration and delivery design.
+
+### Fixed
+
+- Policy-generation changes now reclaim stale coding-context receipts before enforcing the bounded receipt capacity, preventing old live-TTL receipts from blocking a fresh bootstrap.
+- Harness tool annotations now distinguish read-only catalog inspection from bootstrap/close/skill-activation calls that mutate in-memory context state.
+
 ## 0.2.10
 
 Date: 2026-09-08

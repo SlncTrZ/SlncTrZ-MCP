@@ -132,6 +132,25 @@ async function readMcpPayload(response: Response): Promise<McpPayload> {
 }
 
 async function taskStart(origin: string, token: string, args: readonly string[]): Promise<string> {
+  const bootResponse = await fetch(`${origin}/mcp`, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18"
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 0,
+      method: "tools/call",
+      params: { name: "context.bootstrap", arguments: {} }
+    })
+  });
+  const boot = await readMcpPayload(bootResponse);
+  expect(boot.result?.isError).not.toBe(true);
+  const slnctrzContext = boot.result?.structuredContent?.contextToken;
+  expect(typeof slnctrzContext).toBe("string");
   const response = await fetch(`${origin}/mcp`, {
     method: "POST",
     headers: {
@@ -146,7 +165,7 @@ async function taskStart(origin: string, token: string, args: readonly string[])
       method: "tools/call",
       params: {
         name: "task.start",
-        arguments: { command: "node", args, timeoutMs: 60_000 }
+        arguments: { command: "node", args, timeoutMs: 60_000, slnctrzContext }
       }
     })
   });

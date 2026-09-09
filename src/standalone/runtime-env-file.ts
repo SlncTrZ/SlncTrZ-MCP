@@ -1,4 +1,6 @@
-/** Strict installed runtime environment-file parsing shared by launch and management paths. */
+/** Strict installed runtime environment-file parsing shared by launch and management paths.
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-09-09
+ */
 
 import { readFile } from "node:fs/promises";
 
@@ -15,6 +17,7 @@ export const RUNTIME_ENV_KEYS = Object.freeze(
     "SLNCTRZ_ALLOWED_HOSTS",
     "SLNCTRZ_ALLOWED_ORIGINS",
     "SLNCTRZ_STATE_ROOT",
+    "SLNCTRZ_HARNESS_ROOT",
     "SLNCTRZ_POLICY_FILE"
   ])
 );
@@ -27,6 +30,45 @@ export const CLIENT_ENV_KEYS = Object.freeze(
     "SLNCTRZ_CLIENT_REDIRECT_URIS"
   ])
 );
+
+const RUNTIME_ENV_MINIMUM_VERSION = Object.freeze(
+  new Map<string, string>([["SLNCTRZ_HARNESS_ROOT", "0.3.0"]])
+);
+
+function versionTuple(version: string): readonly [number, number, number] {
+  const match =
+    /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.exec(
+      version
+    );
+  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
+    throw new Error(`runtime_config_target_version_invalid: ${version}`);
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function versionAtLeast(version: string, minimum: string): boolean {
+  const current = versionTuple(version);
+  const required = versionTuple(minimum);
+  for (let index = 0; index < current.length; index += 1) {
+    const left = current[index] ?? 0;
+    const right = required[index] ?? 0;
+    if (left !== right) return left > right;
+  }
+  return true;
+}
+
+export function assertRuntimeEnvironmentCompatibleWithRelease(
+  environment: NodeJS.ProcessEnv,
+  targetVersion: string
+): void {
+  for (const [key, minimumVersion] of RUNTIME_ENV_MINIMUM_VERSION) {
+    if (environment[key] !== undefined && !versionAtLeast(targetVersion, minimumVersion)) {
+      throw new Error(
+        `rollback_config_incompatible: ${key} requires ${minimumVersion} or newer; rollback target is ${targetVersion}`
+      );
+    }
+  }
+}
 
 function parseEnvironmentText(
   raw: string,

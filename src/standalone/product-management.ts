@@ -1,4 +1,8 @@
-/** Installed product status, diagnostics, configuration, update, recovery and uninstall. */
+/** Installed product status, diagnostics, configuration, update, recovery and uninstall.
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-09-09
+ */
+
+import { ensureHarnessLayout } from "../context/provisioning.js";
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -54,7 +58,11 @@ import {
   preflightSystemService
 } from "./service-setup.js";
 import { currentReleaseTarget } from "./release-manifest.js";
-import { readClientEnvironmentFile, readRuntimeEnvironmentFile } from "./runtime-env-file.js";
+import {
+  assertRuntimeEnvironmentCompatibleWithRelease,
+  readClientEnvironmentFile,
+  readRuntimeEnvironmentFile
+} from "./runtime-env-file.js";
 
 export type DiagnosticLevel = "PASS" | "WARN" | "FAIL" | "INFO";
 
@@ -800,6 +808,15 @@ export async function showProductConfig(
     accessMode: environment.SLNCTRZ_PUBLIC_URL === undefined ? "local" : "public",
     publicMcpUrl: runtime.publicMcpUrl.href,
     ownerConsoleEnabled: runtime.ownerWebEnabled,
+    harnessRoot: runtime.harnessRoot ?? join(context.installation.stateRoot, "harness"),
+    globalInstructions: join(
+      runtime.harnessRoot ?? join(context.installation.stateRoot, "harness"),
+      "AGENTS.md"
+    ),
+    skillsDirectory: join(
+      runtime.harnessRoot ?? join(context.installation.stateRoot, "harness"),
+      "skills"
+    ),
     authorityMode: policy.authorityMode ?? "restricted",
     paths: [...policy.paths],
     ...(staticClientId === undefined ? {} : { staticClientId, staticClientFile: clientFile })
@@ -943,6 +960,12 @@ export async function rollbackProduct(
   const rollbackActivation = await readCurrentStandaloneActivation(
     context.installation.installRoot
   );
+  if (rollbackActivation?.previousVersion !== undefined) {
+    const environment = await readRuntimeEnvironmentFile(
+      join(context.installation.configRoot, "gateway.env")
+    );
+    assertRuntimeEnvironmentCompatibleWithRelease(environment, rollbackActivation.previousVersion);
+  }
   if (context.installation.installMode === "system") {
     await preflightInstalledSystemService(context, dependencies);
   }
@@ -961,6 +984,12 @@ export async function repairProduct(
 ): Promise<{ readonly changes: readonly string[]; readonly restartRequired: boolean }> {
   const context = await discoverInstalledProduct(dependencies);
   const changes: string[] = [];
+  const harnessConfig = await readRuntimeEnvironmentFile(
+    join(context.installation.configRoot, "gateway.env")
+  );
+  await ensureHarnessLayout(
+    readRuntimeConfig(harnessConfig).harnessRoot ?? join(context.installation.stateRoot, "harness")
+  );
 
   if (process.platform !== "win32") {
     const managedDirectories = [

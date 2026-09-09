@@ -17,7 +17,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-006 | Isolated modern MCP with stateless legacy compatibility             | Accepted                                                         |
 | ADR-007 | Tool registry uses canonical names independent of runtime topology  | Accepted                                                         |
 | ADR-008 | Standalone packaging is separated from runtime architecture         | Accepted                                                         |
-| ADR-009 | Project instructions are explicit context, not a security mechanism | Accepted                                                         |
+| ADR-009 | Project instructions are explicit context, not a security mechanism | Superseded by ADR-027                                            |
 | ADR-010 | No home-directory access by default                                 | Accepted                                                         |
 | ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood                       | Accepted                                                         |
 | ADR-012 | Grant-family token revocation and redacted authentication audit     | Accepted                                                         |
@@ -35,13 +35,20 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-024 | Root-path command-catalog execution                                 | Partially superseded by current Autonomy/cross-platform contract |
 | ADR-025 | Loopback HTTP exception for streamable-http MCP endpoints           | Accepted                                                         |
 | ADR-026 | Provider tool namespacing                                           | Accepted                                                         |
+| ADR-027 | Global coding context and progressive Agent Skills                  | Accepted                                                         |
 
 ## How to add an ADR
 
-1. Copy `_template.md` to the next number, e.g. `adr-011-title.md`.
+1. Copy `_template.md` to the next number, e.g. `adr-028-title.md`.
 2. Fill in Status, Context, Decision, Consequences.
 3. Add the row to the register above.
 4. Keep it short and decision-focused.
 
 > ADRs are tracked alongside the code. For the full rationale behind the accepted
 > decisions, see PLAN §5 (Architecture decision records) and ARCHITECTURE.md.
+
+## Coding harness update
+
+[ADR-027](adr-027-global-context-and-agent-skills.md) supersedes ADR-009's manual instruction-source
+and delivery design for v0.3.0. Global discovery, optional project context and progressive skills
+are implemented through the context and skills MCP tools.

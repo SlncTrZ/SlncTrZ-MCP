@@ -251,7 +251,8 @@ describe("fresh-install default workspace is immediately full authority", () => 
     expect(tools).toContain("core.ping");
     for (const cap of caps) expect(tools).toContain(cap);
     expect(tools).toContain("core.exec");
-    expect(tools.length).toBe(caps.length + 1);
+    expect(tools).toContain("media.read_image");
+    expect(tools.length).toBe(caps.length + 2);
   });
 
   it("(4) core.write and core.edit apply in the default path; core.read scopes to it", async () => {

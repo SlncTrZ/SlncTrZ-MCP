@@ -149,3 +149,16 @@ it("reserves media.read_image for the built-in reader", async () => {
     ])
   ).rejects.toMatchObject({ code: "registry_collision" });
 });
+
+it.each(["context.bootstrap", "context.close", "skills.list", "skills.read"])(
+  "reserves %s for the harness",
+  async (canonicalId) => {
+    await expect(
+      compileExtensionRegistry([
+        await stdioManifest(canonicalId.split(".")[0] ?? "", {
+          tools: [{ canonicalId, riskClass: "read" }]
+        })
+      ])
+    ).rejects.toMatchObject({ code: "registry_collision" });
+  }
+);

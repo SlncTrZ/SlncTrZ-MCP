@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertRuntimeEnvironmentCompatibleWithRelease,
   parseClientEnvironmentText,
   parseRuntimeEnvironmentText
 } from "../../src/standalone/runtime-env-file.js";
@@ -20,6 +21,24 @@ describe("runtime environment file", () => {
       SLNCTRZ_PORT: "3100",
       SLNCTRZ_STATE_ROOT: "C:\\Users\\Alice\\.slnctrz-mcp"
     });
+  });
+
+  it("blocks rollback to releases that cannot parse configured runtime keys", () => {
+    const customHarness = parseRuntimeEnvironmentText(
+      "SLNCTRZ_HARNESS_ROOT=/srv/slnctrz-harness\n"
+    );
+    expect(() => assertRuntimeEnvironmentCompatibleWithRelease(customHarness, "0.2.10")).toThrow(
+      "rollback_config_incompatible: SLNCTRZ_HARNESS_ROOT"
+    );
+    expect(() =>
+      assertRuntimeEnvironmentCompatibleWithRelease(customHarness, "0.3.0-rc.1")
+    ).not.toThrow();
+    expect(() =>
+      assertRuntimeEnvironmentCompatibleWithRelease(
+        parseRuntimeEnvironmentText("SLNCTRZ_PORT=3100\n"),
+        "0.2.10"
+      )
+    ).not.toThrow();
   });
 
   it("keeps managed keys strict and case-sensitive", () => {

@@ -475,6 +475,7 @@ describe("gateway HTTP surface", () => {
     expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
       "core.ping",
       "core.read",
+      "media.read_image",
       "core.search",
       "core.write",
       "core.edit"
@@ -549,6 +550,7 @@ describe("gateway HTTP surface", () => {
     expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
       "core.ping",
       "core.read",
+      "media.read_image",
       "core.search",
       "core.write",
       "core.edit"

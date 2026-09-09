@@ -1,7 +1,7 @@
 # Contributing to SlncTrZ-MCP
 
 Thanks for contributing. This project is an **independent, clean-room implementation**
-of a Universal MCP Gateway. Please read this before opening an issue or pull request.
+of a coding harness and MCP capability gateway. Please read this before opening an issue or pull request.
 
 ## Clean-room rule (PLAN §2.1)
 

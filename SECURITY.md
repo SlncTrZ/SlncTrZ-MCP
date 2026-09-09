@@ -90,3 +90,12 @@ Public deployment must use HTTPS for non-loopback MCP/OAuth identity. The separa
 Release/bootstrap downloads are HTTPS-only, redirects are bounded/validated, and artifact activation requires declared size + SHA-256 verification. Destructive uninstall requires matching independent installation identity markers.
 
 The live gateway reports semantic version and exact build/commit provenance; `status`/`doctor` compare authenticated running identity with the active verified installed release when available.
+
+## Coding context receipts
+
+The harness preflight verifies delivery workflow, not model understanding or authorization.
+Global/project instructions and skills cannot grant capabilities. Dedicated bounded context
+reads do not add their roots to general Paths. Receipts are client/workspace/policy/revision-bound,
+expire and are kept in bounded memory. They are separate from OAuth credentials. Kernel checks
+still run after preflight. Ping, context lifecycle and owned task cancellation remain available
+for recovery. The host owns conversation boundaries and retention across compaction.

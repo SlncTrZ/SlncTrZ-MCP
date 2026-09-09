@@ -1,10 +1,12 @@
 # ADR-009: Project instructions are explicit context, not a security mechanism
 
-> Status: Accepted
+> Status: Superseded by ADR-027 for global discovery and delivery
 > Date: 2026-08-28
 > Owners: SlncTrZ
 >
-> Current-contract note (2026-09-05): the canonical SlncTrZ Product Agent Harness from root `AGENTS.md` is product guidance and is distinct from the project instruction sources discussed here. The explicit `slnctrz://context/index` / `project-context` runtime described by this ADR is **not implemented in the current source tree**; this ADR remains an accepted design boundary, not a claim of current runtime support.
+> v0.3.0 update (2026-09-09): [ADR-027](adr-027-global-context-and-agent-skills.md) replaces the manual-source declaration and explicit-prompt delivery design below. The implementation now provides global discovery, optional project context, bootstrap receipts and progressive skills. The Product Agent Harness remains guidance, never authority. The historical `slnctrz://context/index` / `project-context` API described below was not shipped.
+
+The remaining text records the original decision; consult ADR-027 and [HARNESS.md](../HARNESS.md) for the current contract.
 
 ## Context
 

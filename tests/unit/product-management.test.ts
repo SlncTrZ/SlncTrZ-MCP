@@ -83,6 +83,32 @@ async function fixture() {
   return { root, workspace, installRoot, stateRoot, configRoot, fetch };
 }
 
+async function rollbackCompatibilityFixture() {
+  const root = await directory("slnctrz-management-rollback-compat-");
+  const workspace = await directory("slnctrz-management-rollback-workspace-");
+  const installRoot = join(root, "install");
+  const stateRoot = join(root, "state");
+  const configRoot = join(root, "config");
+  const releases = {
+    "0.2.10": Buffer.from("#!/bin/sh\necho v0.2.10\n"),
+    "0.3.0": Buffer.from("#!/bin/sh\necho v0.3.0\n")
+  };
+  const fetch = releaseFetch(releases);
+  await prepareProductSetup(
+    {
+      installMode: "user",
+      port: 9150,
+      initialPath: workspace,
+      manifestUrl: "https://updates.example.test/0.2.10/manifest.json",
+      installRoot,
+      stateRoot,
+      configRoot
+    },
+    { fetch, checkPort: async () => undefined }
+  );
+  return { root, workspace, installRoot, stateRoot, configRoot, fetch };
+}
+
 describe("installed product management", () => {
   it("reports status and read-only diagnostics without exposing secrets", async () => {
     const f = await fixture();
@@ -205,6 +231,37 @@ describe("installed product management", () => {
       await readFile(join(f.stateRoot, "installation.json"), "utf8")
     ) as { publicMcpUrl?: string };
     expect(installation.publicMcpUrl).toBeUndefined();
+  });
+
+  it("blocks an incompatible custom-harness rollback before activation while default rollback remains valid", async () => {
+    const defaultInstall = await rollbackCompatibilityFixture();
+    const defaultManagement = { stateRoot: defaultInstall.stateRoot, fetch: defaultInstall.fetch };
+    await updateProduct(
+      { manifestUrl: "https://updates.example.test/0.3.0/manifest.json" },
+      defaultManagement
+    );
+    await expect(rollbackProduct(defaultManagement)).resolves.toMatchObject({
+      activation: { version: "0.2.10" }
+    });
+
+    const customInstall = await rollbackCompatibilityFixture();
+    const customManagement = { stateRoot: customInstall.stateRoot, fetch: customInstall.fetch };
+    await updateProduct(
+      { manifestUrl: "https://updates.example.test/0.3.0/manifest.json" },
+      customManagement
+    );
+    const gatewayConfigFile = join(customInstall.configRoot, "gateway.env");
+    const customHarness = join(customInstall.root, "custom-harness");
+    const configBefore = `${await readFile(gatewayConfigFile, "utf8")}SLNCTRZ_HARNESS_ROOT=${customHarness}\n`;
+    await writeFile(gatewayConfigFile, configBefore, "utf8");
+    const activationFile = join(customInstall.installRoot, "current.json");
+    const activationBefore = await readFile(activationFile, "utf8");
+
+    await expect(rollbackProduct(customManagement)).rejects.toThrow(
+      "rollback_config_incompatible: SLNCTRZ_HARNESS_ROOT"
+    );
+    expect(await readFile(activationFile, "utf8")).toBe(activationBefore);
+    expect(await readFile(gatewayConfigFile, "utf8")).toBe(configBefore);
   });
 
   it("updates and rolls back immutable releases while preserving OAuth config", async () => {

@@ -1,11 +1,11 @@
 /**
  * MCP Server Factory — creates an isolated, principal-bound protocol server per exchange.
- * Wing: protocol | Topic: mcp-server-factory | Updated: 2026-08-28
+ * Wing: protocol | Topic: mcp-server-factory | Updated: 2026-09-09
  *
  * Provenance: PLAN Phases 1, 3, and 6; ARCHITECTURE request isolation; ADR-006 and ADR-009.
  */
 
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import * as z from "zod/v4";
 import {
@@ -90,6 +90,15 @@ import {
   type KernelCapability,
   type KernelPolicySnapshot
 } from "../policy/kernel-policy.js";
+import { HarnessError } from "../context/discovery.js";
+import { HARNESS_GUIDANCE, type HarnessRuntime } from "../context/runtime.js";
+import {
+  contextToken,
+  harnessContextShape,
+  harnessErrorResult,
+  registerHarnessTools,
+  HARNESS_TOOLS
+} from "./harness-tools.js";
 const SERVER_INFO = {
   name: "slnctrz-mcp",
   version: APP_VERSION
@@ -149,6 +158,7 @@ export interface McpServerOptions {
   readonly gatewayInfo?: GatewayInfo;
   /** Gateway-lifetime in-process task runtime. */
   readonly taskRuntime?: TaskRuntime;
+  readonly harnessRuntime?: HarnessRuntime;
 }
 
 function authorizedContext(
@@ -431,18 +441,45 @@ async function editWithin(
 /** Build a fresh MCP server whose tool surface is filtered by principal and policy snapshot. */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const agentHarness = options.gatewayInfo?.agentHarness;
-  const server = new McpServer(
-    SERVER_INFO,
-    agentHarness === undefined
-      ? undefined
-      : { instructions: buildAgentHarnessInstructions(agentHarness) }
-  );
+  const server = new McpServer(SERVER_INFO, {
+    instructions: [
+      agentHarness === undefined ? "" : buildAgentHarnessInstructions(agentHarness),
+      options.harnessRuntime === undefined ? "" : HARNESS_GUIDANCE
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+  });
   const kernelPolicy =
     options.kernelPolicy ??
     createKernelPolicySnapshot({
       workspaceId: "default"
     });
   const toolAudit = options.toolAudit ?? NOOP_TOOL_AUDIT;
+  const harnessRuntime = options.harnessRuntime;
+  const harnessActor =
+    options.principal === undefined
+      ? undefined
+      : { principal: options.principal, policy: kernelPolicy };
+  if (harnessRuntime !== undefined && harnessActor?.principal.scopes.includes("mcp:tools")) {
+    registerHarnessTools(server, harnessRuntime, harnessActor, toolAudit, agentHarness);
+  }
+  const requireHarness = async (
+    args: { slnctrzContext?: string | undefined },
+    context: ServerContext
+  ): Promise<void> => {
+    if (harnessRuntime === undefined) return;
+    if (harnessActor === undefined)
+      throw new HarnessError("context_required", "Authenticated context is required.");
+    try {
+      await harnessRuntime.requireContext(harnessActor, contextToken(args, context));
+    } catch (error) {
+      if (error instanceof HarnessError) throw error;
+      throw new HarnessError(
+        "context_unavailable",
+        "Context could not be verified safely. This operation was not executed."
+      );
+    }
+  };
   const execAuthorization = authorizedContext(kernelPolicy, options.principal, "core.exec");
   const taskRuntime = options.taskRuntime;
   const taskActor =
@@ -470,7 +507,8 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     "core.ping",
     {
       title: "Gateway Ping",
-      description: "Return gateway liveness and the active workspace capability summary.",
+      description:
+        "Return gateway liveness and the active workspace capability summary. For coding tools, initialize context.bootstrap first.",
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -510,6 +548,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               : "embedded docs/MODEL_GUIDE.md (structuredContent.modelGuide)";
         const authorityMode = kp?.authorityMode ?? "restricted";
         const guidance =
+          (harnessRuntime === undefined ? "" : HARNESS_GUIDANCE + " ") +
           "You are connected to a SlncTrZ-MCP gateway. Active authority mode: " +
           authorityMode +
           ". Your capabilities are under workspace.capabilities. In restricted mode, core file tools " +
@@ -612,6 +651,21 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             extensions,
             managedTasks,
             media,
+            ...(harnessRuntime === undefined
+              ? {}
+              : {
+                  harness: {
+                    enabled: true,
+                    bootstrapRequired: true,
+                    globalRoot: harnessRuntime.root,
+                    instructionsFile: join(harnessRuntime.root, "AGENTS.md"),
+                    skillsDirectory: join(harnessRuntime.root, "skills"),
+                    tools: [...HARNESS_TOOLS],
+                    contextPersistence: "in-memory",
+                    projectInstructions: "optional",
+                    disclosure: "catalog-instructions-resources"
+                  }
+                }),
             ...(config === undefined ? {} : { config: { ...config } }),
             ...(docs.length === 0 ? {} : { docs: [...docs] }),
             ...(modelGuide === undefined ? {} : { modelGuide }),
@@ -654,13 +708,14 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: true,
           openWorldHint: false
         },
-        inputSchema: z.object({ path: z.string().min(1) })
+        inputSchema: z.object({ ...harnessContextShape, path: z.string().min(1) })
       },
       async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
           try {
+            await requireHarness(args, context);
             const autonomous = readAuthorization.authorityMode === "autonomous";
             if (!autonomous && !isReadAllowed(readAuthorization, args.path)) {
               throw new ReadError(
@@ -692,6 +747,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               }
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             auditResult = "error";
             if (error instanceof ReadError || error instanceof ExecutionError) {
               return errorResult(error);
@@ -730,7 +789,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: true,
           openWorldHint: false
         },
-        inputSchema: z.object({ path: z.string().min(1) }).strict()
+        inputSchema: z.object({ ...harnessContextShape, path: z.string().min(1) }).strict()
       },
       async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
@@ -738,6 +797,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
           let auditDecision: "allow" | "deny" = "allow";
           try {
+            await requireHarness(args, context);
             const autonomous = imageAuthorization.authorityMode === "autonomous";
             if (!autonomous && !isReadAllowed(imageAuthorization, args.path)) {
               throw new ReadError(
@@ -777,6 +837,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               }
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (
               error instanceof ReadError &&
               (error.code === "permission_denied" || error.code === "invalid_path")
@@ -824,13 +888,18 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: true,
           openWorldHint: false
         },
-        inputSchema: z.object({ pattern: z.string().min(1), root: z.string().optional() })
+        inputSchema: z.object({
+          ...harnessContextShape,
+          pattern: z.string().min(1),
+          root: z.string().optional()
+        })
       },
       async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
           try {
+            await requireHarness(args, context);
             const autonomous = searchAuthorization.authorityMode === "autonomous";
             const result = autonomous
               ? await searchContainedFiles(args.root ?? searchAuthorization.root, args.pattern, {
@@ -876,6 +945,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               }
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             auditResult = "error";
             if (error instanceof SearchError || error instanceof ExecutionError) {
               return errorResult(error);
@@ -914,6 +987,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           openWorldHint: false
         },
         inputSchema: z.object({
+          ...harnessContextShape,
           path: z.string().min(1),
           content: z.string(),
           dryRun: z.boolean().optional(),
@@ -928,6 +1002,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
           try {
+            await requireHarness(args, context);
             const autonomous = writeAuthorization.authorityMode === "autonomous";
             const target = autonomousPath(writeAuthorization.root, args.path);
             const writeOptions: WriteOptions = {
@@ -957,6 +1032,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: result
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (error instanceof WriteError || error instanceof ExecutionError) {
               auditResult =
                 error.code === "cancelled"
@@ -1001,6 +1080,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           openWorldHint: false
         },
         inputSchema: z.object({
+          ...harnessContextShape,
           path: z.string().min(1),
           expectedSha256: z.string().regex(/^[a-f0-9]{64}$/iu),
           edits: z
@@ -1015,6 +1095,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           const startedAt = Date.now();
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
           try {
+            await requireHarness(args, context);
             const autonomous = editAuthorization.authorityMode === "autonomous";
             const target = autonomousPath(editAuthorization.root, args.path);
             const editOptions: EditOptions = {
@@ -1039,6 +1120,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: result
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (error instanceof EditError || error instanceof ExecutionError) {
               auditResult =
                 error.code === "cancelled"
@@ -1083,6 +1168,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         },
         inputSchema: z
           .object({
+            ...harnessContextShape,
             command: z.string().min(1),
             args: z.array(z.string()).max(DEFAULT_MAX_EXEC_ARGS).optional(),
             root: z.string().optional(),
@@ -1105,6 +1191,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditDecision: "allow" | "deny" = "allow";
           let auditedCommandId: string | undefined;
           try {
+            await requireHarness(args, context);
             const authorized = authorizeRunKernelCommand(
               kernelPolicy,
               options.principal,
@@ -1139,6 +1226,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: result
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (isAuthorizationDenial(error)) auditDecision = "deny";
             if (error instanceof ExecError || error instanceof KernelPolicyError) {
               return errorResult(error);
@@ -1185,6 +1276,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         },
         inputSchema: z
           .object({
+            ...harnessContextShape,
             command: z.string().min(1),
             args: z.array(z.string()).max(DEFAULT_MAX_EXEC_ARGS).optional(),
             root: z.string().optional(),
@@ -1205,6 +1297,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditDecision: "allow" | "deny" = "allow";
           let auditedCommandId: string | undefined;
           try {
+            await requireHarness(args, context);
             const authorized = authorizeRunKernelCommand(
               kernelPolicy,
               options.principal,
@@ -1227,6 +1320,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               structuredContent: task
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (isAuthorizationDenial(error)) auditDecision = "deny";
             if (
               error instanceof ExecError ||
@@ -1270,6 +1367,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         },
         inputSchema: z
           .object({
+            ...harnessContextShape,
             title: z.string().min(1).max(HARD_MAX_TASK_TITLE_CHARS),
             instructions: z.string().min(1).max(HARD_MAX_TASK_INSTRUCTIONS_BYTES)
           })
@@ -1280,12 +1378,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           const startedAt = Date.now();
           let auditResult: "success" | "error" = "success";
           try {
+            await requireHarness(args, context);
             const task = taskRuntime.create(taskActor, args.title, args.instructions);
             return {
               content: [{ type: "text", text: `task ${task.taskId} ${task.state}` }],
               structuredContent: task
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1317,19 +1420,24 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: true,
           openWorldHint: false
         },
-        inputSchema: z.object({}).strict()
+        inputSchema: z.object({ ...harnessContextShape }).strict()
       },
-      async (_args, context) =>
+      async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" = "success";
           try {
+            await requireHarness(args, context);
             const tasks = taskRuntime.list(taskActor);
             return {
               content: [{ type: "text", text: `${tasks.length} coordination task(s)` }],
               structuredContent: { tasks }
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1361,19 +1469,24 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: true,
           openWorldHint: false
         },
-        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+        inputSchema: z.object({ ...harnessContextShape, taskId: z.string().min(1) }).strict()
       },
       async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
           const startedAt = Date.now();
           let auditResult: "success" | "error" = "success";
           try {
+            await requireHarness(args, context);
             const task = taskRuntime.claim(taskActor, args.taskId);
             return {
               content: [{ type: "text", text: `task ${task.taskId} claimed` }],
               structuredContent: task
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
             throw error;
@@ -1405,7 +1518,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: false,
           openWorldHint: false
         },
-        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+        inputSchema: z.object({ ...harnessContextShape, taskId: z.string().min(1) }).strict()
       },
       async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
@@ -1413,12 +1526,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditResult: "success" | "error" = "success";
           let auditDecision: "allow" | "deny" = "allow";
           try {
+            await requireHarness(args, context);
             const task = taskRuntime.release(taskActor, args.taskId);
             return {
               content: [{ type: "text", text: `task ${task.taskId} released` }],
               structuredContent: task
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
@@ -1453,6 +1571,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         },
         inputSchema: z
           .object({
+            ...harnessContextShape,
             taskId: z.string().min(1),
             result: z.string().min(1).max(HARD_MAX_TASK_RESULT_BYTES)
           })
@@ -1464,12 +1583,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditResult: "success" | "error" = "success";
           let auditDecision: "allow" | "deny" = "allow";
           try {
+            await requireHarness(args, context);
             const task = taskRuntime.complete(taskActor, args.taskId, args.result);
             return {
               content: [{ type: "text", text: `task ${task.taskId} completed` }],
               structuredContent: task
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
@@ -1504,6 +1628,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         },
         inputSchema: z
           .object({
+            ...harnessContextShape,
             taskId: z.string().min(1),
             failure: z.string().min(1).max(HARD_MAX_TASK_RESULT_BYTES)
           })
@@ -1515,12 +1640,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditResult: "success" | "error" = "success";
           let auditDecision: "allow" | "deny" = "allow";
           try {
+            await requireHarness(args, context);
             const task = taskRuntime.fail(taskActor, args.taskId, args.failure);
             return {
               content: [{ type: "text", text: `task ${task.taskId} failed` }],
               structuredContent: task
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
@@ -1554,7 +1684,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: true,
           openWorldHint: false
         },
-        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+        inputSchema: z.object({ ...harnessContextShape, taskId: z.string().min(1) }).strict()
       },
       async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
@@ -1562,12 +1692,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
           let auditDecision: "allow" | "deny" = "allow";
           try {
+            await requireHarness(args, context);
             const task = taskRuntime.get(taskActor, args.taskId);
             return {
               content: [{ type: "text", text: `task ${task.taskId} ${task.state}` }],
               structuredContent: task
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (isAuthorizationDenial(error)) auditDecision = "deny";
             auditResult = "error";
             if (error instanceof TaskRuntimeError) return errorResult(error);
@@ -1603,6 +1738,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         },
         inputSchema: z
           .object({
+            ...harnessContextShape,
             taskId: z.string().min(1),
             timeoutMs: z.number().int().positive().max(HARD_MAX_TASK_WAIT_MS).optional()
           })
@@ -1614,6 +1750,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           let auditResult: "success" | "error" | "cancelled" | "timeout" = "success";
           let auditDecision: "allow" | "deny" = "allow";
           try {
+            await requireHarness(args, context);
             const waited = await taskRuntime.wait(taskActor, args.taskId, {
               ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
               ...(context.http?.req?.signal === undefined
@@ -1635,6 +1772,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               }
             };
           } catch (error) {
+            if (error instanceof HarnessError) {
+              auditResult = "error";
+              return harnessErrorResult(error);
+            }
             if (isAuthorizationDenial(error)) auditDecision = "deny";
             if (error instanceof TaskRuntimeError) {
               auditResult = error.code === "task_wait_cancelled" ? "cancelled" : "error";
@@ -1671,7 +1812,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           idempotentHint: true,
           openWorldHint: false
         },
-        inputSchema: z.object({ taskId: z.string().min(1) }).strict()
+        inputSchema: z.object({ ...harnessContextShape, taskId: z.string().min(1) }).strict()
       },
       async (args, context) =>
         observeToolInvocation(options.metrics, async () => {
@@ -1738,13 +1879,14 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             idempotentHint: false,
             openWorldHint: tool.riskClass === "network"
           },
-          inputSchema: z.object({}).passthrough()
+          inputSchema: z.object({ ...harnessContextShape }).passthrough()
         },
         async (args, context) =>
           observeToolInvocation(options.metrics, async () => {
             const startedAt = Date.now();
             let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
             try {
+              await requireHarness(args, context);
               // Re-check readiness immediately before dispatch. No name, endpoint, command or
               // provider selector is accepted from the caller; only this captured canonical tool.
               if (!extensionRuntime.isReady(tool.providerId)) {
@@ -1753,11 +1895,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                   content: [{ type: "text", text: "provider_unavailable" }]
                 };
               }
-              const result = await provider.invoke(toolNameOf(tool.canonicalId), args, {
-                ...(context.http?.req?.signal === undefined
-                  ? {}
-                  : { signal: context.http.req.signal })
-              });
+              const result = await provider.invoke(
+                toolNameOf(tool.canonicalId),
+                Object.fromEntries(
+                  Object.entries(args).filter(([key]) => key !== "slnctrzContext")
+                ),
+                {
+                  ...(context.http?.req?.signal === undefined
+                    ? {}
+                    : { signal: context.http.req.signal })
+                }
+              );
               auditResult = result.isError
                 ? result.text === "provider_timeout"
                   ? "timeout"
@@ -1775,6 +1923,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                 structuredContent
               };
             } catch (error) {
+              if (error instanceof HarnessError) {
+                auditResult = "error";
+                return harnessErrorResult(error);
+              }
               if (error instanceof AdapterError) {
                 auditResult = error.code === "provider_timeout" ? "timeout" : "error";
                 return { isError: true, content: [{ type: "text", text: error.code }] };

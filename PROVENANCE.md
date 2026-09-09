@@ -4,8 +4,8 @@ This document records source/dependency provenance and license obligations for t
 
 ## Project
 
-- **Project:** SlncTrZ-MCP — Universal MCP Gateway
-- **Current release line:** 0.2.x
+- **Project:** SlncTrZ-MCP — coding harness and MCP capability gateway
+- **Current release line:** 0.3.x
 - **License:** Apache-2.0 (`LICENSE`)
 - **Implementation:** independent/clean-room project implementation based on project requirements, public MCP protocol specifications, measured behavior, and independently written tests.
 
@@ -24,15 +24,17 @@ When an external source influences a decision, attribute the idea rather than co
 
 ## Direct runtime dependency inventory
 
-Snapshot from the locked dependency tree for the 0.2.x release line:
+Snapshot from the locked dependency tree for the 0.3.x release line:
 
 | Package                        | Locked version | License | Purpose                           |
 | ------------------------------ | -------------: | ------- | --------------------------------- |
 | `@modelcontextprotocol/node`   |          2.0.0 | MIT     | Node MCP HTTP/runtime integration |
 | `@modelcontextprotocol/server` |          2.0.0 | MIT     | MCP server/protocol primitives    |
+| `yaml`                         |          2.9.0 | ISC     | Agent Skills YAML frontmatter     |
 | `zod`                          |          4.4.3 | MIT     | Runtime schema validation         |
 
-The `zod` runtime dependency is part of the shipped bundle and must not be omitted from license/provenance review.
+The `yaml` and `zod` runtime dependencies are part of the shipped bundle and must not be omitted
+from license/provenance review.
 
 ## Development/build dependency snapshot
 
@@ -95,3 +97,9 @@ When adding a dependency:
 5. keep credentials/private reference material out of source and release assets.
 
 No dependency license inventory should be inferred from an old documentation table when the lockfile has changed.
+
+## Agent Skills metadata parser
+
+`yaml` 2.9.0 (ISC, direct dependency) parses bounded YAML frontmatter for Agent Skills.
+Upstream: https://github.com/eemeli/yaml . No execution is delegated to parsed metadata.
+The lockfile records the exact package integrity; YAML aliases and duplicate keys are rejected.

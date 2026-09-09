@@ -1,6 +1,8 @@
-/** Standalone CLI — install/rollback plus small local owner diagnostics. */
+/** Standalone CLI — install/rollback plus small local owner diagnostics.
+ * Wing: app | Topic: coding-harness-integration | Updated: 2026-09-09
+ */
 
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fetchReleaseManifest } from "../standalone/manifest-fetch.js";
 import { currentReleaseTarget } from "../standalone/release-manifest.js";
 import { installStandaloneRelease, rollbackStandaloneRelease } from "../standalone/installer.js";
@@ -84,6 +86,11 @@ function help(): string {
     "",
     "Connected AI clients (MCP tools, not CLI commands):",
     "  core.ping: active tool availability and embedded model guidance.",
+    "  context.bootstrap([projectRoot]): global AGENTS.md + skills catalog; initialize before coding tools.",
+    "  skills.read(name[, resource]): activate instructions, then read resources as needed.",
+    "  Pass contextToken as slnctrzContext; context.close releases it when finished.",
+    "  Global configuration: <stateRoot>/harness/AGENTS.md and <stateRoot>/harness/skills/.",
+    "  See docs/HARNESS.md and docs/CODING_AGENTS.md for coding-agent integration.",
     "  media.read_image(path): PNG/JPEG under core.read authority; requires a build with image support.",
     "  User-visible images require the client to attach/embed the image in its final answer.",
     "  See docs/MODEL_GUIDE.md (Images) and docs/IMAGES.md; provider help covers that provider only."
@@ -232,6 +239,8 @@ export async function runStandaloneCli(
       `Authority: ${setup.installation.authorityMode}`,
       `Install location: ${setup.installation.installRoot}`,
       `State: ${setup.installation.stateRoot}`,
+      `Global instructions: ${join(setup.harnessRoot ?? join(setup.installation.stateRoot, "harness"), "AGENTS.md")}`,
+      `Skills: ${join(setup.harnessRoot ?? join(setup.installation.stateRoot, "harness"), "skills")}`,
       `Config: ${setup.gatewayConfigFile}`,
       `Owner Console: ${setup.ownerConsoleUrl}`,
       `MCP Endpoint: ${setup.mcpEndpoint}`,

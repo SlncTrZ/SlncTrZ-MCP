@@ -1,15 +1,9 @@
-# Skills
+# SlncTrZ skills
 
-> Thư mục chứa skill (reusable agent capability) **của dự án SlncTrZ-MCP**.
+Each skill uses `skills/<name>/SKILL.md` with Agent Skills YAML frontmatter. This repository
+contains the bundled code-review and debug-and-test skills. The standalone build embeds these
+files; first setup/start seeds them into `<stateRoot>/harness/skills/` without overwriting existing
+files. The running gateway discovers that configured global root, not this development checkout.
 
-## Quy ước
-
-- Mỗi skill = 1 thư mục con `skills/<skill-name>/`, kèm `SKILL.md` theo chuẩn skill.
-- Đường dẫn chuẩn: `./skills/<skill-name>/SKILL.md` (gốc repo).
-- Khi cần dùng / tạo / tải skill → lưu vào đây, track bằng git.
-- Thư mục này được tự tạo khi cài / build dự án (postinstall → `scripts/ensure-skills-dir.mjs`).
-
-## Mục tiêu
-
-- Skill gắn với dự án gom về một chỗ trong repo, version cùng code, phân phối được.
-- Không dùng chung với cơ chế lưu skill riêng của Pi (`.pi/...`).
+Catalog metadata is delivered by context.bootstrap. Full instructions and text resources are
+read through skills.read on demand. See [the harness guide](../docs/HARNESS.md).

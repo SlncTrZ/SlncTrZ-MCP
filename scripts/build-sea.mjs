@@ -95,6 +95,15 @@ await writeFile(
       ),
       "config/systemd/gateway.env.example": join(root, "config", "systemd", "gateway.env.example"),
       "AGENTS.md": join(root, "AGENTS.md"),
+      "skills/code-review/SKILL.md": join(root, "skills", "code-review", "SKILL.md"),
+      "skills/debug-and-test/SKILL.md": join(root, "skills", "debug-and-test", "SKILL.md"),
+      "skills/debug-and-test/references/regression-checks.md": join(
+        root,
+        "skills",
+        "debug-and-test",
+        "references",
+        "regression-checks.md"
+      ),
       "docs/MODEL_GUIDE.md": join(root, "docs", "MODEL_GUIDE.md")
     },
     disableExperimentalSEAWarning: true,

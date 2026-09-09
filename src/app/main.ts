@@ -1,9 +1,12 @@
 /**
  * Application Bootstrap — composes and starts the public MCP data plane.
- * Wing: app | Topic: process-bootstrap | Updated: 2026-08-28
+ * Wing: app | Topic: process-bootstrap | Updated: 2026-09-09
  *
  * Provenance: PLAN Phases 1-3, Phase 8, ADR-012, ADR-015, and ADR-008.
  */
+
+import { HarnessRuntime } from "../context/runtime.js";
+import { ensureHarnessLayout } from "../context/provisioning.js";
 
 import { readFile } from "node:fs/promises";
 import type { Server } from "node:http";
@@ -291,6 +294,9 @@ export async function bootstrap(
     : await readFile(join(applicationRoot, "AGENTS.md"), "utf8");
   if (agentHarnessSource === undefined) throw new Error("agent_harness_missing");
   const agentHarness = extractCanonicalAgentHarness(agentHarnessSource);
+  const harnessRoot = config.harnessRoot ?? join(statePaths.root, "harness");
+  await ensureHarnessLayout(harnessRoot);
+  const harnessRuntime = new HarnessRuntime(harnessRoot);
   const taskRuntime = createTaskRuntime();
   const server = createGatewayServer({
     oauthService,
@@ -314,6 +320,7 @@ export async function bootstrap(
     ...(metrics === undefined ? {} : { metrics }),
     mcpEventBus,
     taskRuntime,
+    harnessRuntime,
     allowedHostnames: config.allowedHostnames,
     allowedOriginHostnames: config.allowedOriginHostnames,
     onError: (error) => console.error(error.message)

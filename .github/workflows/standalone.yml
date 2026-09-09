@@ -42,6 +42,31 @@ jobs:
         if: matrix.node-version == 24
         run: npm audit --omit=dev
 
+  quality-windows:
+    name: Windows Node 24 release gate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run Windows conformance, hardening, and static gates
+        run: npm run check
+
+      - name: Verify public documentation contract
+        run: npm run docs:check
+
+      - name: Build developer runtime
+        run: npm run build
+
   build-linux-x64:
     name: build Linux x64 SEA
     needs: quality
@@ -82,7 +107,7 @@ jobs:
 
   build-win32-x64:
     name: build Windows x64 SEA
-    needs: quality
+    needs: [quality, quality-windows]
     runs-on: windows-latest
     steps:
       - name: Checkout

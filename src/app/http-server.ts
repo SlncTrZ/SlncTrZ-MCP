@@ -1,9 +1,11 @@
 /**
  * Public HTTP Server — routes health checks and the MCP data-plane endpoint.
- * Wing: app | Topic: public-http-ingress | Updated: 2026-08-27
+ * Wing: app | Topic: public-http-ingress | Updated: 2026-09-09
  *
  * Provenance: PLAN Phases 1 and 3, SECURITY invariants 1, 7, and 12, ADR-006, and ADR-015.
  */
+
+import type { HarnessRuntime } from "../context/runtime.js";
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -72,6 +74,7 @@ export interface GatewayServerOptions {
   readonly metrics?: MetricsRegistry;
   readonly mcpEventBus?: ServerEventBus;
   readonly taskRuntime?: TaskRuntime;
+  readonly harnessRuntime?: HarnessRuntime;
   readonly onError?: (error: Error) => void;
 }
 
@@ -334,7 +337,10 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
           ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
           ...(options.mcpEventBus === undefined ? {} : { eventBus: options.mcpEventBus }),
-          ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime })
+          ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
+          ...(options.harnessRuntime === undefined
+            ? {}
+            : { harnessRuntime: options.harnessRuntime })
         });
         const requestHandleMcp = toNodeHandler(
           requestHandler,

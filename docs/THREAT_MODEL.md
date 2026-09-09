@@ -2,13 +2,13 @@
 
 > Scope: current schema-v2 gateway architecture. Historical workspace/profile/binding/proposal models belong in ADR history, not in the active security contract.
 > Status: active implementation gate
-> Updated: 2026-09-05
+> Updated: 2026-09-09
 
 ## 1. Security objective
 
 SlncTrZ-MCP exposes local capabilities to authenticated AI clients without pretending that every operating mode has the same containment boundary.
 
-The current product has four owner-facing concepts:
+The current product has four owner-facing **authority controls**:
 
 ```text
 Autonomy
@@ -57,6 +57,7 @@ The gateway never silently elevates privileges.
 - Availability of the gateway process, child-process capacity, Task Runtime capacity and provider supervisors.
 - Audit attribution and release/build provenance.
 - Integrity of the active runtime generation.
+- Integrity and bounded delivery of owner-edited global/project coding instructions and Agent Skills.
 
 ## 4. Trust boundaries
 
@@ -71,6 +72,7 @@ The gateway never silently elevates privileges.
 9. **Owner control plane / Owner Console** is separately authenticated and is not a model-facing admin tool surface.
 10. **Audit/metrics** accept only bounded privacy-reviewed projections.
 11. **Standalone release path** verifies release metadata and artifact bytes before activation.
+12. **Coding context runtime** discovers bounded global/project guidance, issues principal/policy/revision-bound receipts and gates ordinary dispatch before effects. A receipt proves delivery workflow only; it is not authority.
 
 Product/project instructions, coordination-task instructions/results, prompts, provider descriptions and MCP tool output are data, not capability grants.
 
@@ -94,6 +96,9 @@ Product/project instructions, coordination-task instructions/results, prompts, p
 | Coordination confused deputy     | Task text asks claimant to exceed current authority                 | Coordination text is context only; Kernel/Auth/Policy remains authoritative.                                                                |
 | Coordination claim race          | Two clients believe they own the same logical task                  | Deterministic atomic single-winner claim in one gateway process.                                                                            |
 | Task-state exhaustion            | Client fills in-memory Runner/Coordinator capacity                  | Fixed bounds; Coordinator evicts only oldest terminal history, while active work remains non-evictable and full-active capacity fails loud. |
+| Context bypass                   | Client calls a side-effecting tool without current guidance         | Ordinary core/image/task/provider dispatch validates a current receipt first and reports `operationExecuted: false` on preflight rejection. |
+| Context receipt exhaustion       | Expired or policy-stale receipts consume the bounded receipt store  | Fixed capacity; expiry/close reclaim entries and bootstrap removes receipts invalidated by the current workspace policy generation.         |
+| Skill/resource path escape       | Skill resource uses traversal or a symlink to read outside its root | Dedicated bounded readers reject traversal, protected names, symlinks/junctions and paths outside the selected skill directory.             |
 | Windows command-script injection | `.cmd/.bat` metacharacters                                          | Reject unsafe command-script metacharacters and use controlled Windows invocation.                                                          |
 | Namespace collision              | Provider shadows core/another provider                              | Candidate generation fails closed; previous generation remains active.                                                                      |
 | Provider discovery drift         | Runtime tools differ from accepted catalog                          | Readiness attestation and fail-closed provider availability.                                                                                |
@@ -206,7 +211,7 @@ Provider isolation is process/protocol isolation, not an OS sandbox. An untruste
 
 ## 10. Owner/control-plane requirements
 
-The owner surface manages only the current product concepts:
+The owner authorization surface manages only the current authority controls:
 
 ```text
 Autonomy

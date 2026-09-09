@@ -39,21 +39,22 @@ Windows System Install/service mode remains out of scope. macOS x64/arm64 are de
 
 Source lives under `src/`, mapping to ARCHITECTURE components:
 
-| Path                | Component                           |
-| ------------------- | ----------------------------------- |
-| `src/app`           | Application bootstrap / composition |
-| `src/auth`          | Authorization server (OAuth/PKCE)   |
-| `src/config`        | Configuration model and lifecycle   |
-| `src/control-plane` | Local control plane                 |
-| `src/gateway`       | Extension gateway + supervisor      |
-| `src/kernel`        | Minimal tool kernel                 |
-| `src/observability` | Audit, metrics, logging             |
-| `src/policy`        | Policy engine                       |
-| `src/protocol`      | Protocol compatibility adapters     |
-| `src/router`        | Request router                      |
-| `src/shared`        | Shared contracts and utilities      |
-| `src/standalone`    | Verified manifest/install/rollback  |
-| `src/task`          | Managed Runner + Task Coordinator   |
+| Path                | Component                                   |
+| ------------------- | ------------------------------------------- |
+| `src/app`           | Application bootstrap / composition         |
+| `src/auth`          | Authorization server (OAuth/PKCE)           |
+| `src/config`        | Configuration model and lifecycle           |
+| `src/control-plane` | Local control plane                         |
+| `src/gateway`       | Extension gateway + supervisor              |
+| `src/kernel`        | Minimal tool kernel                         |
+| `src/observability` | Audit, metrics, logging                     |
+| `src/policy`        | Policy engine                               |
+| `src/protocol`      | Protocol compatibility adapters             |
+| `src/router`        | Request router                              |
+| `src/shared`        | Shared contracts and utilities              |
+| `src/standalone`    | Verified manifest/install/rollback          |
+| `src/context`       | Global instructions, Agent Skills, receipts |
+| `src/task`          | Managed Runner + Task Coordinator           |
 
 Tests mirror this under `tests/` (`unit`, `integration`, `conformance`, `e2e`).
 Sample configuration lives under `config/`.

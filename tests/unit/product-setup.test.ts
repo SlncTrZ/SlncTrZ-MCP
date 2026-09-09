@@ -91,7 +91,18 @@ describe("product setup", () => {
 
     const ownerCatalog = `${JSON.stringify({ shell: { allowlist: { added: [] } } }, null, 2)}\n`;
     await writeFile(join(paths.stateRoot, "command.json"), ownerCatalog, "utf8");
+    const customHarness = await directory("custom-harness-");
+    await writeFile(join(customHarness, "AGENTS.md"), "OWNER-GLOBAL");
+    await writeFile(
+      join(paths.configRoot, "gateway.env"),
+      config + `SLNCTRZ_HARNESS_ROOT=${customHarness}\n`
+    );
     const second = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
+    expect(second.harnessRoot).toBe(customHarness);
+    expect(await readFile(join(customHarness, "AGENTS.md"), "utf8")).toBe("OWNER-GLOBAL");
+    expect(await readFile(join(paths.configRoot, "gateway.env"), "utf8")).toContain(
+      `SLNCTRZ_HARNESS_ROOT=${customHarness}`
+    );
     expect(second.installation.installationId).toBe(first.installation.installationId);
     expect(second.ownerPassphraseState).toBe("preserved");
     expect(second.firstRunOwnerPassphrase).toBeUndefined();

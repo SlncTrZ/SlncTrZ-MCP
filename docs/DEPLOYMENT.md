@@ -207,3 +207,14 @@ npm start
 ```
 
 It requires Node `>=22.13.0 <25`. Do not confuse developer/source deployment with the standalone end-user service contract.
+
+## Coding harness state
+
+v0.3.0 discovers `<stateRoot>/harness/AGENTS.md` and `<stateRoot>/harness/skills/` automatically.
+These are editable persistent files, separate from embedded product guidance and versioned
+release binaries. `SLNCTRZ_HARNESS_ROOT` in gateway.env can select another absolute root. Ensure
+that root is accessible to the existing runtime account; it does not change Paths or commands.
+
+Refresh client tool discovery after upgrading. Work calls require `context.bootstrap` receipts.
+Receipts are in-memory and expire after four hours; restart requires another bootstrap. Agent
+hosts retain their own conversation and model loop. See [CODING_AGENTS.md](CODING_AGENTS.md).

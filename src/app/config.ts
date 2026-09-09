@@ -1,6 +1,6 @@
 /**
  * Runtime Configuration — validates the minimal public ingress environment.
- * Wing: app | Topic: runtime-config | Updated: 2026-08-27
+ * Wing: app | Topic: runtime-config | Updated: 2026-09-09
  *
  * Provenance: PLAN Phases 1 and 3, SECURITY default-deny, and ADR-015.
  */
@@ -21,6 +21,7 @@ export interface RuntimeConfig {
   readonly allowedHostnames: readonly string[];
   readonly allowedOriginHostnames: readonly string[];
   readonly stateRoot?: string;
+  readonly harnessRoot?: string;
   readonly policyFile?: string;
   readonly staticClient?: {
     readonly clientId: string;
@@ -156,6 +157,9 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     throw new Error("SLNCTRZ_STATE_ROOT must be an absolute path");
   }
 
+  const harnessRoot = environment.SLNCTRZ_HARNESS_ROOT;
+  if (harnessRoot !== undefined && !isAbsolute(harnessRoot))
+    throw new Error("SLNCTRZ_HARNESS_ROOT must be an absolute path");
   const policyFile = environment.SLNCTRZ_POLICY_FILE;
   if (policyFile !== undefined && !isAbsolute(policyFile)) {
     throw new Error("SLNCTRZ_POLICY_FILE must be an absolute path");
@@ -173,6 +177,7 @@ export function readRuntimeConfig(environment: NodeJS.ProcessEnv = process.env):
     allowedHostnames,
     allowedOriginHostnames,
     stateRoot,
+    ...(harnessRoot === undefined ? {} : { harnessRoot }),
     ...(policyFile === undefined ? {} : { policyFile }),
     ...(staticClient === undefined ? {} : { staticClient })
   };

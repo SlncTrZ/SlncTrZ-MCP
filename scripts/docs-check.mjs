@@ -48,12 +48,41 @@ const [
   readFile(join(root, "MCP_SERVERS.md"), "utf8")
 ]);
 const pkg = JSON.parse(pkgRaw);
+const directInventoryStart = provenance.indexOf("## Direct runtime dependency inventory");
+const directInventoryEnd = provenance.indexOf("## Development/build dependency snapshot");
+if (directInventoryStart < 0 || directInventoryEnd <= directInventoryStart) {
+  throw new Error("docs_contract_failed: PROVENANCE direct dependency inventory section missing");
+}
+const directInventory = provenance.slice(directInventoryStart, directInventoryEnd);
+const [userGuide, adrIndex] = await Promise.all([
+  readFile(join(root, "docs", "USER_GUIDE.md"), "utf8"),
+  readFile(join(root, "docs", "adr", "README.md"), "utf8")
+]);
 
 function requireText(haystack, needle, label) {
   if (!haystack.includes(needle)) {
     throw new Error(`docs_contract_failed: ${label} missing ${JSON.stringify(needle)}`);
   }
 }
+
+function forbidText(haystack, needle, label) {
+  if (haystack.includes(needle)) {
+    throw new Error(`docs_contract_failed: ${label} still contains ${JSON.stringify(needle)}`);
+  }
+}
+
+for (const dependency of Object.keys(pkg.dependencies ?? {})) {
+  requireText(directInventory, `\`${dependency}\``, "PROVENANCE direct dependency inventory");
+}
+
+for (const currentTool of ["core.read", "core.search", "core.write", "core.edit"]) {
+  requireText(userGuide, currentTool, "USER_GUIDE");
+}
+for (const legacyTool of ["read_file", "write_file"]) {
+  forbidText(userGuide, legacyTool, "USER_GUIDE");
+}
+requireText(adrIndex, "Superseded by ADR-027", "ADR index");
+requireText(adrIndex, "ADR-027 | Global coding context", "ADR index");
 
 for (const command of [
   "slnctrz-mcp status",
@@ -174,9 +203,29 @@ requireText(troubleshooting, "running_version_mismatch", "TROUBLESHOOTING");
 requireText(troubleshooting, "## Managed tasks after restart", "TROUBLESHOOTING");
 requireText(backup, "secrets/owner-passphrase", "BACKUP_RESTORE");
 requireText(backup, "Task Runtime state", "BACKUP_RESTORE");
-requireText(projectContextAdr, "not implemented in the current source tree", "ADR-009");
+requireText(projectContextAdr, "Superseded by ADR-027", "ADR-009");
 requireText(projectContextAdr, "Product Agent Harness", "ADR-009");
 requireText(mcpServers, "server/discover", "MCP_SERVERS");
 requireText(mcpServers, "Credential rotate phải activate thật", "MCP_SERVERS");
 
+for (const [text, label] of [
+  [readme, "README"],
+  [modelGuide, "MODEL_GUIDE"],
+  [architecture, "ARCHITECTURE"],
+  [releaseAcceptance, "RELEASE_ACCEPTANCE"]
+]) {
+  requireText(text, "context.bootstrap", label);
+  requireText(text, "skills.read", label);
+}
+const harnessGuide = await readFile(join(root, "docs", "HARNESS.md"), "utf8");
+const codingAgents = await readFile(join(root, "docs", "CODING_AGENTS.md"), "utf8");
+for (const value of [
+  "SLNCTRZ_HARNESS_ROOT",
+  "slnctrzContext",
+  "operationExecuted",
+  "task.cancel",
+  "four hours"
+])
+  requireText(harnessGuide, value, "HARNESS");
+requireText(codingAgents, "org.slnctrz/contextToken", "CODING_AGENTS");
 console.log(JSON.stringify({ status: "pass", version: pkg.version, node: pkg.engines.node }));

@@ -157,3 +157,11 @@ removes the program but preserves config and state.
 `--remove-config` also removes config.
 
 `--purge` removes program, config, state, and credentials. Back up first if you may need recovery.
+
+## Global instructions and skills
+
+Include `<stateRoot>/harness/` (including its `.initialized` seeding marker) in state backups.
+It contains editable AGENTS.md and installed skills. Back up a custom `SLNCTRZ_HARNESS_ROOT`
+separately if it is outside managed state. Updates and normal reinstall preserve these files;
+uninstall with managed-state purge deletes the default root. Receipts are intentionally not
+backed up: after restore/restart, clients call context.bootstrap again.

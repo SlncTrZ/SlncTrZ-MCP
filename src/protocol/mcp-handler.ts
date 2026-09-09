@@ -1,10 +1,12 @@
 /**
  * MCP HTTP Handler — modern per-request MCP with stateless legacy fallback.
- * Wing: protocol | Topic: streamable-http | Updated: 2026-08-27
+ * Wing: protocol | Topic: streamable-http | Updated: 2026-09-09
  *
  * Provenance: PLAN Phases 1 and 3, ADR-006, ADR-015, and the public MCP 2026-07-28 transport
  * contract implemented by the official TypeScript SDK v2.
  */
+
+import type { HarnessRuntime } from "../context/runtime.js";
 
 import {
   createMcpHandler,
@@ -27,6 +29,7 @@ export interface McpHandlerOptions {
   readonly gatewayInfo?: GatewayInfo;
   readonly eventBus?: ServerEventBus;
   readonly taskRuntime?: TaskRuntime;
+  readonly harnessRuntime?: HarnessRuntime;
 }
 
 /** Create one handler whose factory isolates every modern and legacy exchange. */
@@ -55,7 +58,8 @@ export function createGatewayMcpHandler(options: McpHandlerOptions = {}): McpHtt
             }),
         ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
         ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
-        ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime })
+        ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
+        ...(options.harnessRuntime === undefined ? {} : { harnessRuntime: options.harnessRuntime })
       }),
     {
       legacy: "stateless",

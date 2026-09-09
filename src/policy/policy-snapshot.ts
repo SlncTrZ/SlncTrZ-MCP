@@ -1,4 +1,6 @@
-/** Immutable active product snapshot — authenticated clients always use one default policy. */
+/** Immutable active product snapshot — authenticated clients always use one default policy.
+ * Wing: policy | Topic: coding-harness-integration | Updated: 2026-09-09
+ */
 
 import { createHash } from "node:crypto";
 import type { CompiledPolicyInput } from "./policy-config.js";
@@ -39,6 +41,10 @@ function toolCatalogFingerprint(
 ): string {
   const coreTools = [
     "core.ping",
+    "context.bootstrap",
+    "context.close",
+    "skills.list",
+    "skills.read",
     ...compiled.kernelPolicy.capabilities,
     ...(compiled.kernelPolicy.capabilities.includes("core.read") ? ["media.read_image"] : [])
   ].sort();

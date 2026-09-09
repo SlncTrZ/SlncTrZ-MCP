@@ -7,11 +7,12 @@ The runtime is built around one product flow:
 ```text
 Authenticated client
 → active policy snapshot
-→ selected autonomy level
-→ core tools + enabled MCP tools
+→ context.bootstrap for global + optional project guidance
+→ current context receipt for ordinary work
+→ policy-authorized core/task/media/provider tools
 ```
 
-The owner manages a deliberately small surface:
+The owner manages a deliberately small **authority surface**:
 
 ```text
 Autonomy
@@ -20,7 +21,9 @@ Commands
 MCP Servers
 ```
 
-Everything else is an internal safety/runtime mechanism.
+Global/project instructions and Agent Skills are separately editable coding context. They influence
+model behavior but are never an authority surface. Everything else is an internal safety/runtime
+mechanism.
 
 ## Public gateway
 
@@ -30,6 +33,8 @@ The public MCP gateway owns:
 - request limits, host/origin validation and MCP protocol dispatch.
 - `core.ping`, `core.read`, `core.search`, `core.write`, `core.edit`.
 - `core.exec` on Windows and POSIX. Restricted mode uses `command.json`; autonomous mode uses the gateway process user authority.
+- coding-context tools `context.bootstrap`, `context.close`, `skills.list`, and `skills.read`.
+- `media.read_image` when read authority is available.
 - the in-process managed Task Runtime (`task.*`) when enabled.
 - enabled MCP provider tools.
 
@@ -210,3 +215,22 @@ A failed candidate never partially mutates the active generation.
 7. Owner administration is not exposed through `owner.*` MCP tools.
 8. The canonical Product Agent Harness is product working guidance, not authority; project instruction files remain separate contextual data and cannot override Kernel/Auth/Policy.
 9. `task.start` reuses `core.exec` authority, while coordination tasks never grant execution/filesystem/network capability.
+10. When the coding harness is enabled, ordinary core/image/task/provider dispatch requires a current client/workspace/policy/revision-bound context receipt before effects; that receipt is not authorization.
+
+## Coding context and Agent Skills (v0.3.0)
+
+`src/context` owns bounded global/project discovery, one-time provisioning and context receipts.
+The product bootstrap creates one HarnessRuntime shared by isolated MCP exchanges. No transport
+session or OAuth-client-wide "already read" flag is used. `context.bootstrap` returns instructions,
+catalog metadata and a client/workspace/policy/revision-bound receipt. Ordinary core, image, task
+and provider dispatch validates it before effects. Ping, bootstrap, context close and owned task
+cancellation remain available for recovery.
+
+`skills.read` activates SKILL.md or reads one referenced text resource. Global-only operation is
+complete; explicit authorized project roots add optional instructions and skill overrides. The
+server recomputes bounded content revisions without injecting skill bodies into each reply.
+General filesystem and command authority remain unchanged. Provider calls strip the reserved
+`slnctrzContext` argument. Host integrations may use `org.slnctrz/contextToken` request metadata.
+
+See [ADR-027](docs/adr/adr-027-global-context-and-agent-skills.md),
+[HARNESS.md](docs/HARNESS.md) and [CODING_AGENTS.md](docs/CODING_AGENTS.md).

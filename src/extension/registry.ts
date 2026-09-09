@@ -1,6 +1,6 @@
 /**
  * Extension Registry — canonical, frozen, collision-checked provider namespace.
- * Wing: extension | Topic: registry | Updated: 2026-08-27
+ * Wing: extension | Topic: registry | Updated: 2026-09-09
  *
  * Provenance: PLAN Phase 5, ARCHITECTURE §4.11, ADR-020, and the Phase 5 handoff slice 1.
  *
@@ -104,7 +104,13 @@ export async function compileExtensionRegistry(
 ): Promise<CompiledExtensionRegistry> {
   const records: CompiledExtensionRecord[] = [];
   const providerIds = new Set<string>();
-  const toolIds = new Set<string>(["media.read_image"]);
+  const toolIds = new Set<string>([
+    "media.read_image",
+    "context.bootstrap",
+    "context.close",
+    "skills.list",
+    "skills.read"
+  ]);
 
   if (manifests.length > MAX_EXTENSIONS) {
     throw new ExtensionRegistryError(

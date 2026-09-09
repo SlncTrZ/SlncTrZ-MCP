@@ -1,6 +1,6 @@
 /**
- * Quality Gate Runner — executes independent repository checks concurrently.
- * Wing: scripts | Topic: quality-gate | Updated: 2026-08-26
+ * Quality Gate Runner — runs static checks concurrently, then the timing-sensitive test suite.
+ * Wing: scripts | Topic: quality-gate | Updated: 2026-09-09
  *
  * Provenance: ENGINEERING pre-commit requirements.
  */
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-const checks = [
+const staticChecks = [
   {
     name: "typecheck",
     script: "node_modules/typescript/bin/tsc",
@@ -25,13 +25,14 @@ const checks = [
     name: "format",
     script: "node_modules/prettier/bin/prettier.cjs",
     args: ["--check", "**/*.{ts,json,md,yaml,yml}"]
-  },
-  {
-    name: "test",
-    script: "node_modules/vitest/vitest.mjs",
-    args: ["run"]
   }
 ];
+
+const testCheck = {
+  name: "test",
+  script: "node_modules/vitest/vitest.mjs",
+  args: ["run"]
+};
 
 function runCheck(check) {
   return new Promise((resolve) => {
@@ -53,5 +54,9 @@ function runCheck(check) {
   });
 }
 
-const results = await Promise.all(checks.map(runCheck));
-if (results.some((passed) => !passed)) process.exitCode = 1;
+const staticResults = await Promise.all(staticChecks.map(runCheck));
+if (staticResults.some((passed) => !passed)) {
+  process.exitCode = 1;
+} else if (!(await runCheck(testCheck))) {
+  process.exitCode = 1;
+}

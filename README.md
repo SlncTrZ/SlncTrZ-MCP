@@ -1,6 +1,6 @@
 # SlncTrZ-MCP
 
-SlncTrZ-MCP is a local-first, self-hosted MCP gateway that lets AI clients use selected files, commands, and other MCP servers through one owner-controlled endpoint.
+SlncTrZ-MCP is a local-first, self-hosted coding harness over MCP. It gives chat clients and coding agents global instructions, on-demand skills, files, commands, managed tasks and other MCP servers through one owner-controlled endpoint.
 
 The owner decides how much authority the gateway has:
 
@@ -32,6 +32,22 @@ SlncTrZ-MCP is designed for:
 
 The gateway is local-first. Public exposure is optional for local use. A publicly reachable HTTPS MCP URL is needed only when the client itself runs in the cloud and must reach your gateway over the Internet.
 
+## Coding harness
+
+Version 0.3.0 automatically discovers global `AGENTS.md` and Agent Skills under
+`<stateRoot>/harness/`. Project instructions are optional. Setup includes editable global defaults
+and two starter skills for code review and debugging; upgrades preserve your edits.
+
+Connected agents call `context.bootstrap` to receive instructions and the compact skill catalog,
+then pass the returned context receipt to gateway tools. `skills.read` loads a selected skill and
+its referenced resources only when needed. Coding-agent hosts can carry receipts in MCP metadata.
+
+**Upgrading clients from 0.2:** ordinary tool calls now require bootstrap. Refresh the client's
+MCP tool catalog and follow the bootstrap guidance before coding. No provider permissions change.
+
+Read [Coding harness](docs/HARNESS.md) for configuration and limits, and
+[Coding-agent integration](docs/CODING_AGENTS.md) for headless/IDE agent integration.
+
 ## Current support
 
 ### Source/developer support
@@ -50,7 +66,7 @@ The gateway is local-first. Public exposure is optional for local use. A publicl
 | Linux x64 standalone SEA   | Public release target                                                                     |
 | Linux x64 User Install     | Release-gated clean-host acceptance                                                       |
 | Linux x64 System Install   | Implemented; clean systemd-host release evidence required before a verified support claim |
-| Windows x64 standalone SEA | Public release target in the current 0.2.x line                                           |
+| Windows x64 standalone SEA | Public release target in the current 0.3.x line                                           |
 | Windows x64 User Install   | Git Bash bootstrap + native installed runtime; release-gated clean-host acceptance        |
 | Windows System Install     | Not yet supported                                                                         |
 | macOS standalone installer | Not yet a public prebuilt support target                                                  |
@@ -173,7 +189,7 @@ Keep the Owner Passphrase private. It controls the Owner Console and the authent
 5. Review **Commands**. Fresh Restricted setup starts with a platform-specific discovered catalog: SlncTrZ filters the shipped candidate template to executables that are actually available on the machine, then persists and strictly compiles only that usable subset.
 6. Add MCP Servers only when you need them.
 
-The main owner-facing concepts are:
+The main owner-facing **authority controls** are:
 
 | Concept     | Meaning                                                         |
 | ----------- | --------------------------------------------------------------- |
@@ -182,7 +198,8 @@ The main owner-facing concepts are:
 | Commands    | Executables `core.exec` may start in Restricted mode            |
 | MCP Servers | External/local MCP providers aggregated by the gateway          |
 
-For MCP provider configuration, see [MCP_SERVERS.md](MCP_SERVERS.md) and [MCP_PROVIDER_STANDARD.md](MCP_PROVIDER_STANDARD.md).
+Global `AGENTS.md` and Agent Skills are also owner-editable, but they are guidance rather than
+permission controls. For MCP provider configuration, see [MCP_SERVERS.md](MCP_SERVERS.md) and [MCP_PROVIDER_STANDARD.md](MCP_PROVIDER_STANDARD.md).
 
 ## Connect an AI client
 
@@ -199,6 +216,20 @@ Cloud-hosted clients generally require a publicly reachable HTTPS endpoint. Loca
 Dynamic client registrations persist, but pending authorization state, authorization codes, access tokens, and refresh tokens are intentionally in memory. A gateway restart can therefore require the AI client to reconnect or reauthorize even when the client registration itself still exists.
 
 Client-specific release claims are evidence-based: ChatGPT and Claude are not marked as verified for a release until the published artifact has passed the real-client acceptance flow documented in [RELEASE.md](RELEASE.md).
+
+## Coding context tools
+
+Version 0.3.0 adds a small harness surface around the capability tools:
+
+| Tool                | Purpose                                                                  |
+| ------------------- | ------------------------------------------------------------------------ |
+| `context.bootstrap` | Deliver global + optional project instructions and compact skill catalog |
+| `context.close`     | Release an in-memory context receipt                                     |
+| `skills.list`       | Re-read catalog metadata for the active context                          |
+| `skills.read`       | Activate one `SKILL.md` or read one referenced text resource             |
+
+`core.ping` remains available for orientation before bootstrap. Ordinary work calls require the
+current receipt; the receipt proves delivery workflow only and never grants authority.
 
 ## Core tools
 

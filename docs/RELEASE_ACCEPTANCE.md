@@ -341,3 +341,18 @@ Reinstall after default uninstall must be able to reuse preserved state intentio
 A support claim is limited to evidence actually collected for that release.
 
 Missing evidence does not get converted into PASS from code inspection. Either collect it or narrow the claim.
+
+## v0.3.0 coding harness release acceptance
+
+- Global-only context works when the project has no AGENTS.md; optional project roots obey policy.
+- context.bootstrap returns global/product instructions and catalog metadata without skill bodies.
+- skills.read returns instructions on activation and resources only when explicitly requested.
+- Core/image/task/provider calls reject absent, cross-client or stale receipts before effects.
+- A rejected execution does not append/write/start anything; recovery executes the request once.
+- MCP argument and request-metadata delivery work over authenticated legacy and modern HTTP.
+- YAML errors, symlinks, protected paths, traversal and budgets cannot bypass context boundaries.
+- Installing/upgrading preserves global preferences and intentional skill removals.
+- The standalone binary includes starter skills and provisions them without a source checkout.
+- Help, MODEL_GUIDE and coding-agent integration explain bootstrap and host context ownership.
+- All repository gates and native release gates remain required. Local Linux evidence does not
+  replace Windows-native or clean-host acceptance. Do not publish until those gates pass.

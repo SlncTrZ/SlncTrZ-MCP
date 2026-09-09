@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse, resolve } from "node:path";
 import {
+  isContainedPath,
   resolveBoundaryRoot,
   resolveExistingBoundaryPath,
   type BoundaryError
@@ -30,6 +31,18 @@ describe("filesystem boundary", () => {
 
     const result = await resolveExistingBoundaryPath(root, "src/index.ts");
     expect(result.relativePath).toBe("src/index.ts");
+  });
+
+  it("handles native filesystem roots without accepting sibling prefixes or traversal", async () => {
+    const tempRoot = await makeTempDir();
+    const filesystemRoot = parse(tempRoot).root;
+    const descendant = join(filesystemRoot, "slnctrz-contained", "child");
+    expect(isContainedPath(filesystemRoot, descendant)).toBe(true);
+
+    const allowed = join(filesystemRoot, "slnctrz-contained");
+    expect(isContainedPath(allowed, join(allowed, "child"))).toBe(true);
+    expect(isContainedPath(allowed, `${allowed}-sibling`)).toBe(false);
+    expect(isContainedPath(allowed, resolve(allowed, "..", "outside"))).toBe(false);
   });
 
   it("rejects lexical and symlink escape", async () => {
