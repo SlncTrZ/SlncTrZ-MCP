@@ -168,3 +168,23 @@ From a connected client, confirm the tools appear with the provider prefix:
 If a provider is configured but tools do not appear, check readiness via the Owner Console
 (Test/Sync) and confirm the transport URL + auth are correct. A provider must be **ready**
 before its tools are advertised.
+
+## 6. View an image together with your agent
+
+Ask: "Open this image and show it in your reply", followed by its path on the gateway machine.
+
+1. The agent checks the active tool catalog or `core.ping.structuredContent.media`.
+   Builds with image support advertise `media.read_image` when read authority is available.
+2. In Restricted mode, the file must be inside a configured Path; OS permissions still apply.
+   The image reader uses the existing read authority and does not need an approved shell command.
+3. The agent reads a PNG/JPEG (up to 4 MiB and 25 megapixels) and attaches/embeds it
+   in its final reply using the chat application's supported mechanism.
+4. Confirm both that the agent can describe the image and that you can see/open it.
+
+A local gateway path is not a chat attachment. If the agent can describe the image but you
+cannot see it, ask it to attach and embed the file in the final answer. If the client does not
+support that, the agent must report the limitation. See [Images in chat](IMAGES.md).
+
+Gateway model help is delivered by `core.ping` and the model guide. The CLI's `--help`
+points to that workflow. `<provider>.help`, such as the KB provider's help, documents only
+the external provider and does not define built-in gateway image capabilities.

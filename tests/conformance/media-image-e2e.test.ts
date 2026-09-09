@@ -145,6 +145,18 @@ describe("media.read_image over authenticated MCP", () => {
     const gateway = await startGateway({ readRoots: [first, second] });
     const listed = await rpc(gateway, "tools/list", {});
     expect(listed.result?.tools?.map((t) => t.name)).toContain("media.read_image");
+    const ping = await rpc(gateway, "tools/call", { name: "core.ping", arguments: {} });
+    expect(ping.result?.structuredContent?.media).toMatchObject({
+      advertisedTools: ["media.read_image"],
+      images: {
+        available: true,
+        requiredCapability: "core.read",
+        maxBytes: 4 * 1_048_576,
+        maxPixels: 25_000_000,
+        displayRequiresClientSupport: true
+      }
+    });
+    expect(ping.result?.content?.[0]?.text).toContain("final answer");
     const reply = await rpc(gateway, "tools/call", {
       name: "media.read_image",
       arguments: { path }
@@ -171,6 +183,11 @@ describe("media.read_image over authenticated MCP", () => {
     const gateway = await startGateway();
     const listed = await rpc(gateway, "tools/list", {});
     expect(listed.result?.tools?.map((t) => t.name)).not.toContain("media.read_image");
+    const ping = await rpc(gateway, "tools/call", { name: "core.ping", arguments: {} });
+    expect(ping.result?.structuredContent?.media).toMatchObject({
+      advertisedTools: [],
+      images: { available: false }
+    });
     const reply = await rpc(gateway, "tools/call", {
       name: "media.read_image",
       arguments: { path: "/etc/passwd" }

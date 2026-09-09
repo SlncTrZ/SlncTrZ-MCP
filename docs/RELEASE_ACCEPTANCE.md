@@ -160,6 +160,37 @@ Task Runtime restart reset where documented
 
 For the historical multi-root search bug, acceptance must prove that an explicit requested root is honored and does not search sibling authorized roots.
 
+## Image reading and display acceptance
+
+For a release that includes `media.read_image`, record these independently:
+
+- `core.ping.structuredContent.media.advertisedTools` agrees with `tools/list` for callers
+  with and without read authority; image help shows the limits and the client display requirement.
+- PNG/JPEG content returns one image block with intact bytes, correct MIME, dimensions and SHA-256.
+- Multi-root containment, documentation-only scope, protected paths, byte/pixel limits and cancellation.
+- The connected model recognizes details not supplied by filename or metadata.
+- The user sees/opens the image attached or embedded in the final reply, on the actual client/device.
+- Unsupported client display is reported explicitly; no invented sandbox paths or public URLs.
+
+Record:
+
+```text
+client/mode/device/date:
+running gateway build commit:
+invocation: media.read_image / legacy core.exec
+source file bytes + SHA-256:
+MCP transport and byte integrity: PASS/FAIL
+model image perception: PASS/FAIL/unsupported
+user-visible final-answer image: PASS/FAIL/unsupported
+source-only / installed release:
+result:
+```
+
+The 2026-09-08 session established ChatGPT Work final-answer image display using legacy
+`core.exec` and two PNG attachments. Commit `e06abc6` separately passed isolated authenticated
+MCP source tests for the new image reader. Neither proves installed-release acceptance of that
+new tool. See [Images in chat](IMAGES.md).
+
 ## Managed Task Runtime release acceptance
 
 Runner evidence:

@@ -25,7 +25,12 @@ import {
   editContainedFile
 } from "../kernel/fs-edit.js";
 import { ExecutionError } from "../kernel/execution.js";
-import { IMAGE_DISPLAY_GUIDANCE, readContainedImage } from "../kernel/fs-image.js";
+import {
+  IMAGE_DISPLAY_GUIDANCE,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_PIXELS,
+  readContainedImage
+} from "../kernel/fs-image.js";
 import { DEFAULT_MAX_READ_BYTES, ReadError, readContainedFile } from "../kernel/fs-read.js";
 import { isContainedPath, resolveBoundaryRoot } from "../kernel/fs-boundary.js";
 import {
@@ -557,6 +562,22 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             tools: taskSurfaceEnabled ? [...COORDINATION_TASK_TOOLS] : []
           }
         };
+        const imageReadAvailable =
+          authorizedContext(kernelPolicy, options.principal, "core.read") !== undefined;
+        const media = {
+          advertisedTools: imageReadAvailable ? ["media.read_image"] : [],
+          images: {
+            available: imageReadAvailable,
+            requiredCapability: "core.read",
+            mimeTypes: ["image/png", "image/jpeg"],
+            maxBytes: MAX_IMAGE_BYTES,
+            maxPixels: MAX_IMAGE_PIXELS,
+            transforms: false,
+            validation: "container-headers",
+            displayRequiresClientSupport: true,
+            displayGuidance: IMAGE_DISPLAY_GUIDANCE
+          }
+        };
         const text = [
           "SlncTrZ-MCP gateway is online (status: ok).",
           ...(options.ownerConsoleUrl === undefined
@@ -564,6 +585,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             : [`Owner console: ${options.ownerConsoleUrl}`]),
           `Workspace: ${JSON.stringify(workspace)}`,
           `Managed tasks: ${JSON.stringify(managedTasks)}`,
+          `Media: ${JSON.stringify(media)}`,
           ...(config === undefined
             ? []
             : [`Config files (outside paths): ${JSON.stringify(config)}`]),
@@ -589,6 +611,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             workspace: { ...workspace, authorityMode: kp?.authorityMode ?? "restricted" },
             extensions,
             managedTasks,
+            media,
             ...(config === undefined ? {} : { config: { ...config } }),
             ...(docs.length === 0 ? {} : { docs: [...docs] }),
             ...(modelGuide === undefined ? {} : { modelGuide }),

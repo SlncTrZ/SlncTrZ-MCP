@@ -213,6 +213,17 @@ The gateway exposes a small fixed core surface:
 | `core.edit`   | Exact-match edit; `dryRun:true` previews                                   |
 | `core.exec`   | Run approved/native commands under bounded execution rules                 |
 
+## Images in chat
+
+When advertised by the running gateway, `media.read_image(path)` reads PNG/JPEG files
+under the existing `core.read` authority. It returns original image bytes and metadata;
+limits are 4 MiB and 25 megapixels, with no resize, crop or OCR.
+
+Ask the agent to **show the image in its final answer**. Receiving an image tool result
+does not guarantee that the chat UI displays it. The client must support image input
+and a user-visible attachment/embedding mechanism. See [Images in chat](docs/IMAGES.md)
+for the tested workflow, deployment status and compatibility boundaries.
+
 ## Managed tasks
 
 When Task Runtime is enabled, the gateway also exposes a bounded `task.*` surface with two distinct roles.

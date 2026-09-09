@@ -80,7 +80,13 @@ function help(): string {
     "  owner reload",
     "  --help",
     "  --version",
-    "  --build-info"
+    "  --build-info",
+    "",
+    "Connected AI clients (MCP tools, not CLI commands):",
+    "  core.ping: active tool availability and embedded model guidance.",
+    "  media.read_image(path): PNG/JPEG under core.read authority; requires a build with image support.",
+    "  User-visible images require the client to attach/embed the image in its final answer.",
+    "  See docs/MODEL_GUIDE.md (Images) and docs/IMAGES.md; provider help covers that provider only."
   ].join("\n");
 }
 

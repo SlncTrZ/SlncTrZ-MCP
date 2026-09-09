@@ -300,3 +300,24 @@ Do not publish:
 - OAuth tokens;
 - raw private file contents;
 - secret environment values.
+
+## Image reading and chat display
+
+| Symptom                                               | Check / action                                                                                                                                                                                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `media.read_image` is absent                          | Check the running build and `core.read` authority. Source code or KB notes do not deploy a tool. After an approved release update, refresh the client's tool catalog if needed. Older `core.ping` results may have no `media` field. |
+| `core.read` reports `invalid_encoding` for a PNG/JPEG | It is a UTF-8 text reader. Use the advertised `media.read_image` tool.                                                                                                                                                               |
+| Image reader returns `invalid_encoding`               | Content is unsupported or has malformed container headers. Renaming an extension does not convert the format.                                                                                                                        |
+| Image reader returns `too_large`                      | The initial reader accepts at most 4 MiB and 25 megapixels. Supply a smaller supported image; the reader does not resize it.                                                                                                         |
+| Access denied                                         | Check configured Paths, documentation-only restrictions, symlink containment and runtime OS permissions.                                                                                                                             |
+| Model sees an image but the user does not             | Attach/embed the actual image in the final answer using client-supported file handling. Tool-output-only display was insufficient in the tested ChatGPT Work session.                                                                |
+| Broken `sandbox:` link                                | The link must refer to a real attachment in the current chat runtime, not a remote gateway path or a path copied from a previous session.                                                                                            |
+| Model cannot consume image content                    | Verify the client preserves `content[]` image blocks and the active model accepts image input. Metadata alone is not an image.                                                                                                       |
+
+`media.read_image` checks container headers and dimensions, not a full pixel decode.
+The initial version preserves original bytes and EXIF without orientation normalization.
+Do not claim that every corrupt image is detected or that user-visible rendering is guaranteed.
+
+See [Images in chat](IMAGES.md) for the verified attachment workflow and release boundaries.
+An audio attachment playing for the user is also not proof that the model can hear it;
+the tested session explicitly rejected audio input.
