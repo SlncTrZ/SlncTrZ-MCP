@@ -15,6 +15,7 @@ Date: 2026-09-11
 
 ### Changed
 
+- Product positioning now leads with owner-controlled Web AI access to a Linux or Windows machine; coding harness and MCP gateway remain core capabilities rather than the whole product identity.
 - Agent Skills may now use `SKILL.md` files up to 256 KiB while retaining the 8 KiB YAML-frontmatter bound, 1 MiB on-demand resource bound, and progressive disclosure.
 - README and operator-facing documentation are reorganized for human evaluators and operators: product value and quick start come first, implementation contracts remain linked rather than dominating the entry page.
 - Public project status now states the adoption gap directly: engineering maturity is ahead of stars/forks/community coverage, and internal test evidence is not presented as independent security certification.

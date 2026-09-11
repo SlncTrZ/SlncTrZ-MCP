@@ -2,7 +2,9 @@
 
 ## North star
 
-The runtime is built around one product flow:
+**Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.**
+
+Architecturally, SlncTrZ-MCP is the owner-controlled control, execution, and context layer between Web AI and the machine where the user’s work lives. The runtime is built around one product flow:
 
 ```text
 Authenticated client

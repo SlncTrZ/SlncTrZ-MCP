@@ -1,7 +1,7 @@
 {
   "name": "slnctrz-mcp",
   "version": "0.3.1",
-  "description": "Coding harness over MCP — global instructions, progressive Agent Skills and policy-controlled tools for chat clients and coding agents.",
+  "description": "Owner-controlled access from Web AI to your Linux or Windows machine \u2014 files, commands, Agent Skills, tasks, and MCP servers through one gateway.",
   "license": "Apache-2.0",
   "type": "module",
   "private": true,

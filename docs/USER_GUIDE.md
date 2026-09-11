@@ -1,6 +1,8 @@
 # SlncTrZ-MCP User Guide
 
-This guide is for the person running the gateway. It covers the first login, authority controls, AI-client connection, Agent Skills, MCP providers, and the v0.3.1 Usage dashboard.
+**Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.**
+
+This guide is for the person running the gateway. SlncTrZ-MCP is more than an MCP proxy: it is the owner-controlled layer that lets Web AI work with the machine where files and projects actually live. This guide covers first login, authority controls, AI-client connection, Agent Skills, MCP providers, and the v0.3.1 Usage dashboard.
 
 If you only want to get running, follow the first four sections. The deeper security and deployment documents are linked at the end.
 

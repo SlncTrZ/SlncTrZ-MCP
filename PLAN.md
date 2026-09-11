@@ -2,7 +2,9 @@
 
 ## Product contract
 
-SlncTrZ-MCP is intentionally small:
+**Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.**
+
+The product is more than an MCP proxy: it gives Web AI a controlled path to real files, commands, tasks, Agent Skills, and additional MCP servers while keeping owner policy and OS authority explicit. The owner-facing control model remains intentionally small:
 
 ```text
 Connect

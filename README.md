@@ -1,14 +1,14 @@
 # SlncTrZ-MCP
 
-**Give your AI tools one controlled way into your computer, your projects, and your MCP stack.**
+**Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.**
 
-SlncTrZ-MCP is a self-hosted coding harness and MCP gateway for people who want ChatGPT, Claude, Grok, Gemini, coding agents, and local tools to work against the same machine without giving every client a different pile of scripts, credentials, and filesystem access.
+SlncTrZ-MCP is a self-hosted control and execution layer for people who want ChatGPT, Claude, Gemini, Grok, coding agents, and other Web AI clients to work with the machine where their files and projects actually live without giving every client a different pile of scripts, credentials, and filesystem access.
 
 We built it around a simple idea:
 
 > AI should be useful on the machine where your work actually lives, but the owner should remain the authority boundary.
 
-SlncTrZ-MCP gives you one endpoint for files, commands, Agent Skills, managed tasks, images, and additional MCP servers. You decide what the gateway can reach. The agent does not get an admin backdoor just because it can call tools.
+It is more than an MCP proxy. SlncTrZ-MCP gives Web AI one owner-controlled endpoint for files, commands, Agent Skills, managed tasks, images, and additional MCP servers. You decide what the gateway can reach. The agent does not get an admin backdoor just because it can call tools.
 
 [▶ Watch the introduction & setup video](docs/SlncTrZ-MCP.mp4)
 
