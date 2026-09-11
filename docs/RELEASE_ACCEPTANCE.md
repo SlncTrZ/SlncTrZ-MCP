@@ -368,7 +368,7 @@ A v0.3.1 public claim requires all normal release gates plus evidence for the fo
 - usage retention and in-memory queueing remain bounded;
 - `/owner/api/usage/*` returns 401 without an Owner session, rejects invalid ranges, and returns only aggregates when authenticated;
 - the Owner cookie remains `Path=/owner`; `/usage` does not introduce another credential or session system;
-- a real browser session renders `/usage`, changes 24h/7d/30d/all ranges, shows tool breakdown and harness savings, and calculates custom-price estimates without a CDN dependency;
+- the automated `usage-browser-acceptance` job installs the exact public prerelease candidate and a real Chromium session renders `/usage`, signs in through the Owner flow, changes 24h/7d/30d/all ranges, shows non-empty tool breakdown and harness savings from numeric-only telemetry fixtures, and calculates custom-price estimates without a CDN dependency;
 - dashboard text identifies `utf8-bytes-v1` as an estimate and explicitly excludes webchat prompts, hidden reasoning, ordinary model replies, and exact provider billing;
 - restart preserves usage history while existing in-memory task/context receipt restart semantics remain unchanged;
 - backup/troubleshooting/security docs describe `usage.sqlite3` separately from `audit.sqlite3`;

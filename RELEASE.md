@@ -172,6 +172,8 @@ and on Windows:
 
 Both run against the exact public GitHub Release URL.
 
+For releases that expose `/usage`, promotion also waits for `usage-browser-acceptance`: an Ubuntu runner installs the exact public prerelease candidate, starts the installed gateway, signs into the Owner Console through a real headless Chromium session, opens `/usage`, exercises 24h/7d/30d/all ranges, verifies non-empty tool/savings presentation from numeric-only telemetry fixtures, and verifies custom input-price calculation. The browser job uses no source runtime as the product under test.
+
 This intentionally exercises the real GitHub release-asset redirect class that originally exposed the installer defect.
 
 Acceptance covers:
@@ -190,7 +192,7 @@ default uninstall
 verify state/config preserved
 ```
 
-Stable promotion requires clean public User Install acceptance for every advertised target: Linux x64 and Windows x64. Release-candidate tags remain prerelease evidence and are not promoted to latest.
+Stable promotion requires clean public User Install acceptance for every advertised target: Linux x64 and Windows x64. When the release contains the Usage dashboard, stable promotion additionally requires the installed-artifact Chromium `/usage` acceptance job. Release-candidate tags remain prerelease evidence and are not promoted to latest.
 
 ## System Install release evidence
 
