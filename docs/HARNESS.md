@@ -105,7 +105,7 @@ server to validate metadata and revisions; this does not inject their bodies int
 | Boundary                     | Limit                                                        |
 | ---------------------------- | ------------------------------------------------------------ |
 | AGENTS.md                    | 32 KiB per file, strict UTF-8, whole-file delivery           |
-| SKILL.md                     | 64 KiB; YAML frontmatter at most 8 KiB                       |
+| SKILL.md                     | 128 KiB; YAML frontmatter at most 8 KiB                      |
 | Skill name                   | 1–64 lowercase letters/digits with single separating hyphens |
 | Description / compatibility  | 1–1024 / at most 500 characters                              |
 | Active skills                | 128 after deterministic overrides                            |

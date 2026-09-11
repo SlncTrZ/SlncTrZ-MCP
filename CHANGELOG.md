@@ -2,6 +2,12 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## Unreleased
+
+### Changed
+
+- Agent Skills may now use `SKILL.md` files up to 128 KiB, doubled from 64 KiB while preserving the existing 8 KiB YAML-frontmatter bound and 1 MiB on-demand resource bound.
+
 ## 0.3.0
 
 Date: 2026-09-09

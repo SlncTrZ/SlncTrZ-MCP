@@ -6,6 +6,7 @@ import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
 import {
   discoverContext,
   MAX_INSTRUCTIONS_BYTES,
+  MAX_SKILL_BYTES,
   parseSkillMetadata,
   type HarnessActor
 } from "../../src/context/discovery.js";
@@ -222,6 +223,20 @@ describe("global context and progressive skill disclosure", () => {
     await expect(runtime.bootstrap(a)).rejects.toMatchObject({ code: "instructions_unavailable" });
     await writeFile(join(root, "AGENTS.md"), "x".repeat(MAX_INSTRUCTIONS_BYTES + 1));
     await expect(runtime.bootstrap(a)).rejects.toMatchObject({ code: "instructions_unavailable" });
+  });
+
+  it("accepts SKILL.md files up to the 128 KiB product limit and rejects larger files", async () => {
+    const root = await temp();
+    expect(MAX_SKILL_BYTES).toBe(128 * 1024);
+    await skill(root, "large", "x".repeat(96 * 1024));
+    await skill(root, "oversized", "x".repeat(MAX_SKILL_BYTES));
+
+    const snapshot = await discoverContext(root);
+    expect(snapshot.catalog.map((entry) => entry.name)).toContain("large");
+    expect(snapshot.catalog.map((entry) => entry.name)).not.toContain("oversized");
+    expect(snapshot.diagnostics).toContainEqual(
+      expect.objectContaining({ source: "global/skills/oversized", code: "skill_unreadable" })
+    );
   });
 
   it("isolates malformed skills and never follows a linked skill directory", async () => {

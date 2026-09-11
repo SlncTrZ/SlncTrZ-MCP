@@ -1,6 +1,6 @@
 /**
  * Harness Discovery — bounded global/project instructions and Agent Skills metadata.
- * Wing: context | Topic: progressive-disclosure | Updated: 2026-09-09
+ * Wing: context | Topic: progressive-disclosure | Updated: 2026-09-11
  */
 
 import { createHash } from "node:crypto";
@@ -20,7 +20,7 @@ import {
 } from "../policy/kernel-policy.js";
 
 export const MAX_INSTRUCTIONS_BYTES = 32 * 1024;
-export const MAX_SKILL_BYTES = 64 * 1024;
+export const MAX_SKILL_BYTES = 128 * 1024;
 export const MAX_RESOURCE_BYTES = 1024 * 1024;
 export const MAX_SKILLS = 128;
 export const MAX_DIRECTORY_ENTRIES = 512;
