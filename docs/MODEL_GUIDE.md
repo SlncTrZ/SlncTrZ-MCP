@@ -6,8 +6,11 @@
 
 ## 1. What this gateway is
 
-SlncTrZ-MCP is a **coding harness over MCP** with a capability gateway underneath. It exposes a fixed set of core tools to authenticated
-AI clients, and lets the owner expose **extra capabilities** without you ever self-granting them.
+**Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.**
+
+SlncTrZ-MCP is the owner-controlled control, execution, and context layer between Web AI and the machine where the user's files and projects actually live. It is more than an MCP proxy: authenticated AI clients can use built-in file and command tools, the coding harness and Agent Skills, managed tasks, media, and owner-enabled MCP providers through one endpoint without self-granting authority.
+
+The coding harness is a first-class part of the product, but it is not the whole product identity. Instructions and skills guide work; owner policy, gateway capabilities, and OS permissions define what can actually execute.
 
 There are **four owner-configurable authority/capability concepts**:
 

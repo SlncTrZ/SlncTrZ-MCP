@@ -169,6 +169,11 @@ for (const value of [
 ]) {
   requireText(agents, value, "AGENTS");
 }
+requireText(
+  modelGuide,
+  "Owner-controlled access from Web AI to your Linux or Windows machine",
+  "MODEL_GUIDE"
+);
 requireText(modelGuide, "structuredContent.modelGuide", "MODEL_GUIDE");
 requireText(modelGuide, "structuredContent.agentHarness", "MODEL_GUIDE");
 requireText(modelGuide, "core.ping", "MODEL_GUIDE");
