@@ -309,7 +309,7 @@ jobs:
         env:
           # Browser visits only the isolated loopback install; CI containers may not permit Chrome namespaces.
           SLNCTRZ_BROWSER_NO_SANDBOX: "1"
-        run: scripts/clean-release-usage-browser-e2e.sh "${GITHUB_REF_NAME}"
+        run: sh scripts/clean-release-usage-browser-e2e.sh "${GITHUB_REF_NAME}"
 
   clean-linux-user-install:
     name: clean public Linux User Install

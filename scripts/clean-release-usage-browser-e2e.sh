@@ -23,6 +23,7 @@ trap cleanup EXIT HUP INT TERM
 home="$tmp_dir/home"
 workspace="$tmp_dir/workspace"
 port=43124
+control_port=43125
 mkdir -p "$home" "$workspace"
 
 HOME="$home" SLNCTRZ_RELEASE_URL="$release_url" \
@@ -31,13 +32,16 @@ HOME="$home" SLNCTRZ_RELEASE_URL="$release_url" \
 binary="$home/.local/share/slnctrz-mcp/versions/$version/slnctrz-mcp"
 launcher="$home/.local/share/slnctrz-mcp/slnctrz-mcp-launcher"
 state="$home/.slnctrz-mcp"
+config="$home/.config/slnctrz-mcp/gateway.env"
 passphrase_file="$state/secrets/owner-passphrase"
 
 test -x "$binary"
 test -x "$launcher"
+test -f "$config"
 test -f "$passphrase_file"
 
-HOME="$home" "$launcher" >"$tmp_dir/gateway.log" 2>&1 &
+HOME="$home" SLNCTRZ_CONFIG_FILE="$config" SLNCTRZ_CONTROL_PORT="$control_port" \
+  "$launcher" >"$tmp_dir/gateway.log" 2>&1 &
 gateway_pid=$!
 
 ready=0
@@ -84,7 +88,7 @@ kill "$gateway_pid"
 wait "$gateway_pid" || true
 gateway_pid=""
 
-HOME="$home" SLNCTRZ_STATE_ROOT="$state" "$binary" doctor --json >"$tmp_dir/doctor.json"
+HOME="$home" SLNCTRZ_STATE_ROOT="$state" SLNCTRZ_CONTROL_PORT="$control_port" "$binary" doctor --json >"$tmp_dir/doctor.json"
 if grep -q '"level":"FAIL"' "$tmp_dir/doctor.json"; then
   cat "$tmp_dir/doctor.json" >&2
   echo "error: browser acceptance doctor reported FAIL" >&2

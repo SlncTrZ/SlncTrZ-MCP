@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -95,6 +95,18 @@ describe("standalone launcher config allowlist", () => {
       });
       expect(accepted.code).toBe(0);
       expect(accepted.stdout.trim()).toBe(
+        "2048|3999|false|localhost,127.0.0.1|localhost,127.0.0.1|/tmp/slnctrz-state/policy.json"
+      );
+
+      const installedLauncher = join(root, "slnctrz-mcp-launcher");
+      await copyFile("config/systemd/slnctrz-mcp-launcher.sh", installedLauncher);
+      await chmod(installedLauncher, 0o755);
+      const inferredInstallRoot = await run("sh", [installedLauncher], {
+        PATH: process.env.PATH,
+        SLNCTRZ_CONFIG_FILE: config
+      });
+      expect(inferredInstallRoot.code).toBe(0);
+      expect(inferredInstallRoot.stdout.trim()).toBe(
         "2048|3999|false|localhost,127.0.0.1|localhost,127.0.0.1|/tmp/slnctrz-state/policy.json"
       );
 

@@ -20,6 +20,11 @@ Date: 2026-09-11
 - README and operator-facing documentation are reorganized for human evaluators and operators: product value and quick start come first, implementation contracts remain linked rather than dominating the entry page.
 - Public project status now states the adoption gap directly: engineering maturity is ahead of stars/forks/community coverage, and internal test evidence is not presented as independent security certification.
 
+### Fixed
+
+- Linux User Install launchers now infer the active install root from the launcher's own directory when `SLNCTRZ_INSTALL_ROOT` is not explicitly set, so a user-mode launcher cannot silently fall back to `/opt/slnctrz-mcp` and start a different system installation.
+- The v0.3.1 release browser gate now invokes its shell script portably, preserves executable metadata, supplies the generated runtime config, and isolates its control port before testing the installed `/usage` dashboard.
+
 ### Security
 
 - Usage telemetry persists no prompts, request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts.

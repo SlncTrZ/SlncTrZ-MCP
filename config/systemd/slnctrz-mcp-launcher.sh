@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-install_root=${SLNCTRZ_INSTALL_ROOT:-/opt/slnctrz-mcp}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+install_root=${SLNCTRZ_INSTALL_ROOT:-$script_dir}
 activation="$install_root/current.json"
 
 if [ -n "${SLNCTRZ_CONFIG_FILE:-}" ]; then
