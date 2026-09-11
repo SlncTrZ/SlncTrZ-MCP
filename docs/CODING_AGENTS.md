@@ -1,6 +1,6 @@
 # Integrating coding agents
 
-SlncTrZ-MCP 0.3.0 exposes one authenticated MCP endpoint for chat clients, terminal agents,
+SlncTrZ-MCP 0.3.1 exposes one authenticated MCP endpoint for chat clients, terminal agents,
 IDE agents and programmatic coding harnesses. Connect the agent's MCP client to the endpoint
 printed by setup, complete its supported OAuth flow, then discover the tools. Local clients can
 reach a local endpoint; remote clients need network access to the gateway. File paths always

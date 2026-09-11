@@ -2,11 +2,28 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
-## Unreleased
+## 0.3.1
+
+Date: 2026-09-11
+
+### Added
+
+- Read-only `/usage` dashboard with 24h/7d/30d/retained-history views, per-tool traffic breakdown, progressive Agent Skill context savings, and a custom input-price estimate.
+- Separate bounded `<stateRoot>/usage.sqlite3` ledger for numeric/classification usage metadata. It is independent from the security audit journal.
+- Passive MCP boundary measurement for exact request/response bytes and versioned model-neutral `utf8-bytes-v1` token estimates.
+- ADR-028 defining fail-open usage telemetry, privacy boundaries, and honest savings semantics.
 
 ### Changed
 
-- Agent Skills may now use `SKILL.md` files up to 128 KiB, doubled from 64 KiB while preserving the existing 8 KiB YAML-frontmatter bound and 1 MiB on-demand resource bound.
+- Agent Skills may now use `SKILL.md` files up to 256 KiB while retaining the 8 KiB YAML-frontmatter bound, 1 MiB on-demand resource bound, and progressive disclosure.
+- README and operator-facing documentation are reorganized for human evaluators and operators: product value and quick start come first, implementation contracts remain linked rather than dominating the entry page.
+- Public project status now states the adoption gap directly: engineering maturity is ahead of stars/forks/community coverage, and internal test evidence is not presented as independent security certification.
+
+### Security
+
+- Usage telemetry persists no prompts, request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts.
+- Usage observation is non-authoritative and fail-open: estimator, queue, SQLite, or dashboard failures do not authorize, deny, replay, or fail valid MCP work.
+- Usage APIs remain behind the existing Owner Console session; the Owner cookie stays scoped to `/owner`, and `/usage` introduces no second credential system.
 
 ## 0.3.0
 

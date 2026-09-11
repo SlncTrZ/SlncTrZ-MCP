@@ -9,6 +9,7 @@ import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createGatewayServer, listenGateway } from "../../src/app/http-server.js";
 import { createMetricsRegistry, type MetricsRegistry } from "../../src/observability/metrics.js";
 import { type ToolAuditEvent } from "../../src/observability/tool-audit.js";
+import type { UsageObserver, UsageTrafficEvent } from "../../src/observability/usage-types.js";
 import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
 import { type ActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
 import { type PolicySnapshotStore } from "../../src/policy/policy-store.js";
@@ -42,7 +43,8 @@ async function startTestServer(
   _legacyExecCommands?: unknown,
   activePolicyFactory?: (clientId: string) => Promise<ActivePolicySnapshot>,
   policyStoreFactory?: (clientId: string) => Promise<PolicySnapshotStore>,
-  readRoots?: readonly string[]
+  readRoots?: readonly string[],
+  usageObserver?: UsageObserver
 ): Promise<{
   readonly origin: string;
   readonly accessToken: string;
@@ -102,7 +104,8 @@ async function startTestServer(
           }
         : { activePolicy }),
     toolAudit: (event) => auditEvents.push(event),
-    metrics
+    metrics,
+    ...(usageObserver === undefined ? {} : { usageObserver })
   });
   servers.push(server);
   const address = await listenGateway(server, {
@@ -263,6 +266,84 @@ describe("gateway HTTP surface", () => {
         toolErrorsTotal: 0
       })
     );
+  });
+
+  it("measures authenticated MCP traffic passively and fails open when telemetry throws", async () => {
+    const events: UsageTrafficEvent[] = [];
+    const observer: UsageObserver = {
+      traffic: (event) => events.push(event),
+      harnessContextStarted: () => undefined,
+      harnessDisclosed: () => undefined
+    };
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      observer
+    );
+    const secretPayload = "SUPER-SECRET-TOOL-ARGUMENT";
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 30,
+      method: "tools/call",
+      params: { name: "core.ping", arguments: { opaque: secretPayload } }
+    });
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18"
+      },
+      body
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      workspaceId: "test-workspace",
+      requestKind: "tools_call",
+      toolId: "core.ping",
+      inputBytes: Buffer.byteLength(body)
+    });
+    expect(events[0]?.outputBytes).toBeGreaterThan(0);
+    expect(JSON.stringify(events[0])).not.toContain(secretPayload);
+
+    const throwingObserver: UsageObserver = {
+      traffic() {
+        throw new Error("telemetry failure");
+      },
+      harnessContextStarted: () => undefined,
+      harnessDisclosed: () => undefined
+    };
+    const failingTelemetry = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      throwingObserver
+    );
+    const healthy = await fetch(`${failingTelemetry.origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${failingTelemetry.accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18"
+      },
+      body
+    });
+    expect(healthy.status).toBe(200);
+    const healthyPayload = await readMcpPayload(healthy);
+    expect(JSON.stringify(healthyPayload)).toContain('"result"');
   });
 
   it("never exposes owner administration as model-facing MCP tools", async () => {

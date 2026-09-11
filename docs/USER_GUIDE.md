@@ -1,208 +1,280 @@
-# User Guide — Owner Console, coding harness, and MCP servers
+# SlncTrZ-MCP User Guide
 
-> Applies to the installed standalone SlncTrZ-MCP gateway. The Owner Console is the
-> owner-only admin surface for Autonomy, Paths, Commands, and connected MCP servers. Editable
-> global coding instructions and skills live separately under the configured harness root.
+This guide is for the person running the gateway. It covers the first login, authority controls, AI-client connection, Agent Skills, MCP providers, and the v0.3.1 Usage dashboard.
 
-## 1. Access the Owner Console
+If you only want to get running, follow the first four sections. The deeper security and deployment documents are linked at the end.
 
-Open the Owner Console URL printed at setup:
+## 1. Open the Owner Console
+
+Setup prints the Owner Console URL. For a local install it normally looks like:
 
 ```text
-<mcpPublicUrl>/owner
+http://127.0.0.1:3100/owner
 ```
+
+For a public gateway it is usually:
+
+```text
+https://mcp.example.com/owner
+```
+
+Sign in with the **Owner Passphrase** created during setup. The recovery copy is stored under:
+
+```text
+<stateRoot>/secrets/owner-passphrase
+```
+
+Keep it private. It controls the owner-facing configuration surface.
+
+The Owner Console is deliberately separate from model-facing MCP tools. A connected AI client cannot call `owner.*` because those tools do not exist.
+
+## 2. Choose how much authority the gateway has
+
+SlncTrZ has two authority modes.
+
+### Restricted - recommended starting point
+
+Built-in file tools stay inside configured **Paths**. `core.exec` may start only configured **Commands**.
+
+This is a capability boundary, not a full OS sandbox. If you approve a general-purpose tool such as Bash, PowerShell, Python, Node, Docker, or `sudo`, that child process can use the OS permissions of the account running SlncTrZ.
+
+### Autonomous
+
+Core tools may use the filesystem and executable authority of the gateway OS account. SlncTrZ does not silently elevate above that account, but Autonomous can still be very powerful.
+
+Use it only when that is the behavior you want.
+
+## 3. Add the Paths you actually need
+
+In **Owner Console → Paths**, add the project or workspace roots the AI should use.
 
 Examples:
 
 ```text
-https://mcp.truongcongdinh.org/owner     # public/system install
-http://127.0.0.1:3100/owner              # local install
+/home/alice/projects
+D:\Projects
+/srv/workspace
 ```
 
-Login with the **Owner Passphrase** (printed on first setup, or read from
-`<stateRoot>/secrets/owner-passphrase`). Keep it private — it controls the Owner Console and
-the authenticated loopback control plane.
+In Restricted mode, built-in file tools are contained under these roots after canonical-path checks. OS permissions still apply.
 
-### Connect Gemini Spark without copying its callback
+A good default is to grant a project/workspace root rather than your entire home directory.
 
-Use the Client ID and Client Secret created by setup. The Client ID defaults to
-`slnctrz-mcp`, but a custom configured ID works the same way.
+## 4. Review Commands
 
-After entering the configured Client ID and Client Secret in Gemini Spark and selecting
-**Continue**, Gemini opens the SlncTrZ authorization page at `/authorize`.
+Fresh Restricted setup discovers which commands from the shipped platform candidate list are actually installed, then persists and strictly compiles that usable subset.
 
-1. Verify that the page shows the Client ID you configured.
-2. Verify the full callback belongs to
-   `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-...`.
-3. **Before entering the Owner Passphrase**, open browser DevTools and select the **Network** tab.
-   Enable **Preserve log** if the browser provides it.
-4. Enter the normal Owner Passphrase and click **Approve exactly once**. Do not refresh the page,
-   go back, or submit the form again.
-5. In Network, locate the request whose URL starts with
-   `https://oauth-redirect.googleusercontent.com/r/...`.
-6. Right-click that request and select **Open in new tab**. Leave the new tab open until Gemini's
-   success/confirmation page appears, then return to Gemini Spark.
+Review the list in **Owner Console → Commands**. Remove anything you do not want an agent to launch.
 
-The single approval registers the exact callback. Opening the Google redirect request in a new tab
-is a Gemini Spark compatibility workaround observed when its background authorization tab does not
-continue automatically. ChatGPT, Claude, and Grok complete this redirect automatically after one
-approval.
+Treat shells, interpreters, package managers, Docker, privilege tools, and system-management commands as high-impact capabilities. A short allowlist is easier to reason about than a broad one.
 
-The callback registration is stored under `<stateRoot>/oauth-static-redirects.json`, survives
-restart, and does not contain the Client Secret. Do not add a wildcard, copy the complete
-`/authorize` URL into `client.env`, or copy/share the one-time Google redirect URL: its
-authorization `code`, `state`, and PKCE transaction data are temporary credentials for that
-connection attempt.
+## 5. Connect an AI client
 
-Denying the request leaves the callback unregistered and does not redirect the browser to it.
+Point the client at the MCP endpoint printed during setup:
 
----
+```text
+http://127.0.0.1:3100/mcp
+```
 
-## 2. Add a workspace Path
+or, for a cloud-hosted client:
 
-In Restricted mode, built-in file tools (`core.read`, `core.search`, `core.write`, `core.edit`,
-and `media.read_image` when advertised) operate inside configured **Paths**. A Path is the
-filesystem boundary the gateway grants to those restricted-mode operations.
+```text
+https://mcp.example.com/mcp
+```
 
-**Steps (Owner Console → Paths → Add):**
+After authentication, a capable client should call:
 
-1. Enter an **absolute** path, e.g.:
+```text
+core.ping
+context.bootstrap
+```
+
+`core.ping` reports the active gateway orientation. `context.bootstrap` loads coding instructions, the compact skill catalog, and a short-lived context receipt used by ordinary gateway work calls.
+
+### ChatGPT and Grok
+
+These clients normally use dynamic registration + PKCE. You usually do not need to copy the static Client ID or Client Secret into them.
+
+### Claude
+
+Claude uses the configured static Client ID/Secret. Complete the OAuth flow, then approve access with the Owner Passphrase.
+
+### Gemini Spark compatibility step
+
+Gemini Spark currently needs one extra browser step in the flow we have tested:
+
+1. Enter the configured Client ID and Client Secret in Gemini.
+2. Continue until Gemini opens the SlncTrZ authorization page.
+3. Before entering the Owner Passphrase, open browser DevTools → **Network**.
+4. Enter the Owner Passphrase and click **Approve exactly once**.
+5. In Network, find the request beginning with:
 
    ```text
-   /srv/slnctrz-workspace          # Linux
-   C:\Users\you\projects\acme      # Windows
+   https://oauth-redirect.googleusercontent.com/r/...
    ```
 
-2. Save. The gateway canonicalizes and validates the path, then reloads policy.
+6. Right-click that request and choose **Open in new tab**.
 
-**Authority modes:**
+Do not share, re-submit, or repeatedly reopen that one-time URL. It contains OAuth state/code material. ChatGPT, Claude, and Grok have completed the tested flow without this manual new-tab step.
 
-- **Restricted** (default on fresh setup) — file tools stay within configured Paths;
-  `core.exec` requires an approved command-catalog entry; fresh setup discovers the initial Commands by filtering the platform candidate template to executables available on this machine; `task.start` shares the same authority.
-- **Autonomous** — core tools may use any path/executable available to the gateway OS account.
+## Core file tools you will see
 
-**Security note:** the gateway does not replace OS permissions. A Path the runtime account
-cannot read/write/traverse still fails at the OS level. On Linux System Install the runtime account is the real non-root user that invoked setup (validated from `SUDO_USER` when using `sudo`), not a generated service account. Add only directories you intend to expose.
+The built-in file surface uses the current names `core.read`, `core.search`, `core.write`, and `core.edit`. They all remain subject to the active authority/policy boundary; their presence does not grant access outside configured authority.
 
----
+## 6. Use global instructions and Agent Skills
 
-## 3. Add an MCP server
-
-The gateway connects to external MCP servers and re-exposes their tools under the canonical
-namespace `<provider>.<tool>`.
-
-**Steps (Owner Console → MCP Servers → Add MCP):**
-
-| Field                        | What to enter                                                                                                                 |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Name**                     | Human label (not shown to clients).                                                                                           |
-| **Provider ID**              | The canonical `<provider>.<tool>` namespace id — **use a virtual/abstract prefix** (see §4). Lowercase `a-z0-9-`, ≤ 64 chars. |
-| **Transport**                | `Remote URL` (Streamable HTTP) or `Local command` (stdio).                                                                    |
-| **Target URL** _(Remote)_    | Must be **HTTPS**; non-loopback `http://` is rejected. `http://127.0.0.1:…` (loopback) is allowed.                            |
-| **Command / args** _(Local)_ | Absolute command path + space-separated args (stdio).                                                                         |
-| **Auth**                     | `none`, `Bearer`, or `HTTP header` (+ header name + credential). Never put the credential in the URL.                         |
-| **Description**              | Optional — what the server is for.                                                                                            |
-
-Click **Probe & Add**. The gateway probes the endpoint (MCP `initialize` + `tools/list`).
-On success it commits the provider and reloads the tool catalog; on failure it **rolls back**
-(the credential may already be saved, but the provider is not activated — safe to retry).
-
-**After adding:**
-
-- **Test / Sync** — re-discover tools, then sync the discovered set into the catalog.
-- **Enable / Disable** — add/remove the provider's tools from the catalog without deleting config.
-- **Auth** — update the stored credential for an existing provider.
-- **Remove** — delete the provider config (and its credential).
-
----
-
-## 4. Best practice — use a virtual Provider ID (prefix ảo)
-
-The **Provider ID** is the public namespace shown to AI clients in the tool catalog
-(`<provider>.<tool>`), in `core.ping`, and in any documentation. It reveals what you connect,
-so keep it **abstract**:
-
-**Do NOT** use:
-
-- the real service name or internal project name;
-- the hostname / URL host of the server (e.g. `db-01`, `192.168.1.5`, `mycompany-internal`);
-- anything that identifies where the server runs or what it really is.
-
-**DO** use a short, stable, lowercase id that describes intent only:
+Global coding context lives under the state root:
 
 ```text
-research   ·   vmk   ·   kb   ·   notes   ·   v2t
+<stateRoot>/harness/AGENTS.md
+<stateRoot>/harness/skills/<skill-name>/SKILL.md
 ```
 
-Examples of a safe vs unsafe setup for the **same** server:
+Project context is optional. When a client explicitly bootstraps an authorized project root, SlncTrZ can also discover project `AGENTS.md` and project skills.
+
+The harness uses progressive disclosure:
 
 ```text
-provider id:  research          # ✅ abstract
-provider id:  internal-corp-db  # ❌ leaks the real system
+context.bootstrap
+  → instructions + compact skill catalog
+
+skills.read(name)
+  → full SKILL.md only when needed
+
+skills.read(name, resource)
+  → one referenced text resource when needed
 ```
 
-Apply the same principle to Paths and command-catalog entries — avoid embedding absolute real
-paths or server names into anything client-visible.
+v0.3.1 limits are intentionally bounded:
 
-> **Reference:** `MCP_PROVIDER_STANDARD.md` (Section 5 _Provider Identity and Namespace_).
-> Provider IDs and tool names SHOULD be lowercase ASCII identifiers; the gateway canonicalizes
-> a bare tool name into `<provider>.<tool>`. When you build your own MCP server, follow that
-> standard so it is predictable, authenticated by default, self-describing (mandatory read-only
-> `help` tool), and secret-safe.
+| Context item             |           Limit |
+| ------------------------ | --------------: |
+| `AGENTS.md`              | 32 KiB per file |
+| `SKILL.md`               |         256 KiB |
+| YAML frontmatter         |           8 KiB |
+| Referenced text resource |  1 MiB per read |
+| Active skills            |             128 |
 
----
+These limits let us support substantial skills without turning every bootstrap into a giant context injection.
 
-## 5. Verify your setup
+## 7. See usage and context savings
+
+Open:
+
+```text
+/usage
+```
+
+For a local default install:
+
+```text
+http://127.0.0.1:3100/usage
+```
+
+The page itself contains no private data. It loads its data from owner-authenticated endpoints under `/owner/api/usage/*`, so sign in at `/owner` first.
+
+The dashboard shows:
+
+- measured MCP request/response traffic;
+- estimated tokens entering and leaving the gateway;
+- usage by tool;
+- 24-hour, 7-day, 30-day, and retained-history views;
+- the hypothetical eager-load size of the active skill catalog;
+- the skill context actually disclosed;
+- estimated context avoided by progressive disclosure;
+- estimated cost avoided using the input-token price you enter locally.
+
+### What the number means
+
+SlncTrZ measures **the gateway boundary**, not your entire model session.
+
+It does not count:
+
+- the full prompt you type into a webchat;
+- system/developer context injected by the chat platform;
+- hidden reasoning;
+- the model's normal prose answer;
+- exact provider billing usage.
+
+v0.3.1 uses the versioned model-neutral estimator `utf8-bytes-v1`, approximately four UTF-8 bytes per token. The byte counts are measured. Token and dollar figures are estimates.
+
+### Privacy of usage history
+
+Usage data is stored separately at:
+
+```text
+<stateRoot>/usage.sqlite3
+```
+
+The schema contains numeric/classification metadata. It does not persist prompts, tool arguments, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts.
+
+If usage telemetry fails, the dashboard may become unavailable, but normal MCP work is designed to continue.
+
+## 8. Add another MCP server
+
+Open **Owner Console → MCP Servers → Add MCP**.
+
+You can add:
+
+- a remote Streamable HTTP MCP endpoint; or
+- a local stdio MCP process.
+
+SlncTrZ probes the provider before committing it. Enabled provider tools are exposed under a stable namespace:
+
+```text
+<provider-id>.<tool-name>
+```
+
+Choose a short provider ID that will remain meaningful even if you replace the implementation later. For example, `kb` is usually a better long-term namespace than a vendor/version-specific name.
+
+Credentials live in managed secret storage and are not copied into model-visible tool metadata.
+
+See [MCP_SERVERS.md](../MCP_SERVERS.md) for detailed provider configuration.
+
+## 9. Verify the installation
+
+Start with:
 
 ```bash
-slnctrz-mcp status          # paths/commands/MCP server counts + running identity
-slnctrz-mcp status --json
-slnctrz-mcp config show     # install/state/config paths
+slnctrz-mcp status
+slnctrz-mcp doctor
 ```
 
-From a connected client, confirm the tools appear with the provider prefix:
+Then verify from the AI client:
 
 ```text
-<provider>.help
-<provider>.knowledge_search
+core.ping
+context.bootstrap
 ```
 
-If a provider is configured but tools do not appear, check readiness via the Owner Console
-(Test/Sync) and confirm the transport URL + auth are correct. A provider must be **ready**
-before its tools are advertised.
+Check that the returned Paths, authority mode, tools, skill catalog, and provider readiness match what you configured.
 
-## 6. View an image together with your agent
+If the client was already connected before an upgrade that changes the MCP tool catalog, reconnect/refresh the MCP connection so the client performs a fresh `tools/list` discovery.
 
-Ask: "Open this image and show it in your reply", followed by its path on the gateway machine.
+## 10. Update, rollback, repair, and recovery
 
-1. The agent checks the active tool catalog or `core.ping.structuredContent.media`.
-   Builds with image support advertise `media.read_image` when read authority is available.
-2. In Restricted mode, the file must be inside a configured Path; OS permissions still apply.
-   The image reader uses the existing read authority and does not need an approved shell command.
-3. The agent reads a PNG/JPEG (up to 4 MiB and 25 megapixels) and attaches/embeds it
-   in its final reply using the chat application's supported mechanism.
-4. Confirm both that the agent can describe the image and that you can see/open it.
+```bash
+slnctrz-mcp update
+slnctrz-mcp rollback
+slnctrz-mcp repair
+slnctrz-mcp owner rotate-passphrase
+```
 
-A local gateway path is not a chat attachment. If the agent can describe the image but you
-cannot see it, ask it to attach and embed the file in the final answer. If the client does not
-support that, the agent must report the limitation. See [Images in chat](IMAGES.md).
+- **Update** installs and verifies a new immutable release before activation.
+- **Rollback** activates a previously verified release.
+- **Repair** restores only safe generated state; it does not silently reset owner credentials or customer policy.
+- **Rotate passphrase** is an explicit owner action and requires a gateway restart afterward.
 
-Gateway model help is delivered by `core.ping` and the model guide. The CLI's `--help`
-points to that workflow. `<provider>.help`, such as the KB provider's help, documents only
-the external provider and does not define built-in gateway image capabilities.
+Task runtime state is intentionally in memory and does not survive restart. Audit and usage history are persistent SQLite state.
 
-## 7. Global coding instructions and skills
+## 11. If something is wrong
 
-Edit the global `AGENTS.md` printed by setup, then add skills beneath the adjacent `skills/`
-directory. Both live under `<stateRoot>/harness/` by default and survive upgrades. You can work on
-repositories without creating a project `AGENTS.md`; project instructions and project skills are
-optional overlays selected by `context.bootstrap({projectRoot})`.
+Use:
 
-The agent receives global instructions and compact skill metadata through `context.bootstrap`, then
-loads a selected `SKILL.md` and referenced text resources on demand with `skills.read`. Ordinary
-core, image, task, and provider calls require the returned context receipt. If instructions or the
-skill catalog change, the old receipt becomes stale before side effects and the agent bootstraps
-again. `core.ping`, context lifecycle tools, and owned `task.cancel` remain available for recovery.
+```bash
+slnctrz-mcp doctor --json
+```
 
-After upgrading to v0.3.0, refresh your client's MCP tool catalog before work. See
-[Coding harness](HARNESS.md) and [Coding-agent integration](CODING_AGENTS.md).
+Then see [Troubleshooting](TROUBLESHOOTING.md).
+
+For public deployments, also read [Deployment](DEPLOYMENT.md), [Security](../SECURITY.md), and the [Threat Model](THREAT_MODEL.md). Those documents describe the real boundaries and residual risks; they are not marketing material.

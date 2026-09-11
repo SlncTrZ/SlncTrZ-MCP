@@ -76,6 +76,45 @@ describe("Owner Console product surface", () => {
         }
       },
       secureCookies: false,
+      usage: {
+        summary: (range) => ({
+          available: true,
+          range,
+          estimatorId: "utf8-bytes-v1",
+          calls: 3,
+          inputBytes: 40,
+          outputBytes: 400,
+          estimatedInputTokens: 10,
+          estimatedOutputTokens: 100,
+          estimatedTotalTokens: 110
+        }),
+        timeseries: () => [
+          {
+            bucket: "2026-09-11T03:00:00Z",
+            deliveredEstimatedTokens: 100,
+            avoidedEstimatedTokens: 250
+          }
+        ],
+        tools: () => [
+          {
+            toolId: "core.read",
+            calls: 2,
+            estimatedInputTokens: 10,
+            estimatedOutputTokens: 100,
+            estimatedTotalTokens: 110
+          }
+        ],
+        savings: (range) => ({
+          available: true,
+          range,
+          estimatorId: "utf8-bytes-v1",
+          contexts: 1,
+          potentialEagerEstimatedTokens: 500,
+          disclosedEstimatedTokens: 250,
+          avoidedEstimatedTokens: 250,
+          reductionPercent: 50
+        })
+      },
       productInfo: {
         version: "1.2.3",
         buildCommit: "abc123",
@@ -121,6 +160,27 @@ describe("Owner Console product surface", () => {
     expect(cookie).toContain("HttpOnly");
     expect(cookie).not.toContain("Secure;");
     const { csrf } = (await login.json()) as { csrf: string };
+
+    const usagePage = await fetch(`${origin}/usage`);
+    expect(usagePage.status).toBe(200);
+    expect(await usagePage.text()).toContain("Usage &amp; context efficiency");
+
+    const anonymousUsage = await fetch(`${origin}/owner/api/usage/summary?range=24h`);
+    expect(anonymousUsage.status).toBe(401);
+
+    const usageSummary = await fetch(`${origin}/owner/api/usage/summary?range=7d`, {
+      headers: { cookie }
+    });
+    expect(usageSummary.status).toBe(200);
+    expect(await usageSummary.json()).toMatchObject({
+      range: "7d",
+      calls: 3,
+      estimatedTotalTokens: 110
+    });
+    const invalidUsageRange = await fetch(`${origin}/owner/api/usage/summary?range=year`, {
+      headers: { cookie }
+    });
+    expect(invalidUsageRange.status).toBe(400);
 
     const state = await fetch(`${origin}/owner/api/state`, {
       headers: { cookie }

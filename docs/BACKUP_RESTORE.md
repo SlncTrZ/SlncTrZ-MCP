@@ -29,6 +29,7 @@ mcp credential storage
 secrets/owner-passphrase
 OAuth client registration state
 audit.sqlite3
+usage.sqlite3
 ```
 
 ### Config root
@@ -91,9 +92,11 @@ slnctrz-mcp status
 slnctrz-mcp doctor
 ```
 
-For the most consistent snapshot, stop/quiesce the gateway before copying state, especially when including the SQLite audit database.
+For the most consistent snapshot, stop/quiesce the gateway before copying state, especially when including the SQLite audit and usage databases.
 
 Back up state + config together so installation identity and runtime configuration remain coherent.
+
+`usage.sqlite3` is operational telemetry, not authorization state. You may omit it if historical Usage charts do not matter to your recovery. `audit.sqlite3`, policy, credentials, Owner Passphrase, provider state, and harness files have different recovery/security roles and should not be treated as interchangeable.
 
 Managed Task Runtime state is intentionally in-memory in the current product. Runner/Coordinator task IDs and state are **not** backup material and do not survive stop/restart or restore. After recovery, clients must recreate/restart any unfinished task work.
 

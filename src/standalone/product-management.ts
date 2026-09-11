@@ -1,5 +1,5 @@
 /** Installed product status, diagnostics, configuration, update, recovery and uninstall.
- * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-09-09
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-09-11
  */
 
 import { ensureHarnessLayout } from "../context/provisioning.js";
@@ -34,6 +34,10 @@ import {
 import { provisionDefaultCommandCatalog } from "../owner/command-catalog-provisioning.js";
 import { createMcpProviderStore } from "../owner/mcp-provider-store.js";
 import { DEFAULT_MAX_PERSISTED_AUDIT_ROWS } from "../observability/sqlite-audit.js";
+import {
+  DEFAULT_MAX_PERSISTED_USAGE_ROWS,
+  DEFAULT_USAGE_RETENTION_DAYS
+} from "../observability/sqlite-usage.js";
 import { readStandaloneTextAsset } from "./assets.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
 import {
@@ -670,6 +674,38 @@ export async function runDoctor(
         "audit_store_missing",
         "Audit database is not present yet.",
         "Start the gateway once; investigate if audit initialization continues to fail."
+      )
+    );
+  }
+
+  try {
+    const info = await lstat(context.statePaths.usageDatabaseFile);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error("Usage database path is unsafe");
+    if (process.platform !== "win32" && (info.mode & 0o077) !== 0) {
+      items.push(
+        diagnostic(
+          "FAIL",
+          "usage_store_permissions_unsafe",
+          "Usage database is accessible to group/other users.",
+          "Restrict the usage database to the gateway account before continuing."
+        )
+      );
+    } else {
+      items.push(
+        diagnostic(
+          "PASS",
+          "usage_store_present",
+          `Usage database is present (${Math.ceil(info.size / 1024)} KiB); telemetry retains up to ${DEFAULT_USAGE_RETENTION_DAYS} days and ${DEFAULT_MAX_PERSISTED_USAGE_ROWS.toLocaleString("en-US")} rows per bounded usage table by default.`
+        )
+      );
+    }
+  } catch {
+    items.push(
+      diagnostic(
+        "WARN",
+        "usage_store_missing",
+        "Usage database is not present yet.",
+        "Start the v0.3.1 gateway once; normal MCP work remains available if usage telemetry cannot initialize."
       )
     );
   }

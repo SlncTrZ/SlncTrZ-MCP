@@ -4,6 +4,8 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { estimateTokensFromBytes, utf8Bytes } from "../observability/usage-estimator.js";
+import { NOOP_USAGE_OBSERVER, type UsageObserver } from "../observability/usage-types.js";
 import { join } from "node:path";
 import {
   HarnessError,
@@ -37,6 +39,7 @@ interface ContextReceipt {
   readonly expiresAt: number;
   readonly projectRoot?: string;
   readonly activated: Set<string>;
+  readonly usageContextKey: string;
 }
 
 export class HarnessRuntime {
@@ -45,7 +48,8 @@ export class HarnessRuntime {
 
   constructor(
     readonly root: string,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly usage: UsageObserver = NOOP_USAGE_OBSERVER
   ) {}
 
   private checkActor(actor: HarnessActor): void {
@@ -98,6 +102,7 @@ export class HarnessRuntime {
         "Context capacity reached; release an unused context with context.close."
       );
     const token = randomBytes(32).toString("base64url");
+    const usageContextKey = randomBytes(16).toString("base64url");
     const expiresAt = now + CONTEXT_TTL_MS;
     this.receipts.set(token, {
       clientId: actor.principal.clientId,
@@ -107,8 +112,34 @@ export class HarnessRuntime {
       revision: snapshot.revision,
       expiresAt,
       activated: new Set(),
+      usageContextKey,
       ...(projectRoot === undefined ? {} : { projectRoot })
     });
+    const disclosedBytes = utf8Bytes(
+      JSON.stringify({
+        instructions: snapshot.instructions,
+        catalog: snapshot.catalog,
+        diagnostics: snapshot.diagnostics,
+        projectRoot: projectRoot ?? null,
+        guidance: HARNESS_GUIDANCE
+      })
+    );
+    const potentialEagerBytes =
+      disclosedBytes +
+      [...snapshot.skills.values()].reduce((total, skill) => total + skill.bytes, 0);
+    try {
+      this.usage.harnessContextStarted({
+        timestamp: new Date(now).toISOString(),
+        contextKey: usageContextKey,
+        workspaceId: actor.policy.workspaceId,
+        potentialEagerBytes,
+        disclosedBytes,
+        potentialEagerEstimatedTokens: estimateTokensFromBytes(potentialEagerBytes),
+        disclosedEstimatedTokens: estimateTokensFromBytes(disclosedBytes)
+      });
+    } catch {
+      // Usage telemetry is passive and must never affect context bootstrap.
+    }
     return {
       schemaVersion: 1,
       contextToken: token,
@@ -207,7 +238,20 @@ export class HarnessRuntime {
           "context_stale",
           "Skill changed during activation. Bootstrap again."
         );
+      const firstActivation = !receipt.activated.has(name);
       receipt.activated.add(name);
+      if (firstActivation) {
+        try {
+          this.usage.harnessDisclosed({
+            timestamp: new Date(this.now()).toISOString(),
+            contextKey: receipt.usageContextKey,
+            additionalBytes: file.bytes,
+            additionalEstimatedTokens: estimateTokensFromBytes(file.bytes)
+          });
+        } catch {
+          // Usage telemetry is passive and must never affect skill activation.
+        }
+      }
     }
     return {
       name,

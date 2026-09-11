@@ -36,6 +36,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-025 | Loopback HTTP exception for streamable-http MCP endpoints           | Accepted                                                         |
 | ADR-026 | Provider tool namespacing                                           | Accepted                                                         |
 | ADR-027 | Global coding context and progressive Agent Skills                  | Accepted                                                         |
+| ADR-028 | Passive usage telemetry and context-savings dashboard               | Accepted for v0.3.1                                              |
 
 ## How to add an ADR
 

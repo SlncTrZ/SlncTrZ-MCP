@@ -95,6 +95,17 @@ Autonomy guidance is part of the product contract:
 
 Security complexity belongs behind those surfaces: OAuth, path containment where applicable, secret handling, command selection, credential isolation, atomic generation activation, bounded execution and metadata-only audit.
 
+## v0.3.1 product visibility and usage telemetry
+
+v0.3.1 turns two dogfood findings into product work:
+
+1. raise bounded `SKILL.md` support to 256 KiB so substantial Agent Skills can remain first-class without weakening progressive disclosure;
+2. add passive `/usage` observability so owners can see gateway traffic, per-tool context, progressive-disclosure savings, and estimated cost avoided without storing conversation/tool payloads.
+
+The release also changes the public documentation posture. README and operator docs are written for people evaluating/running the product, in the maintainer voice, with candid adoption status and without claiming independent security validation that does not exist. Model-specific operating guidance remains in `docs/MODEL_GUIDE.md`.
+
+Release contract: telemetry is metadata-only, bounded, owner-readable, separate from audit, and fail-open. See ADR-028 and the v0.3.1 release-acceptance section.
+
 ## v0.3.0 coding harness
 
 Owner-approved scope: automatic global AGENTS.md, optional project context, mandatory bootstrap

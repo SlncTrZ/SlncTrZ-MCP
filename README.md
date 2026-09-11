@@ -1,81 +1,108 @@
 # SlncTrZ-MCP
 
-SlncTrZ-MCP is a local-first, self-hosted coding harness over MCP. It gives chat clients and coding agents global instructions, on-demand skills, files, commands, managed tasks and other MCP servers through one owner-controlled endpoint.
+**Give your AI tools one controlled way into your computer, your projects, and your MCP stack.**
 
-The owner decides how much authority the gateway has:
+SlncTrZ-MCP is a self-hosted coding harness and MCP gateway for people who want ChatGPT, Claude, Grok, Gemini, coding agents, and local tools to work against the same machine without giving every client a different pile of scripts, credentials, and filesystem access.
 
-- **Restricted** — built-in file tools stay inside configured Paths; `core.exec` can start only approved Commands.
-- **Autonomous** — core tools may use the filesystem and command authority of the OS account running SlncTrZ-MCP.
+We built it around a simple idea:
 
-Restricted mode is intentionally conservative, but it is **not an OS sandbox**. If you allow Bash, Python, Node, PowerShell, Docker, or another general-purpose interpreter/admin tool, that process can use the OS permissions of the gateway account.
+> AI should be useful on the machine where your work actually lives, but the owner should remain the authority boundary.
 
-## One gateway for every AI client
-
-- **Windows & Linux** — install on a workstation or a self-hosted server with one command.
-- **Works with ChatGPT / Claude / Grok — even on a free account.** A single owner-controlled endpoint they can all use.
-- **Use ChatGPT to work with your files** — connect a project folder and let it read, search, and shape your work.
-- **Built for coding agents** — wire it into Claude Code, Cursor, Zed, Codex, and other agent workflows.
-- **You control the authority** — Restricted or Autonomous; you decide what the AI can touch.
+SlncTrZ-MCP gives you one endpoint for files, commands, Agent Skills, managed tasks, images, and additional MCP servers. You decide what the gateway can reach. The agent does not get an admin backdoor just because it can call tools.
 
 [▶ Watch the introduction & setup video](docs/SlncTrZ-MCP.mp4)
 
-> A quick walkthrough — install, connect your AI client, add a Path, add an MCP server. If the inline player does not load, open the raw file directly or save it locally.
+---
 
-## What it is for
+## Why this exists
 
-SlncTrZ-MCP is designed for:
+Most MCP setups become fragmented quickly: one client has filesystem access, another has shell access, a third has a different MCP server list, and every connection has its own credentials and assumptions.
 
-- a personal workstation where you want one controlled gateway for AI tools;
-- a development machine where file and command access should be explicit;
-- a self-hosted Linux server;
-- connecting one AI client to multiple MCP providers through a stable gateway namespace.
+We wanted one place to answer four questions:
 
-The gateway is local-first. Public exposure is optional for local use. A publicly reachable HTTPS MCP URL is needed only when the client itself runs in the cloud and must reach your gateway over the Internet.
+1. **What can the AI read or change?**
+2. **What commands may it start?**
+3. **Which extra MCP servers are available?**
+4. **What working context and skills should every coding agent receive?**
 
-## Coding harness
+SlncTrZ-MCP puts those answers behind one owner-controlled gateway.
 
-Version 0.3.0 automatically discovers global `AGENTS.md` and Agent Skills under
-`<stateRoot>/harness/`. Project instructions are optional. Setup includes editable global defaults
-and two starter skills for code review and debugging; upgrades preserve your edits.
+### What you get
 
-Connected agents call `context.bootstrap` to receive instructions and the compact skill catalog,
-then pass the returned context receipt to gateway tools. `skills.read` loads a selected skill and
-its referenced resources only when needed. Coding-agent hosts can carry receipts in MCP metadata.
+- **One MCP endpoint** for multiple AI clients.
+- **Restricted or Autonomous authority** depending on how much OS access you want to grant.
+- **Files + search + write/edit + command execution** through a small stable core tool surface.
+- **Global `AGENTS.md` + Agent Skills** with progressive disclosure instead of eagerly loading every instruction file.
+- **Managed runner and coordination tasks** for longer or multi-agent work.
+- **Extra MCP servers behind one namespace** such as `kb.search`, `github.issue`, or any provider you add.
+- **Owner Console** for Paths, Commands, MCP Servers, authority, and operation.
+- **`/usage` dashboard in v0.3.1** for observed gateway traffic, per-tool context cost, progressive-disclosure savings, and estimated cost avoided.
+- **Metadata-only audit history** and a separate privacy-minimal usage ledger.
+- **Standalone Linux and Windows builds** so the installed gateway does not need a source checkout or Node.js runtime.
 
-**Upgrading clients from 0.2:** ordinary tool calls now require bootstrap. Refresh the client's
-MCP tool catalog and follow the bootstrap guidance before coding. No provider permissions change.
+---
 
-Read [Coding harness](docs/HARNESS.md) for configuration and limits, and
-[Coding-agent integration](docs/CODING_AGENTS.md) for headless/IDE agent integration.
+## What makes it different
 
-## Current support
+### The model is not the authority
 
-### Source/developer support
+Connected models can use what the owner grants. They cannot create their own Paths, approve new Commands, reveal managed MCP credentials, or turn guidance text into permissions.
 
-| Environment           | Status           |
-| --------------------- | ---------------- |
-| Linux + Node 22       | CI target        |
-| Linux + Node 24       | CI target        |
-| Windows + Node 24     | Native CI target |
-| Node version contract | `>=22.13.0 <25`  |
+The real boundary is:
 
-### Prebuilt end-user support
+```text
+Authentication
+    ↓
+Owner policy
+    ↓
+Kernel capability checks
+    ↓
+Files / Commands / Tasks / MCP providers
+```
 
-| Target                     | Status                                                                                    |
-| -------------------------- | ----------------------------------------------------------------------------------------- |
-| Linux x64 standalone SEA   | Public release target                                                                     |
-| Linux x64 User Install     | Release-gated clean-host acceptance                                                       |
-| Linux x64 System Install   | Implemented; clean systemd-host release evidence required before a verified support claim |
-| Windows x64 standalone SEA | Public release target in the current 0.3.x line                                           |
-| Windows x64 User Install   | Git Bash bootstrap + native installed runtime; release-gated clean-host acceptance        |
-| Windows System Install     | Not yet supported                                                                         |
-| macOS standalone installer | Not yet a public prebuilt support target                                                  |
+`AGENTS.md`, skills, prompts, and task text are context. They are **not** authorization.
 
-A platform is not advertised as end-user supported merely because the source compiles there.
+### Coding context is loaded progressively
 
-## Quick install — Linux x64
+A coding agent starts with global instructions and a compact skill catalog. It reads a full `SKILL.md` only when the skill is actually relevant, then reads referenced resources on demand.
 
-For a published release, download the bootstrap and run it locally:
+That matters because a mature skill library can become larger than the task itself. v0.3.1 raises the bounded `SKILL.md` limit to **256 KiB** while keeping progressive disclosure, so large high-quality skills are supported without injecting all of them into every turn.
+
+### We measure the cost of that context
+
+`/usage` does not pretend to know your entire ChatGPT or Claude bill. It measures the part SlncTrZ actually sees:
+
+- request bytes entering the MCP gateway;
+- response bytes leaving the gateway;
+- estimated tokens for that traffic;
+- which tools account for the traffic;
+- how much Agent Skill context was avoided by not eager-loading every active skill.
+
+The dashboard never needs your webchat prompt or normal model reply. Dollar savings are clearly labeled estimates and use the input-token price you enter locally in the browser.
+
+### Security work is part of the product, not a footnote
+
+We have spent more engineering time than our current community size would suggest on containment, immutable releases, OAuth, bounded work, provider isolation, metadata-only audit, context receipts, rollback, repair boundaries, and cross-platform acceptance.
+
+That does **not** mean the project is “proven secure” or independently audited. It means the architecture now has explicit security invariants and substantial automated evidence behind them. Read [SECURITY.md](SECURITY.md) and [the threat model](docs/THREAT_MODEL.md) before exposing a gateway publicly.
+
+---
+
+## Where the project is today
+
+The engineering is ahead of the community.
+
+We consider the core safety model, architecture, release model, and extension path mature enough to put in front of more real users. The weak point today is adoption: SlncTrZ-MCP is still a small project with very limited stars, forks, third-party integrations, independent review, and community testing.
+
+We are not going to hide that behind marketing language. v0.3.1 is about making the product easier to understand, showing users what the gateway is doing for them, and turning a technically complete system into something people can actually discover, install, evaluate, and contribute to.
+
+If the idea is useful to you, the most valuable contributions right now are straightforward: **try it, break it, report what is confusing, open issues, review the security model, and tell us which clients or workflows need better support.**
+
+---
+
+## Quick start
+
+### Linux x64
 
 ```bash
 curl --fail --location --proto '=https' --tlsv1.2 \
@@ -88,11 +115,9 @@ sh /tmp/slnctrz-install.sh \
   --path "$HOME"
 ```
 
-The bootstrap downloads the release binary and `SHA256SUMS`, verifies the binary, then runs the product `setup` flow. The standalone runtime does **not** require a repository checkout, `node_modules`, or a system Node.js installation.
+### Windows x64 with Git Bash
 
-## Quick install — Windows x64 with Git Bash
-
-Install **Git for Windows**, open **Git Bash**, then run:
+Install **Git for Windows**, open **Git Bash**, then run the same bootstrap:
 
 ```bash
 curl --fail --location --proto '=https' --tlsv1.2 \
@@ -105,7 +130,7 @@ sh /tmp/slnctrz-install.sh \
   --path "$HOME"
 ```
 
-Git Bash is required only for the bootstrap. The installed gateway is a native `slnctrz-mcp.exe` and does **not** require Git Bash, Node.js, npm, or a repository checkout after installation.
+Git Bash is only the installer bootstrap. The installed Windows runtime is a native `slnctrz-mcp.exe`; it does not need Git Bash, Node.js, npm, or the repository afterward.
 
 Default Windows User Install locations:
 
@@ -115,9 +140,7 @@ State:   %USERPROFILE%\.slnctrz-mcp
 Config:  %APPDATA%\SlncTrZ-MCP
 ```
 
-The Git Bash bootstrap converts POSIX-style paths such as `/c/Users/Alice/work` to native Windows paths before invoking the native executable. Windows **System Install/service mode is not yet supported**; use `--mode user`.
-
-For a server-style Linux system install:
+### Linux system install
 
 ```bash
 sudo sh /tmp/slnctrz-install.sh \
@@ -126,18 +149,49 @@ sudo sh /tmp/slnctrz-install.sh \
   --path /srv/slnctrz-workspace
 ```
 
-System mode uses root/sudo only for privileged installation work. The gateway itself runs as the real invoking OS user (for `sudo`, the validated non-root `SUDO_USER`), and setup verifies that runtime user can read and write the initial Path before enabling the systemd service. SlncTrZ-MCP does not create a dedicated `slnctrz` account.
+System mode uses root only for privileged installation steps. The gateway runs as the validated invoking OS user rather than a new `slnctrz` account.
 
-### Local vs public setup
+---
 
-Local mode is the default and does not need a domain:
+## After installation
+
+A successful first setup prints the information you actually need:
+
+- installed version and mode;
+- MCP endpoint;
+- Owner Console URL;
+- Owner Passphrase on first creation and its recovery-file path;
+- OAuth Client ID and generated Client Secret when applicable;
+- install, state, and config locations.
+
+Local defaults look like:
 
 ```text
 MCP endpoint:  http://127.0.0.1:3100/mcp
 Owner Console: http://127.0.0.1:3100/owner
+Usage:        http://127.0.0.1:3100/usage
 ```
 
-For a cloud client, configure the public HTTPS MCP URL:
+Open `/owner`, sign in, and review:
+
+| Control         | What it means                                                        |
+| --------------- | -------------------------------------------------------------------- |
+| **Autonomy**    | Restricted or Autonomous runtime authority                           |
+| **Paths**       | Filesystem roots available to built-in file tools in Restricted mode |
+| **Commands**    | Executables `core.exec` may start in Restricted mode                 |
+| **MCP Servers** | Extra local or remote MCP providers exposed through the gateway      |
+
+Restricted is the recommended starting point.
+
+> Restricted mode is not a full OS sandbox. If you approve Bash, Python, Node, PowerShell, Docker, `sudo`, or another general-purpose tool, that child process can exercise the OS permissions of the account running the gateway.
+
+---
+
+## Local or public
+
+You do **not** need a domain just to use SlncTrZ locally.
+
+Use a public HTTPS URL only when a cloud-hosted AI client must reach your machine:
 
 ```bash
 sh /tmp/slnctrz-install.sh \
@@ -147,339 +201,281 @@ sh /tmp/slnctrz-install.sh \
   --public-url https://mcp.example.com/mcp
 ```
 
-The public URL must be HTTPS and its path must be exactly `/mcp`. Reverse proxy/TLS setup is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+The public URL must be HTTPS and end at `/mcp`. See [Deployment](docs/DEPLOYMENT.md) for reverse proxy and TLS guidance.
 
-OAuth credentials are created automatically. To choose them during the first setup:
-
-```bash
-sh /tmp/slnctrz-install.sh \
-  --mode user \
-  --path "$HOME" \
-  --client-id my-mcp-client \
-  --client-secret 'replace-with-a-strong-secret'
-```
-
-If omitted, Client ID defaults to `slnctrz-mcp` and the installer generates a random Client Secret.
-
-## What setup gives you
-
-A successful first setup prints:
-
-- installed version;
-- install mode and runtime account;
-- Restricted/Autonomous authority;
-- install, state, and config locations;
-- MCP endpoint;
-- Owner Console URL;
-- **Owner Passphrase** on first creation only;
-- permanent Owner Passphrase recovery-file path;
-- OAuth Client ID and first-run generated Client Secret;
-- the path to the editable OAuth client file.
-
-Ordinary reinstall preserves the existing installation identity, state, policy, provider configuration, and Owner Passphrase.
-
-Keep the Owner Passphrase private. It controls the Owner Console and the authenticated loopback control plane.
-
-## First run
-
-1. Open the printed Owner Console URL.
-2. Sign in with the Owner Passphrase.
-3. Confirm **Autonomy**. Restricted is the recommended default.
-4. Review **Paths**.
-5. Review **Commands**. Fresh Restricted setup starts with a platform-specific discovered catalog: SlncTrZ filters the shipped candidate template to executables that are actually available on the machine, then persists and strictly compiles only that usable subset.
-6. Add MCP Servers only when you need them.
-
-The main owner-facing **authority controls** are:
-
-| Concept     | Meaning                                                         |
-| ----------- | --------------------------------------------------------------- |
-| Autonomy    | Restricted or Autonomous authority mode                         |
-| Paths       | Filesystem roots available to built-in tools in Restricted mode |
-| Commands    | Executables `core.exec` may start in Restricted mode            |
-| MCP Servers | External/local MCP providers aggregated by the gateway          |
-
-Global `AGENTS.md` and Agent Skills are also owner-editable, but they are guidance rather than
-permission controls. For MCP provider configuration, see [MCP_SERVERS.md](MCP_SERVERS.md) and [MCP_PROVIDER_STANDARD.md](MCP_PROVIDER_STANDARD.md).
+---
 
 ## Connect an AI client
 
-The client connects to:
+Point the client at your MCP endpoint. SlncTrZ-MCP handles OAuth and owner approval.
+
+After connection, clients should call:
 
 ```text
-<your MCP endpoint>
+core.ping
+context.bootstrap
 ```
 
-SlncTrZ-MCP provides MCP/OAuth handling and owner approval. After connection, the client should call `core.ping` first to see active authority, Paths, Commands, provider readiness, and model guidance.
+`core.ping` is the orientation/recovery tool. `context.bootstrap` gives the coding agent its global instructions, optional project context, skill catalog, and a short-lived context receipt required by ordinary work calls.
 
-Cloud-hosted clients generally require a publicly reachable HTTPS endpoint. Local clients can use the loopback endpoint directly.
+### Client notes
 
-Dynamic client registrations persist, but pending authorization state, authorization codes, access tokens, and refresh tokens are intentionally in memory. A gateway restart can therefore require the AI client to reconnect or reauthorize even when the client registration itself still exists.
+- **ChatGPT / Grok:** dynamic registration + PKCE; no static Client Secret is normally required.
+- **Claude:** configure the static Client ID/Secret and complete OAuth before Owner approval.
+- **Gemini Spark:** the current compatibility flow may require opening the `oauth-redirect.googleusercontent.com/r/...` network request in a new tab after one Owner approval. See [User Guide](docs/USER_GUIDE.md) for the exact safe procedure.
 
-Client-specific release claims are evidence-based: ChatGPT and Claude are not marked as verified for a release until the published artifact has passed the real-client acceptance flow documented in [RELEASE.md](RELEASE.md).
+Real-client compatibility claims are release-evidence based. We do not mark a client as verified for a release only because the protocol looks compatible on paper.
 
-## Coding context tools
+---
 
-Version 0.3.0 adds a small harness surface around the capability tools:
+## Coding harness
 
-| Tool                | Purpose                                                                  |
-| ------------------- | ------------------------------------------------------------------------ |
-| `context.bootstrap` | Deliver global + optional project instructions and compact skill catalog |
-| `context.close`     | Release an in-memory context receipt                                     |
-| `skills.list`       | Re-read catalog metadata for the active context                          |
-| `skills.read`       | Activate one `SKILL.md` or read one referenced text resource             |
+The harness is deliberately small:
 
-`core.ping` remains available for orientation before bootstrap. Ordinary work calls require the
-current receipt; the receipt proves delivery workflow only and never grants authority.
+| Tool                | Purpose                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| `context.bootstrap` | Load global + optional project instructions and the compact skill catalog |
+| `context.close`     | Release an in-memory context receipt                                      |
+| `skills.list`       | Re-read active skill metadata                                             |
+| `skills.read`       | Load one skill or one referenced text resource on demand                  |
+
+Global defaults live under:
+
+```text
+<stateRoot>/harness/AGENTS.md
+<stateRoot>/harness/skills/<skill-name>/SKILL.md
+```
+
+Project overlays are optional. A project can provide `AGENTS.md`, `.agents/skills/`, or `skills/` when explicit project context is requested.
+
+### v0.3.1 skill limits
+
+```text
+AGENTS.md      32 KiB per file
+SKILL.md       256 KiB
+YAML metadata   8 KiB
+Skill resource  1 MiB on demand
+Active skills   128
+```
+
+These are hard bounds, not token-budget suggestions. See [Harness](docs/HARNESS.md).
+
+---
+
+## `/usage`: see what the gateway is costing and avoiding
+
+v0.3.1 adds a read-only usage dashboard at:
+
+```text
+/usage
+```
+
+The page reuses the existing Owner Console session for data access. The Owner cookie remains scoped to `/owner`; usage APIs live under `/owner/api/usage/*`.
+
+The dashboard shows:
+
+- total measured MCP traffic;
+- gateway → client estimated tokens;
+- client → gateway estimated tokens;
+- usage by tool;
+- 24h / 7d / 30d / all-time charts within retained history;
+- potential eager Agent Skill context;
+- actually disclosed skill context;
+- avoided context and reduction percentage;
+- estimated cost avoided at a custom input price per 1M tokens.
+
+### What `/usage` does not measure
+
+It does not see or claim to measure:
+
+- the user's full webchat prompt;
+- system/developer prompts owned by the chat platform;
+- hidden reasoning;
+- the model's normal chat answer;
+- exact OpenAI/Anthropic/Google billing tokens.
+
+The token estimator is versioned and model-neutral. v0.3.1 uses `utf8-bytes-v1` (roughly four UTF-8 bytes per token). Exact byte counts are the ground truth; token and dollar values are estimates.
+
+Usage history is stored separately in:
+
+```text
+<stateRoot>/usage.sqlite3
+```
+
+It stores numeric/classification metadata, not prompts, arguments, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. Telemetry is fail-open: if usage persistence fails, normal MCP work continues.
+
+---
 
 ## Core tools
 
-The gateway exposes a small fixed core surface:
+| Tool               | Purpose                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| `core.ping`        | Runtime status, authority, Paths, providers, docs, recovery orientation |
+| `core.read`        | Read UTF-8 files                                                        |
+| `core.search`      | Search files and directories                                            |
+| `core.write`       | Atomic write; `dryRun:true` previews                                    |
+| `core.edit`        | Exact-match edit; `dryRun:true` previews                                |
+| `core.exec`        | Run approved/native commands under bounded execution rules              |
+| `media.read_image` | Read PNG/JPEG under existing file-read authority when advertised        |
 
-| Tool          | Purpose                                                                    |
-| ------------- | -------------------------------------------------------------------------- |
-| `core.ping`   | Runtime status, authority, Paths, Commands, provider state, model guidance |
-| `core.read`   | Read UTF-8 files                                                           |
-| `core.search` | Search files/directories                                                   |
-| `core.write`  | Atomic file write; `dryRun:true` previews                                  |
-| `core.edit`   | Exact-match edit; `dryRun:true` previews                                   |
-| `core.exec`   | Run approved/native commands under bounded execution rules                 |
+SlncTrZ intentionally does not expose `owner.*` tools to the model.
 
-## Images in chat
-
-When advertised by the running gateway, `media.read_image(path)` reads PNG/JPEG files
-under the existing `core.read` authority. It returns original image bytes and metadata;
-limits are 4 MiB and 25 megapixels, with no resize, crop or OCR.
-
-Ask the agent to **show the image in its final answer**. Receiving an image tool result
-does not guarantee that the chat UI displays it. The client must support image input
-and a user-visible attachment/embedding mechanism. See [Images in chat](docs/IMAGES.md)
-for the tested workflow, deployment status and compatibility boundaries.
+---
 
 ## Managed tasks
 
-When Task Runtime is enabled, the gateway also exposes a bounded `task.*` surface with two distinct roles.
-
-**Runner tasks** execute one command asynchronously:
+Runner tasks execute commands asynchronously using the same authority as `core.exec`:
 
 ```text
 task.start -> task.get / task.wait -> task.cancel
 ```
 
-`task.start` uses the same execution authority as `core.exec`; it does not create a second command-policy path. Runner tasks are creator-private and workspace-bound. Cancelling a `task.wait` request does not cancel the underlying process; use `task.cancel` explicitly.
-
-**Coordination tasks** share logical work between authenticated clients in the same workspace:
+Coordination tasks let authenticated clients share logical work inside a workspace:
 
 ```text
 task.create -> task.list / task.get -> task.claim
             -> task.release | task.complete | task.fail
 ```
 
-Coordination task text is context, not authority. Exactly one client may hold a claim at a time, only the claimant may release/complete/fail, and the creator may cancel the task. Current task state is intentionally **in-memory only** and does not survive a gateway restart.
+Current task state is **in-memory only** and does not survive a gateway restart. Task text never grants additional filesystem or command authority.
 
-MCP provider tools are exposed under the canonical namespace:
+---
+
+## Add other MCP servers
+
+The Owner Console can register local stdio or remote Streamable HTTP MCP providers. Their tools are exposed under a stable namespace:
 
 ```text
 <provider>.<tool>
 ```
 
-## Operate the installed product
+Credentials stay in managed secret storage rather than being copied into model-visible manifests.
 
-For a step-by-step walkthrough of adding workspace Paths and MCP servers from the Owner Console (plus the virtual Provider-ID best practice), see [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
+See [MCP Servers](MCP_SERVERS.md) and [Provider Standard](MCP_PROVIDER_STANDARD.md).
 
-### Status
+---
+
+## Operate and recover
 
 ```bash
 slnctrz-mcp status
-slnctrz-mcp status --json
-```
-
-Status compares the active verified installed release with the authenticated running gateway identity when available.
-
-### Doctor
-
-```bash
 slnctrz-mcp doctor
-slnctrz-mcp doctor --json
-```
-
-`doctor` is read-only. It checks installation integrity, state/config validity, Paths, owner-secret permissions, provider state, disk signal, health reachability, and installed-vs-running version identity.
-
-### Configuration
-
-```bash
 slnctrz-mcp config show
-slnctrz-mcp config set port 3200
-slnctrz-mcp config set owner-console true
-slnctrz-mcp config set public-url https://mcp.example.com/mcp
-slnctrz-mcp config set public-url local
-```
-
-Validated config changes report when a restart is required.
-
-### OAuth client credentials
-
-This gateway is an OAuth-protected MCP server: MCP clients authenticate against it before calling tools. Every install auto-provisions a **static confidential client** so a fixed `client_id`/`client_secret` is always available.
-
-On a fresh setup (first run only) the installer prints and stores:
-
-- **Client ID** — default `slnctrz-mcp`;
-- **Client Secret** — a random, generated value (returned on first creation only);
-- **Owner Passphrase** — the Owner Console / control-plane secret.
-
-These live in mode-0600 files under `<configRoot>`:
-
-```text
-<configRoot>/gateway.env   SLNCTRZ_CLIENT_* are NOT stored here
-<configRoot>/client.env    SLNCTRZ_CLIENT_ID, SLNCTRZ_CLIENT_SECRET, SLNCTRZ_CLIENT_NAME, SLNCTRZ_CLIENT_REDIRECT_URIS
-<stateRoot>/secrets/owner-passphrase
-```
-
-Linux system-install defaults: `/etc/slnctrz-mcp/client.env`, `/etc/slnctrz-mcp/gateway.env`, `/var/lib/slnctrz-mcp/secrets/owner-passphrase`.
-
-**Read them after install:**
-
-```bash
-slnctrz-mcp config show            # prints staticClientId + staticClientFile
-cat <configRoot>/client.env        # operator-editable SLNCTRZ_CLIENT_SECRET
-cat <stateRoot>/secrets/owner-passphrase   # owner passphrase
-```
-
-The Client Secret is not echoed by `config show` (it is a secret); read it from the `client.env` file directly.
-
-**Customise during first setup:** pass `--client-id <id>` and/or `--client-secret <secret>` to `install.sh` or `slnctrz-mcp setup`. Avoid reusing a secret from another service.
-
-**Customise / rotate later:** edit `<configRoot>/client.env` (change `SLNCTRZ_CLIENT_ID`, `SLNCTRZ_CLIENT_SECRET`, optionally `SLNCTRZ_CLIENT_REDIRECT_URIS`), then restart the gateway. A reinstall or `update` **preserves** an existing `client.env` unless explicit `--client-id` or `--client-secret` setup arguments request a change.
-
-**Which clients need what:**
-
-- **ChatGPT / Grok** (dynamic-registration MCP clients) — **no `SLNCTRZ_CLIENT_ID` / `SLNCTRZ_CLIENT_SECRET` needed.** They register dynamically (`POST /register`), receive a public `client_id`, and authenticate with **PKCE** only. Point them at the MCP URL and approve the OAuth consent.
-- **Claude** — **requires `SLNCTRZ_CLIENT_ID` / `SLNCTRZ_CLIENT_SECRET`.** Configure the connector with `oauth` auth (method `client_secret_basic` / `client_secret_post`) using the credentials above, **complete the OAuth flow first**, then enter the **Owner Passphrase** at the consent screen. The default redirect URI is `https://claude.ai/api/mcp/auth_callback`.
-- **Gemini custom MCP / Gemini Spark** — use the configured Client ID/Secret (the Client ID does not have to remain `slnctrz-mcp`). After **Continue**, Gemini opens the SlncTrZ authorization page at `/authorize`. Before entering the Owner Passphrase, open browser DevTools and select **Network**. Enter the passphrase and click **Approve exactly once**. In Network, right-click the request whose URL starts with `https://oauth-redirect.googleusercontent.com/r/...`, then choose **Open in new tab** so Gemini can finish on its confirmation page. Do not refresh, go back, submit again, copy, or share that one-time URL because it contains the authorization `code` and `state`. The approved callback is registered automatically; no `client.env` edit, wildcard, callback copy/paste, or gateway restart is required. This manual new-tab step is a Gemini Spark compatibility workaround; ChatGPT, Claude, and Grok complete the redirect automatically after one approval.
-
-### Update
-
-```bash
 slnctrz-mcp update
-```
-
-Update fetches the official HTTPS release manifest, validates redirect hops, streams the selected artifact, verifies size and SHA-256, and activates an immutable version. System mode restarts and health-checks the service.
-
-### Rollback
-
-```bash
 slnctrz-mcp rollback
-```
-
-Rollback activates the recorded previous verified release. User state remains separate from immutable release binaries.
-
-### Repair
-
-```bash
 slnctrz-mcp repair
-```
-
-Repair is intentionally limited. It may restore known non-secret launch/config assets, safe file modes, a missing discovered/default command catalog, or stale staging state. Existing `command.json` bytes are preserved; repair does **not** silently replace a missing Owner Passphrase, delete customer policy/provider state, change authority, or roll back a release.
-
-### Rotate the Owner Passphrase
-
-```bash
 slnctrz-mcp owner rotate-passphrase
 ```
 
-The new passphrase is printed through the explicit CLI action and written to the recovery file. Restart the gateway afterwards so the active verifier uses the new credential.
+`doctor` is read-only. `repair` is intentionally bounded and does not silently replace owner credentials or customer policy. Updates activate verified immutable releases; rollback returns to an already verified prior release.
 
-### Uninstall
-
-Program only, preserving config and state:
+Default uninstall preserves customer state:
 
 ```bash
 slnctrz-mcp uninstall --yes
 ```
 
-Remove program and config, still preserve state:
+Use `--purge` only when you really want program, config, state, usage history, audit history, skills, and credentials removed.
 
-```bash
-slnctrz-mcp uninstall --yes --remove-config
-```
+See [Backup and Restore](docs/BACKUP_RESTORE.md) and [Troubleshooting](docs/TROUBLESHOOTING.md).
 
-Purge program, config, state, and credentials:
+---
 
-```bash
-slnctrz-mcp uninstall --yes --purge
-```
+## Security model in plain language
 
-Destructive uninstall validates independent install-root and state identity markers before deleting managed roots. System Install does not create or own a dedicated OS account, so uninstall never attempts to delete the invoking user's account.
+The most important properties are:
 
-## Backup and recovery
+- owner configuration is not exposed as model-facing MCP tools;
+- Restricted file operations stay inside configured canonical Paths;
+- Restricted command starts use the owner-managed command catalog;
+- Autonomous mode deliberately follows the OS permissions of the gateway account;
+- secret paths are denied by kernel rules;
+- provider credentials are separated from provider manifests and model output;
+- context receipts are workflow state, never authorization;
+- audit is metadata-only by schema;
+- usage telemetry is separate, metadata-only, bounded, and fail-open;
+- release artifacts are immutable and verified by declared size/SHA-256 before activation;
+- policy/provider generations activate atomically rather than partially mutating the live runtime.
 
-Persistent customer state is separate from the versioned standalone binary. Before major operational changes, back up the state/config roots while protecting secret permissions.
+No software of this kind should be described as risk-free. SlncTrZ-MCP can intentionally launch powerful commands when the owner allows them, and Autonomous mode can be as powerful as the OS account running it. Our goal is to make those boundaries explicit, inspectable, and difficult to bypass accidentally.
 
-See [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
+---
 
-## Troubleshooting
+## Supported targets
 
-Start with:
+### Source / development
 
-```bash
-slnctrz-mcp status
-slnctrz-mcp doctor
-```
+| Environment       | Status           |
+| ----------------- | ---------------- |
+| Linux + Node 22   | CI target        |
+| Linux + Node 24   | CI target        |
+| Windows + Node 24 | Native CI target |
+| Node contract     | `>=22.13.0 <25`  |
 
-Common categories include:
+### Prebuilt installs
 
-- `installed_release_integrity_failed`;
-- `running_version_mismatch`;
-- `policy_invalid`;
-- `command_catalog_invalid`;
-- `path_os_permission_denied`;
-- `owner_secret_permissions_unsafe`;
-- `gateway_unreachable`.
+| Target                     | Status                                                          |
+| -------------------------- | --------------------------------------------------------------- |
+| Linux x64 standalone SEA   | Public release target                                           |
+| Linux x64 User Install     | Release-gated clean-host acceptance                             |
+| Linux x64 System Install   | Implemented; support claim requires clean systemd-host evidence |
+| Windows x64 standalone SEA | Public release target                                           |
+| Windows x64 User Install   | Git Bash bootstrap + native runtime; release-gated acceptance   |
+| Windows System Install     | Not supported yet                                               |
+| macOS prebuilt installer   | Not a public target yet                                         |
 
-See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+A source compile is not treated as an end-user support claim.
 
-## Security and privacy
+---
 
-Important properties:
+## Documentation for people running the product
 
-- owner configuration is separate from model-facing tools;
-- fresh Restricted setup discovers a usable command subset from the platform candidate template, while the strict compiler still rejects invalid/unresolved persisted entries;
-- file roots are canonicalized and checked;
-- `core.search` explicit-root scope is enforced within configured Paths;
-- installer redirects are bounded and validated as HTTPS;
-- release artifacts are checked by declared size and SHA-256;
-- MCP credentials live behind a separate managed secret boundary;
-- audit storage records bounded operational metadata rather than raw file contents or credential values.
+- [User Guide](docs/USER_GUIDE.md) - first setup, clients, Paths, MCP servers, `/usage`
+- [Deployment](docs/DEPLOYMENT.md) - local, system, reverse proxy, public HTTPS
+- [Troubleshooting](docs/TROUBLESHOOTING.md) - diagnosis and recovery
+- [Backup and Restore](docs/BACKUP_RESTORE.md) - what state matters and how to recover it
+- [Security](SECURITY.md) - security contract
+- [Threat Model](docs/THREAT_MODEL.md) - threats, controls, residual risk
+- [Architecture](ARCHITECTURE.md) - how the implementation is split internally
+- [Harness](docs/HARNESS.md) - AGENTS/skills/context behavior and limits
+- [Release](RELEASE.md) - how official artifacts are built and promoted
+- [Release Acceptance](docs/RELEASE_ACCEPTANCE.md) - evidence required before support claims
 
-Read [SECURITY.md](SECURITY.md) and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) before exposing the gateway publicly.
+`docs/MODEL_GUIDE.md` is different on purpose: it is the compact guide surfaced to connected AI clients. The README and operator docs are written for people.
 
-## Documentation
+---
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — current architecture contract
-- [SECURITY.md](SECURITY.md) — current security contract
-- [docs/MODEL_GUIDE.md](docs/MODEL_GUIDE.md) — instructions surfaced to connected AI models
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — local/system/public deployment
-- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — diagnosis and recovery
-- [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) — persistence/backup contract
-- [MCP_SERVERS.md](MCP_SERVERS.md) — owner provider configuration
-- [MCP_PROVIDER_STANDARD.md](MCP_PROVIDER_STANDARD.md) — SlncTrZ provider integration convention
-- [RELEASE.md](RELEASE.md) — build/publication/release process
-- [docs/RELEASE_ACCEPTANCE.md](docs/RELEASE_ACCEPTANCE.md) — release evidence templates and claim rules
-- [docs/OPERATIONAL_FILES.md](docs/OPERATIONAL_FILES.md) — production/release/developer/legacy operational-file classification
-- [PROVENANCE.md](PROVENANCE.md) — dependency/license provenance
+## Help us turn engineering into a community
 
-Historical ADRs live under `docs/adr/`. Living code and current product docs take precedence over superseded historical decisions.
+SlncTrZ-MCP does not need more claims. It needs more users and more independent evidence.
+
+Useful contributions include:
+
+- install it on a machine we have not tested;
+- connect a client we do not use;
+- report confusing setup or OAuth steps;
+- challenge the threat model;
+- contribute Agent Skills;
+- add provider integrations;
+- benchmark context/usage behavior;
+- improve docs and screenshots;
+- review code and release artifacts.
+
+If you find the project useful, a star helps other people discover it. A fork, issue, test report, or serious review is even more valuable.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [ENGINEERING.md](ENGINEERING.md).
+
+---
 
 ## Development
 
-Development requires Node `>=22.13.0 <25`.
+Requires Node `>=22.13.0 <25`.
 
 ```bash
 npm ci
 npm run check
 npm run build
 ```
-
-See [ENGINEERING.md](ENGINEERING.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

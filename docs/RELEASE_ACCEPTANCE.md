@@ -356,3 +356,22 @@ Missing evidence does not get converted into PASS from code inspection. Either c
 - Help, MODEL_GUIDE and coding-agent integration explain bootstrap and host context ownership.
 - All repository gates and native release gates remain required. Local Linux evidence does not
   replace Windows-native or clean-host acceptance. Do not publish until those gates pass.
+
+## v0.3.1 usage telemetry and large-skill release acceptance
+
+A v0.3.1 public claim requires all normal release gates plus evidence for the following:
+
+- a valid `SKILL.md` around 192 KiB is discovered/read successfully and a file beyond the 256 KiB hard limit remains rejected;
+- telemetry enabled vs disabled produces the same MCP semantic response and side effects for representative core, task, harness, media, and provider operations;
+- an observer that throws and a disposable environment with usage persistence failure do not fail or replay the MCP operation;
+- `usage.sqlite3` contains only the reviewed numeric/classification schema and representative secret-bearing tool payloads are absent from the database bytes;
+- usage retention and in-memory queueing remain bounded;
+- `/owner/api/usage/*` returns 401 without an Owner session, rejects invalid ranges, and returns only aggregates when authenticated;
+- the Owner cookie remains `Path=/owner`; `/usage` does not introduce another credential or session system;
+- a real browser session renders `/usage`, changes 24h/7d/30d/all ranges, shows tool breakdown and harness savings, and calculates custom-price estimates without a CDN dependency;
+- dashboard text identifies `utf8-bytes-v1` as an estimate and explicitly excludes webchat prompts, hidden reasoning, ordinary model replies, and exact provider billing;
+- restart preserves usage history while existing in-memory task/context receipt restart semantics remain unchanged;
+- backup/troubleshooting/security docs describe `usage.sqlite3` separately from `audit.sqlite3`;
+- README/User Guide describe the product for human users and do not convert internal test maturity into an independent security certification claim.
+
+Do not publish v0.3.1 until supported-platform source/SEA/clean-install gates and real-client evidence required by the claimed targets are complete.

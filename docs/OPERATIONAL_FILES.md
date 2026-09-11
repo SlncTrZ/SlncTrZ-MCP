@@ -13,6 +13,16 @@ This inventory classifies security-sensitive scripts, configuration templates, a
 | `config/commands.json`                   | production Linux candidate catalog   | Linux command candidates filtered to runtime-user-available executables during provisioning   |
 | `config/commands.win32.json`             | production Windows candidate catalog | Windows command candidates filtered to locally available executables during provisioning      |
 
+## Persistent runtime state
+
+| Path                        | Classification                 | Purpose                                                                          |
+| --------------------------- | ------------------------------ | -------------------------------------------------------------------------------- |
+| `<stateRoot>/audit.sqlite3` | security/attribution metadata  | Restart-safe privacy-reviewed audit projection                                   |
+| `<stateRoot>/usage.sqlite3` | product observability metadata | Bounded MCP traffic/context-efficiency aggregates; never an authorization source |
+| `<stateRoot>/harness/`      | owner-editable coding context  | Global AGENTS.md, Agent Skills and seeding marker                                |
+
+Usage history may be omitted from a backup when historical charts are not needed; it must not be confused with policy, credentials, or audit evidence.
+
 ## Release / CI
 
 | Path                                         | Classification                         | Purpose                                                                                                                      |

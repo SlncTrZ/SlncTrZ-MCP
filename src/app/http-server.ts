@@ -21,6 +21,8 @@ import {
 import { OAuthHttpRouter } from "../auth/oauth-http-router.js";
 import { type OAuthService } from "../auth/oauth-service.js";
 import { type ToolAuditSink } from "../observability/tool-audit.js";
+import { estimateTokensFromBytes } from "../observability/usage-estimator.js";
+import type { UsageObserver, UsageRequestKind } from "../observability/usage-types.js";
 import type { OwnerWebConsole } from "../owner/web-console.js";
 import type { MetricsRegistry } from "../observability/metrics.js";
 import { createKernelPolicySnapshot, type KernelPolicySnapshot } from "../policy/kernel-policy.js";
@@ -33,7 +35,7 @@ import type { TaskRuntime } from "../task/runtime.js";
 import {
   PayloadTooLargeError,
   UnsupportedMediaTypeError,
-  readBoundedJson
+  readBoundedJsonWithSize
 } from "../shared/http-body.js";
 
 const DEFAULT_ALLOWED_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"] as const;
@@ -69,6 +71,7 @@ export interface GatewayServerOptions {
   readonly policyStore?: PolicySnapshotStore;
   readonly ownerWeb?: OwnerWebConsole;
   readonly toolAudit?: ToolAuditSink;
+  readonly usageObserver?: UsageObserver;
   readonly ownerConsoleUrl?: string;
   readonly gatewayInfo?: GatewayInfo;
   readonly metrics?: MetricsRegistry;
@@ -129,6 +132,54 @@ function assertSupportedInitializeProtocol(body: unknown): void {
   const requestId =
     typeof request.id === "string" || typeof request.id === "number" ? request.id : null;
   throw new UnsupportedMcpProtocolVersionError(requestId);
+}
+
+function classifyUsageRequest(body: unknown): {
+  readonly requestKind: UsageRequestKind;
+  readonly toolId?: string;
+} {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { requestKind: "other" };
+  }
+  const request = body as { method?: unknown; params?: unknown };
+  if (request.method === "initialize") return { requestKind: "initialize" };
+  if (request.method === "tools/list") return { requestKind: "tools_list" };
+  if (request.method === "tools/call") {
+    const params = request.params;
+    const toolId =
+      typeof params === "object" && params !== null && !Array.isArray(params)
+        ? (params as { name?: unknown }).name
+        : undefined;
+    return typeof toolId === "string"
+      ? { requestKind: "tools_call", toolId }
+      : { requestKind: "tools_call" };
+  }
+  return { requestKind: "other" };
+}
+
+function responseBodyCounter(res: ServerResponse): () => number {
+  let bytes = 0;
+  const originalWrite = res.write;
+  const originalEnd = res.end;
+  const count = (chunk: unknown, encoding?: unknown): void => {
+    if (typeof chunk === "string") {
+      bytes += Buffer.byteLength(
+        chunk,
+        typeof encoding === "string" ? (encoding as BufferEncoding) : undefined
+      );
+    } else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
+      bytes += chunk.byteLength;
+    }
+  };
+  res.write = function (this: ServerResponse, ...args: unknown[]) {
+    count(args[0], args[1]);
+    return Reflect.apply(originalWrite, this, args) as boolean;
+  } as ServerResponse["write"];
+  res.end = function (this: ServerResponse, ...args: unknown[]) {
+    count(args[0], args[1]);
+    return Reflect.apply(originalEnd, this, args) as ServerResponse;
+  } as ServerResponse["end"];
+  return () => bytes;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -347,8 +398,34 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           options.onError === undefined ? {} : { onerror: options.onError }
         );
         try {
-          const parsedBody =
-            req.method === "POST" ? await readBoundedJson(req, maxBodyBytes) : undefined;
+          const parsed =
+            req.method === "POST"
+              ? await readBoundedJsonWithSize(req, maxBodyBytes)
+              : { value: undefined, bytes: 0 };
+          const parsedBody = parsed.value;
+          if (options.usageObserver !== undefined) {
+            const startedAt = Date.now();
+            const usage = classifyUsageRequest(parsedBody);
+            const responseBytes = responseBodyCounter(res);
+            res.once("finish", () => {
+              const outputBytes = responseBytes();
+              try {
+                options.usageObserver?.traffic({
+                  timestamp: new Date(startedAt).toISOString(),
+                  workspaceId: resolution.snapshot.workspaceId,
+                  requestKind: usage.requestKind,
+                  ...(usage.toolId === undefined ? {} : { toolId: usage.toolId }),
+                  inputBytes: parsed.bytes,
+                  outputBytes,
+                  estimatedInputTokens: estimateTokensFromBytes(parsed.bytes),
+                  estimatedOutputTokens: estimateTokensFromBytes(outputBytes),
+                  durationMs: Math.max(0, Date.now() - startedAt)
+                });
+              } catch {
+                // Usage telemetry is passive and never changes the MCP response.
+              }
+            });
+          }
           assertSupportedMcpProtocol(req.headers["mcp-protocol-version"], parsedBody);
           assertSupportedInitializeProtocol(parsedBody);
           await requestHandleMcp(req, res, parsedBody);

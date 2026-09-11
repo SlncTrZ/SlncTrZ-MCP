@@ -26,6 +26,8 @@ import {
 import { createAuditJournal } from "../observability/audit-journal.js";
 import { createMetricsRegistry } from "../observability/metrics.js";
 import { createSqliteAuditSink } from "../observability/sqlite-audit.js";
+import { createSqliteUsageStore, type SqliteUsageStore } from "../observability/sqlite-usage.js";
+import { createSafeUsageObserver, NOOP_USAGE_OBSERVER } from "../observability/usage-types.js";
 import {
   createJsonLineToolAuditSink,
   createJournalToolAuditSink
@@ -122,6 +124,21 @@ export async function bootstrap(
   const statePaths = managedStatePaths(config.stateRoot);
   await ensureManagedStateLayout(statePaths);
   const sqliteAudit = createSqliteAuditSink(statePaths.auditDatabaseFile);
+  let usageStore: SqliteUsageStore | undefined;
+  try {
+    usageStore = createSqliteUsageStore(statePaths.usageDatabaseFile, {
+      onError: (error) =>
+        console.error(`[usage-sqlite] ${error instanceof Error ? error.message : "persist failed"}`)
+    });
+  } catch (error) {
+    console.error(`[usage-sqlite] ${error instanceof Error ? error.message : "unavailable"}`);
+  }
+  const usageObserver =
+    usageStore === undefined
+      ? NOOP_USAGE_OBSERVER
+      : createSafeUsageObserver(usageStore, (error) =>
+          console.error(`[usage] ${error instanceof Error ? error.message : "observer failed"}`)
+        );
   let sqliteClosed = false;
   const closeAudit = (): void => {
     if (sqliteClosed) return;
@@ -276,6 +293,7 @@ export async function bootstrap(
         mcpCredentials: mcpCredentialStore,
         mcpOrchestrator,
         secureCookies: config.publicMcpUrl.protocol === "https:",
+        ...(usageStore === undefined ? {} : { usage: usageStore }),
         productInfo: {
           version: APP_VERSION,
           buildCommit: BUILD_COMMIT,
@@ -296,7 +314,7 @@ export async function bootstrap(
   const agentHarness = extractCanonicalAgentHarness(agentHarnessSource);
   const harnessRoot = config.harnessRoot ?? join(statePaths.root, "harness");
   await ensureHarnessLayout(harnessRoot);
-  const harnessRuntime = new HarnessRuntime(harnessRoot);
+  const harnessRuntime = new HarnessRuntime(harnessRoot, Date.now, usageObserver);
   const taskRuntime = createTaskRuntime();
   const server = createGatewayServer({
     oauthService,
@@ -317,6 +335,7 @@ export async function bootstrap(
     },
     ...(ownerWeb === undefined ? {} : { ownerWeb }),
     toolAudit: createJournalToolAuditSink(auditJournal, createJsonLineToolAuditSink()),
+    usageObserver,
     ...(metrics === undefined ? {} : { metrics }),
     mcpEventBus,
     taskRuntime,
@@ -352,6 +371,7 @@ export async function bootstrap(
           await boundedCleanup(active.stop(), shutdownTimeoutMs);
         }
         closeAudit();
+        usageStore?.close();
       })();
       return shutdownPromise;
     }

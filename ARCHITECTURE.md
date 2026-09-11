@@ -191,6 +191,28 @@ Audit uses one privacy-reviewed metadata projection. Events are retained in a bo
 
 The SQLite record also carries semantic build version and injected build commit provenance. Durable retention is bounded to the newest 250,000 events by default. Persistence failure is surfaced as an operational error but does not replay or broaden a completed capability action.
 
+## Usage telemetry
+
+Usage telemetry is deliberately separate from security audit. The public `/mcp` boundary observes exact request/response body byte counts after authentication and classifies only the MCP method/tool. A versioned model-neutral estimator (`utf8-bytes-v1`) derives approximate token counts from those bytes.
+
+The usage path is passive:
+
+```text
+authenticated MCP exchange
+        │
+        ├── normal gateway execution ──► response
+        │
+        └── bounded UsageObserver ──► usage.sqlite3
+```
+
+`<stateRoot>/usage.sqlite3` stores numeric/classification metadata only. It does not persist request bodies, tool arguments, model prompts, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. A bounded in-memory queue decouples persistence from the response path; observer/store failure is logged and dropped rather than changing the MCP result.
+
+`HarnessRuntime` also emits a privacy-minimal progressive-disclosure measurement. For each bootstrap it records the compact bootstrap context plus all active `SKILL.md` bodies as the hypothetical eager-load baseline. First activation of a skill adds that skill body to the disclosed amount. Referenced resources remain ordinary measured gateway traffic and are not assumed to be part of the eager baseline.
+
+Owner-visible aggregates are exposed only through authenticated `/owner/api/usage/*` routes. `/usage` is a read-only page shell that fetches those APIs; the existing Owner cookie remains scoped to `/owner`. Cost calculation is client-side from an owner-entered input-token price.
+
+See [ADR-028](docs/adr/adr-028-passive-usage-telemetry.md).
+
 ## Snapshot activation
 
 Policy and provider changes follow:
@@ -217,7 +239,7 @@ A failed candidate never partially mutates the active generation.
 9. `task.start` reuses `core.exec` authority, while coordination tasks never grant execution/filesystem/network capability.
 10. When the coding harness is enabled, ordinary core/image/task/provider dispatch requires a current client/workspace/policy/revision-bound context receipt before effects; that receipt is not authorization.
 
-## Coding context and Agent Skills (v0.3.0)
+## Coding context, Agent Skills, and usage telemetry (v0.3.1)
 
 `src/context` owns bounded global/project discovery, one-time provisioning and context receipts.
 The product bootstrap creates one HarnessRuntime shared by isolated MCP exchanges. No transport

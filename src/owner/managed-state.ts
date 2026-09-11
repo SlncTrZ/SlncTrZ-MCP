@@ -48,6 +48,7 @@ export interface ManagedStatePaths {
   readonly secretsDirectory: string;
   readonly ownerPassphraseFile: string;
   readonly auditDatabaseFile: string;
+  readonly usageDatabaseFile: string;
   readonly installationMetadataFile: string;
   readonly oauthStaticRedirectsFile: string;
 }
@@ -66,6 +67,7 @@ export function managedStatePaths(root = join(homedir(), ".slnctrz-mcp")): Manag
     secretsDirectory,
     ownerPassphraseFile: join(secretsDirectory, "owner-passphrase"),
     auditDatabaseFile: join(root, "audit.sqlite3"),
+    usageDatabaseFile: join(root, "usage.sqlite3"),
     installationMetadataFile: join(root, "installation.json"),
     oauthStaticRedirectsFile: join(root, "oauth-static-redirects.json")
   });

@@ -18,6 +18,9 @@ import type { McpCredentialStore } from "./mcp-credential-store.js";
 import type { McpProviderService } from "./mcp-provider-service.js";
 import type { McpOwnerCredentialIntent, McpOwnerOrchestrator } from "./mcp-owner-orchestrator.js";
 import { deriveProviderStatus } from "./mcp-presentation.js";
+import type { UsageReader } from "../observability/usage-query.js";
+import { parseUsageRange } from "../observability/usage-query.js";
+import { sendUsagePage } from "./usage-page.js";
 
 const SESSION_TTL_MS = 15 * 60_000;
 const MAX_BODY_BYTES = 65_536;
@@ -141,7 +144,7 @@ input:focus,textarea:focus,select:focus{border-color:#5b8def;box-shadow:0 0 0 3p
 <!-- APP -->
 <div id="app" class="hidden"><main class="app-grid">
 <div class="col">
-<section class="card"><div class="toolbar"><div class="grow"><h1>Overview</h1></div></div><div id="overview" class="muted"></div></section>
+<section class="card"><div class="toolbar"><div class="grow"><h1>Overview</h1></div><a href="/usage" class="btn-deny" style="text-decoration:none">Usage</a></div><div id="overview" class="muted"></div></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Autonomy</h1></div></div><div class="row"><select id="authority"><option value="restricted">Restricted — selected Paths + approved Commands</option><option value="autonomous">Autonomous — full runtime OS-user authority</option></select><button id="set-authority" class="btn-approve">Apply</button></div><p class="note">Restricted is recommended. Shells/interpreters can still exercise the runtime account's OS permissions.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Paths</h1></div></div><div id="paths"></div><div class="row"><input id="path" placeholder="/absolute/path"><button id="add-path" class="btn-approve">Add Path</button></div><p class="note">Built-in file tools stay inside these Paths in Restricted mode. OS permissions still apply.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>MCP Servers</h1></div><button id="show-add-mcp" class="btn-approve">Add MCP</button></div><div id="mcp"></div><div id="mcp-form" class="hidden panel"><div class="row"><input id="mcp-name" placeholder="Name"><input id="mcp-id" placeholder="provider-id"></div><div class="row"><input id="mcp-desc" placeholder="Description (optional) — what is this MCP server for?"></div><div class="row"><select id="mcp-transport"><option value="streamable-http">Remote URL</option><option value="stdio">Local command</option></select><input id="mcp-target" placeholder="https://service.example.com/mcp"></div><div class="row" id="mcp-args-row"><input id="mcp-args" placeholder="args (space separated, stdio only)"></div><div class="row"><select id="mcp-auth"><option value="none">No auth</option><option value="bearer">Bearer</option><option value="http-header">HTTP header</option></select><input id="mcp-auth-name" placeholder="Header name"><input id="mcp-auth-value" type="password" placeholder="Credential"></div><div class="row"><button id="add-mcp" class="btn-approve">Probe &amp; Add</button><button id="cancel-mcp" class="btn-deny">Cancel</button></div></div></section>
@@ -220,6 +223,7 @@ export function createOwnerWebConsole(options: {
   readonly mcpCredentials?: McpCredentialStore;
   readonly mcpOrchestrator?: McpOwnerOrchestrator;
   readonly secureCookies?: boolean;
+  readonly usage?: UsageReader;
   readonly productInfo?: {
     readonly version: string;
     readonly buildCommit: string;
@@ -347,8 +351,13 @@ export function createOwnerWebConsole(options: {
 
   return Object.freeze({
     async handle(req: IncomingMessage, res: ServerResponse, pathname: string) {
-      if (pathname !== "/owner" && !pathname.startsWith("/owner/api/")) return false;
+      if (pathname !== "/owner" && pathname !== "/usage" && !pathname.startsWith("/owner/api/"))
+        return false;
       const method = req.method ?? "GET";
+      if (method === "GET" && pathname === "/usage") {
+        sendUsagePage(res);
+        return true;
+      }
       if (method === "GET" && pathname === "/owner") {
         sendPage(res);
         return true;
@@ -400,6 +409,50 @@ export function createOwnerWebConsole(options: {
         );
         sendJson(res, 200, { authenticated: false });
         return true;
+      }
+      if (method === "GET" && pathname.startsWith("/owner/api/usage/")) {
+        if (options.usage === undefined) {
+          sendJson(res, 503, {
+            error: { code: "usage_unavailable", message: "Usage telemetry is unavailable" }
+          });
+          return true;
+        }
+        let range;
+        try {
+          const url = new URL(req.url ?? pathname, "http://localhost");
+          range = parseUsageRange(url.searchParams.get("range"));
+        } catch {
+          sendJson(res, 400, {
+            error: { code: "invalid_usage_range", message: "Range must be 24h, 7d, 30d, or all" }
+          });
+          return true;
+        }
+        try {
+          if (pathname === "/owner/api/usage/summary") {
+            sendJson(res, 200, options.usage.summary(range));
+            return true;
+          }
+          if (pathname === "/owner/api/usage/timeseries") {
+            sendJson(res, 200, options.usage.timeseries(range));
+            return true;
+          }
+          if (pathname === "/owner/api/usage/tools") {
+            sendJson(res, 200, options.usage.tools(range));
+            return true;
+          }
+          if (pathname === "/owner/api/usage/savings") {
+            sendJson(res, 200, options.usage.savings(range));
+            return true;
+          }
+        } catch (error) {
+          sendJson(res, 503, {
+            error: {
+              code: "usage_unavailable",
+              message: error instanceof Error ? error.message : "Usage telemetry is unavailable"
+            }
+          });
+          return true;
+        }
       }
       if (method === "GET" && pathname === "/owner/api/state") {
         const snapshot = options.policyStore.capture();

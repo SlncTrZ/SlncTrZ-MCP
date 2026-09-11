@@ -119,6 +119,54 @@ describe("global context and progressive skill disclosure", () => {
     });
   });
 
+  it("reports progressive-disclosure savings passively and never lets telemetry failure alter harness behavior", async () => {
+    const root = await temp();
+    await writeFile(join(root, "AGENTS.md"), "GLOBAL");
+    await skill(root, "review", "ACTIVATED");
+    const starts: { potentialEagerBytes: number; disclosedBytes: number; contextKey: string }[] =
+      [];
+    const disclosures: { additionalBytes: number; contextKey: string }[] = [];
+    const usage = {
+      traffic: () => undefined,
+      harnessContextStarted(event: {
+        potentialEagerBytes: number;
+        disclosedBytes: number;
+        contextKey: string;
+      }) {
+        starts.push(event);
+      },
+      harnessDisclosed(event: { additionalBytes: number; contextKey: string }) {
+        disclosures.push(event);
+      }
+    };
+    const runtime = new HarnessRuntime(root, Date.now, usage),
+      a = actor(root);
+    const boot = await runtime.bootstrap(a);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]?.potentialEagerBytes).toBeGreaterThan(starts[0]?.disclosedBytes ?? 0);
+    await runtime.readSkill(a, boot.contextToken, "review");
+    await runtime.readSkill(a, boot.contextToken, "review");
+    expect(disclosures).toHaveLength(1);
+    expect(disclosures[0]?.contextKey).toBe(starts[0]?.contextKey);
+    expect(disclosures[0]?.additionalBytes).toBeGreaterThan(0);
+
+    const throwingRuntime = new HarnessRuntime(root, Date.now, {
+      traffic: () => undefined,
+      harnessContextStarted() {
+        throw new Error("usage unavailable");
+      },
+      harnessDisclosed() {
+        throw new Error("usage unavailable");
+      }
+    });
+    const healthy = await throwingRuntime.bootstrap(a);
+    await expect(
+      throwingRuntime.readSkill(a, healthy.contextToken, "review")
+    ).resolves.toMatchObject({
+      name: "review"
+    });
+  });
+
   it("keeps receipts and activation state independent across clients and tasks", async () => {
     const root = await temp(),
       runtime = new HarnessRuntime(root),
@@ -225,10 +273,10 @@ describe("global context and progressive skill disclosure", () => {
     await expect(runtime.bootstrap(a)).rejects.toMatchObject({ code: "instructions_unavailable" });
   });
 
-  it("accepts SKILL.md files up to the 128 KiB product limit and rejects larger files", async () => {
+  it("accepts SKILL.md files up to the 256 KiB product limit and rejects larger files", async () => {
     const root = await temp();
-    expect(MAX_SKILL_BYTES).toBe(128 * 1024);
-    await skill(root, "large", "x".repeat(96 * 1024));
+    expect(MAX_SKILL_BYTES).toBe(256 * 1024);
+    await skill(root, "large", "x".repeat(192 * 1024));
     await skill(root, "oversized", "x".repeat(MAX_SKILL_BYTES));
 
     const snapshot = await discoverContext(root);

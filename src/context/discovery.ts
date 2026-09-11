@@ -20,7 +20,7 @@ import {
 } from "../policy/kernel-policy.js";
 
 export const MAX_INSTRUCTIONS_BYTES = 32 * 1024;
-export const MAX_SKILL_BYTES = 128 * 1024;
+export const MAX_SKILL_BYTES = 256 * 1024;
 export const MAX_RESOURCE_BYTES = 1024 * 1024;
 export const MAX_SKILLS = 128;
 export const MAX_DIRECTORY_ENTRIES = 512;
@@ -63,6 +63,7 @@ export interface DiscoveredSkill {
   readonly metadata: SkillMetadata;
   readonly root: string;
   readonly directory: string;
+  readonly bytes: number;
 }
 
 export interface ContextInstructions {
@@ -300,7 +301,8 @@ export async function discoverContext(
           skills.set(result.parsed.name, {
             metadata: { ...result.parsed, scope: source.scope, sha256: result.file.sha256 },
             root: source.root,
-            directory: result.directory
+            directory: result.directory,
+            bytes: result.file.bytes
           });
           if (skills.size > MAX_SKILLS)
             throw new HarnessError(

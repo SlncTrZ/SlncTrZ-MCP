@@ -162,6 +162,12 @@ The audit database does not exist yet.
 
 Start the gateway once. If the warning persists, inspect state-root permissions and startup logs.
 
+### usage_store_missing / usage_unavailable
+
+The Usage dashboard cannot open or query `<stateRoot>/usage.sqlite3`. This is an observability failure, not an execution-policy failure: normal MCP operations should continue.
+
+Check state-root ownership/permissions, free disk space, and startup logs for `[usage-sqlite]` or `[usage]` diagnostics. Do not delete `audit.sqlite3`, policy, credentials, or provider state as a generic fix. If historical usage is unimportant and the gateway is stopped, a damaged usage database can be preserved for inspection and recreated separately; collect evidence before destructive recovery.
+
 ### disk_space_low
 
 Free space near the install root is below the diagnostic threshold. Free space before update so a new immutable release can be downloaded and retained alongside the previous version.

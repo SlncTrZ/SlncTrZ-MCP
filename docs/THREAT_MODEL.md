@@ -17,6 +17,8 @@ Commands
 MCP Servers
 ```
 
+`/usage` is a read-only owner observability surface, not a fifth authority control.
+
 Security mechanisms behind those concepts include OAuth, canonical path handling, secret-path protection in restricted mode, bounded I/O, command-catalog execution, provider isolation, credential separation, atomic generation activation, owner authentication, bounded audit/metrics and verified standalone releases.
 
 Authentication identifies and authenticates a client. Authorization comes from the active policy snapshot and selected authority mode.
@@ -220,6 +222,8 @@ Commands
 MCP Servers
 ```
 
+`/usage` is a read-only owner observability surface, not a fifth authority control.
+
 There is no active workspace/profile/binding/proposal authorization ceremony.
 
 Requirements:
@@ -235,26 +239,30 @@ Requirements:
 
 ## 11. Audit and observability requirements
 
-The default audit design is privacy-first metadata.
+Security audit and product usage telemetry are separate data products with separate schemas. Neither is allowed to become an authorization input.
 
-Allowed categories include auth, policy, tool and control events. Typical safe fields:
+### Security audit
 
-```text
-timestamp
-request/client id
-capability/tool id
-policy version
-result/decision
-duration
-approved command/provider identity when safe
-build version/build commit
-```
+The default audit design is privacy-first metadata. Allowed fields include timestamps, request/client identity, capability/tool identity, policy version, result/decision, duration, safe command/provider identity, and build provenance. Raw file contents, model prompts, task instructions/results, provider payloads, credentials, and command stdout/stderr are excluded.
 
-Raw file contents, model prompts, task instructions/results, provider payloads, credentials and command stdout/stderr must not be stored by default.
+The bounded in-memory journal persists the same privacy-reviewed projection to `<stateRoot>/audit.sqlite3`. Durable retention defaults to the newest 250,000 events. Persistence failure must not broaden authority or replay a completed action.
 
-The in-memory journal remains bounded for fast control-plane export, and the same privacy-reviewed projection is persisted by default to `<stateRoot>/audit.sqlite3`. Durable retention defaults to the newest 250,000 events and is pruned transactionally by the sink. SQLite persistence failure is surfaced through diagnostics but must not broaden authority or cause a completed tool action to be replayed.
+### Usage telemetry
 
-Successful and failed core read/search/write/edit/exec and task operations are included in the tool audit projection; provider dispatch and control-plane actions are also journaled without raw payloads.
+`<stateRoot>/usage.sqlite3` is independent from audit. It may persist only numeric/classification data needed to answer how much MCP traffic crossed the gateway and how much Agent Skill context progressive disclosure avoided. It must not persist prompts, request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, OAuth/bearer material, or context receipts.
+
+Controls:
+
+- measurement happens after MCP authentication at the common HTTP boundary;
+- the observer is fail-open and non-authoritative; estimator, queue, SQLite, or dashboard failure must not fail a valid MCP operation;
+- queue length, retention time, row count, query ranges, and result cardinality are bounded;
+- usage APIs require an authenticated Owner Console session; `/usage` itself contains no private telemetry data;
+- the Owner session cookie remains scoped to `/owner`;
+- token values are explicitly estimates tied to a versioned estimator;
+- cost avoided is calculated from an owner-supplied rate and is never described as provider billing truth;
+- progressive-disclosure savings use an explicit eager-load baseline and are clamped at zero rather than manufacturing negative/positive savings.
+
+Residual privacy risk is therefore concentrated in classification/timing/volume metadata rather than payload content. Operators who consider even traffic-volume history sensitive should protect state backups accordingly.
 
 ## 12. Release and deployment requirements
 
@@ -324,6 +332,9 @@ Key test families:
 - `tests/unit/windows-private-acl.test.ts` — Windows-specific secret/state ACL behavior; must run on Windows CI.
 
 ## 15. Residual risks
+
+- Usage token/cost figures are model-neutral estimates, not exact provider billing; misleading presentation is controlled by explicit labels and estimator/version disclosure.
+- The project has substantial internal automated security evidence but limited independent/community review; maturity claims must not be phrased as independent security certification.
 
 1. Node.js cannot provide identical race-free filesystem primitives on every OS; platform-specific testing remains required.
 2. A permitted shell/interpreter can escape the practical intent of a restricted command list because the child process has the gateway OS account's authority.

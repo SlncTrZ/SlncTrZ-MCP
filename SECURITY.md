@@ -79,6 +79,16 @@ The default audit model is metadata-oriented. It may record identity, request/to
 
 If durable audit storage is enabled, the same privacy boundary applies to persisted records.
 
+## Usage telemetry privacy
+
+The v0.3.1 `/usage` feature is passive observability, not policy. It stores its own bounded metadata in `<stateRoot>/usage.sqlite3`; `audit.sqlite3` remains the security/attribution journal.
+
+The usage schema excludes prompts, MCP request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, bearer tokens, and context receipts. It stores numeric byte/token estimates plus coarse request/tool classification. Usage persistence is fail-open: losing telemetry may make `/usage` incomplete or unavailable, but it must not authorize, deny, replay, or fail ordinary MCP work.
+
+Token and dollar figures are estimates. They are not provider billing records. See [ADR-028](docs/adr/adr-028-passive-usage-telemetry.md) and [Threat Model](docs/THREAT_MODEL.md).
+
+Our security model has broad automated coverage, but this project has not earned an independent-audit claim merely from internal tests. We welcome external review and treat new evidence as part of the release process.
+
 ## Deployment security
 
 Standalone production deployments use the self-contained verified SEA and do **not** require a system Node.js installation. Source/developer deployments must use the package engine contract `>=22.13.0 <25`.

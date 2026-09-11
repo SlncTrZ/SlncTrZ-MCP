@@ -26,10 +26,15 @@ export async function readBoundedBody(req: IncomingMessage, maxBodyBytes: number
   return Buffer.concat(chunks).toString("utf8");
 }
 
-export async function readBoundedJson(
+export interface BoundedJsonRead {
+  readonly value: unknown;
+  readonly bytes: number;
+}
+
+export async function readBoundedJsonWithSize(
   req: IncomingMessage,
   maxBodyBytes: number
-): Promise<unknown> {
+): Promise<BoundedJsonRead> {
   const mediaType = req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
   if (mediaType !== "application/json") {
     throw new UnsupportedMediaTypeError("Content-Type must be application/json");
@@ -44,14 +49,21 @@ export async function readBoundedJson(
     }
     chunks.push(buffer);
   }
-  if (receivedBytes === 0) return undefined;
+  if (receivedBytes === 0) return { value: undefined, bytes: 0 };
   let body: string;
   try {
     body = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
   } catch {
     throw new SyntaxError("Request body is not valid UTF-8");
   }
-  return JSON.parse(body) as unknown;
+  return { value: JSON.parse(body) as unknown, bytes: receivedBytes };
+}
+
+export async function readBoundedJson(
+  req: IncomingMessage,
+  maxBodyBytes: number
+): Promise<unknown> {
+  return (await readBoundedJsonWithSize(req, maxBodyBytes)).value;
 }
 
 export async function readBoundedForm(
