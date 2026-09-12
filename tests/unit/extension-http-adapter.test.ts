@@ -145,6 +145,92 @@ describe("streamable http adapter (integration against real fetch)", () => {
     expect(listHeaders["mcp-protocol-version"]).toBe("2025-11-25");
   });
 
+  it("classifies a legacy stale-session 404 separately and never replays the failed call", async () => {
+    let initializeCount = 0;
+    let toolCalls = 0;
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      if (body.method === "server/discover") {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "nf" } }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (body.method === "initialize") {
+        initializeCount += 1;
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-11-25" } }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "mcp-session-id": `session-${initializeCount}`
+            }
+          }
+        );
+      }
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      if (body.method === "tools/call") {
+        toolCalls += 1;
+        if (headers["mcp-session-id"] === "session-1") {
+          return new Response("stale session", { status: 404 });
+        }
+        return okResponse({ content: [{ type: "text", text: "ok" }] });
+      }
+      return okResponse({ tools: [{ name: "svc.ping" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const manifest = await compileExtensionManifest(httpsManifest("https://provider.example.com"));
+    const adapter = createStreamableHttpAdapter(manifest);
+    await adapter.start();
+
+    await expect(adapter.callTool("ping", {}, {})).rejects.toMatchObject({
+      code: "provider_session_invalid"
+    });
+    expect(toolCalls).toBe(1);
+
+    await adapter.start();
+    const result = await adapter.callTool("ping", {}, {});
+    expect(result).toMatchObject({ isError: false, text: "ok" });
+    expect(toolCalls).toBe(2); // caller retried once; adapter never replayed the failed call
+  });
+
+  it.each([401, 503])(
+    "does not misclassify ordinary legacy HTTP %i as a stale session",
+    async (status) => {
+      const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
+        if (body.method === "server/discover") {
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "nf" } }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        if (body.method === "initialize") {
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-11-25" } }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json", "mcp-session-id": "session-500" }
+            }
+          );
+        }
+        if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+        return new Response("ordinary upstream failure", { status });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const manifest = await compileExtensionManifest(
+        httpsManifest("https://provider.example.com")
+      );
+      const adapter = createStreamableHttpAdapter(manifest);
+      await adapter.start();
+      await expect(adapter.callTool("ping", {}, {})).rejects.toMatchObject({
+        code: "provider_unavailable"
+      });
+    }
+  );
+
   it("uses the modern 2026 stateless era without initialize or session headers", async () => {
     const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as {

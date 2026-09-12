@@ -273,6 +273,11 @@ export function createOwnerWebConsole(options: {
     `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/owner; HttpOnly; ${options.secureCookies === false ? "" : "Secure; "}SameSite=Strict; Max-Age=${Math.max(0, Math.floor((expiresAt - at) / 1000))}`;
   const expireCookie = (): string =>
     `${SESSION_COOKIE}=; Path=/owner; HttpOnly; ${options.secureCookies === false ? "" : "Secure; "}SameSite=Strict; Max-Age=0`;
+  const pruneExpiredSessions = (at: number): void => {
+    for (const [token, session] of sessions) {
+      if (session.idleExpiresAt <= at || session.absoluteExpiresAt <= at) sessions.delete(token);
+    }
+  };
   let commandMutationTail: Promise<void> = Promise.resolve();
   const serializeCommandMutation = <T>(operation: () => Promise<T>): Promise<T> => {
     const run = commandMutationTail.catch(() => undefined).then(operation);
@@ -295,9 +300,10 @@ export function createOwnerWebConsole(options: {
     } catch {
       return undefined;
     }
+    const at = now();
+    pruneExpiredSessions(at);
     const session = sessions.get(token);
     if (session === undefined) return undefined;
-    const at = now();
     if (session.idleExpiresAt <= at || session.absoluteExpiresAt <= at) {
       sessions.delete(token);
       return undefined;
@@ -453,6 +459,7 @@ export function createOwnerWebConsole(options: {
         const token = randomBytes(32).toString("base64url");
         const csrf = randomBytes(24).toString("base64url");
         const at = now();
+        pruneExpiredSessions(at);
         const idleExpiresAt = at + SESSION_IDLE_TTL_MS;
         const absoluteExpiresAt = at + SESSION_ABSOLUTE_TTL_MS;
         sessions.set(token, { idleExpiresAt, absoluteExpiresAt, csrf });
@@ -473,7 +480,7 @@ export function createOwnerWebConsole(options: {
       }
       if (method === "POST" && pathname === "/owner/api/logout") {
         if (!requireCsrf(req, res, session)) return true;
-        sessions.clear();
+        sessions.delete(session.token);
         res.setHeader("set-cookie", expireCookie());
         sendJson(res, 200, { authenticated: false });
         return true;

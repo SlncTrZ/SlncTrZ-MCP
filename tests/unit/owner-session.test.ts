@@ -152,6 +152,27 @@ describe("Owner Console session policy", () => {
     expect((await session(origin, auth.cookie)).status).toBe(401);
   });
 
+  it("signs out only the current Owner session", async () => {
+    const start = Date.parse("2026-09-12T00:00:00.000Z");
+    const clock = { value: start };
+    const { origin } = await startOwner(clock);
+    const first = await login(origin);
+    const second = await login(origin);
+
+    const logout = await fetch(`${origin}/owner/api/logout`, {
+      method: "POST",
+      headers: {
+        cookie: second.cookie,
+        "content-type": "application/json",
+        "x-slnctrz-csrf": second.csrf
+      },
+      body: "{}"
+    });
+    expect(logout.status).toBe(200);
+    expect((await session(origin, second.cookie)).status).toBe(401);
+    expect((await session(origin, first.cookie)).status).toBe(200);
+  });
+
   it("expires idle sessions, revokes logout immediately, and loses sessions across restart", async () => {
     const start = Date.parse("2026-09-12T00:00:00.000Z");
     const clock = { value: start };

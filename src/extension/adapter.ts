@@ -14,7 +14,11 @@
 import { type RiskClass } from "../kernel/tool-identity.js";
 
 export type AdapterErrorCode =
-  "provider_unavailable" | "provider_timeout" | "provider_protocol_error" | "queue_overflow";
+  | "provider_unavailable"
+  | "provider_timeout"
+  | "provider_protocol_error"
+  | "provider_session_invalid"
+  | "queue_overflow";
 
 export class AdapterError extends Error {
   readonly code: AdapterErrorCode;

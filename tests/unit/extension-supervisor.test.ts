@@ -23,9 +23,9 @@ class FakeAdapter implements ExtensionAdapter {
   listToolsCalls = 0;
   callTools: string[] = [];
   healthValue: AdapterHealth = "ready";
-  startBehavior: "resolve" | "reject" | "hang" | "reject_after_first" = "resolve";
+  startBehavior: "resolve" | "reject" | "hang" | "reject_after_first" | "reject_once" = "resolve";
   listToolsBehavior: "resolve" | "hang" = "resolve";
-  callBehavior: "resolve" | "reject" | "hang" = "resolve";
+  callBehavior: "resolve" | "reject" | "session_invalid" | "hang" = "resolve";
   ignoreAbort = false;
   readonly tools: readonly ExtensionToolInfo[] = [
     { canonicalId: "p.findOne", exposedName: "p.findOne", riskClass: "read" },
@@ -39,11 +39,12 @@ class FakeAdapter implements ExtensionAdapter {
     if (this.startBehavior === "resolve") return;
     if (
       this.startBehavior === "reject" ||
-      (this.startBehavior === "reject_after_first" && this.startCalls > 1)
+      (this.startBehavior === "reject_after_first" && this.startCalls > 1) ||
+      (this.startBehavior === "reject_once" && this.startCalls === 1)
     ) {
       throw new AdapterError("provider_unavailable", "start refused");
     }
-    if (this.startBehavior === "reject_after_first") return;
+    if (this.startBehavior === "reject_after_first" || this.startBehavior === "reject_once") return;
     return new Promise<void>((resolve, reject) => {
       this.deferredStarts.push({ resolve, reject });
     });
@@ -71,6 +72,9 @@ class FakeAdapter implements ExtensionAdapter {
     }
     if (this.callBehavior === "reject") {
       throw new AdapterError("provider_unavailable", "call refused");
+    }
+    if (this.callBehavior === "session_invalid") {
+      throw new AdapterError("provider_session_invalid", "provider_session_invalid");
     }
     return new Promise<ExtensionCallResult>((resolve, reject) => {
       const entry: DeferredCall = { resolve, reject, signal: options.signal };
@@ -100,6 +104,15 @@ class FakeAdapter implements ExtensionAdapter {
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 15));
 
+async function waitForState(
+  supervisor: { readonly state: string },
+  expected: string,
+  timeoutMs = 250
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (supervisor.state !== expected && Date.now() < deadline) await tick();
+}
+
 describe("extension supervisor: state machine (fake-first)", () => {
   it("moves Declared -> Starting -> Ready on a successful start", async () => {
     const adapter = new FakeAdapter();
@@ -110,20 +123,29 @@ describe("extension supervisor: state machine (fake-first)", () => {
     expect(adapter.startCalls).toBe(1);
   });
 
-  it("moves to Failed on a startup rejection", async () => {
+  it("self-recovers after a transient startup rejection without Owner reload", async () => {
     const adapter = new FakeAdapter();
-    adapter.startBehavior = "reject";
-    const supervisor = createExtensionSupervisor({ adapter, startupTimeoutMs: 100 });
+    adapter.startBehavior = "reject_once";
+    const supervisor = createExtensionSupervisor({
+      adapter,
+      startupTimeoutMs: 100,
+      maxRestarts: 2,
+      backoffBaseMs: 1,
+      backoffJitterMs: 0
+    });
     await expect(supervisor.start()).rejects.toBeDefined();
-    expect(supervisor.state).toBe("failed");
+    await waitForState(supervisor, "ready");
+    expect(supervisor.state).toBe("ready");
+    expect(adapter.startCalls).toBe(2);
   });
 
-  it("moves to Failed when startup times out", async () => {
+  it("fails closed when startup timeout recovery has no restart budget", async () => {
     const adapter = new FakeAdapter();
     adapter.startBehavior = "hang";
-    const supervisor = createExtensionSupervisor({ adapter, startupTimeoutMs: 20 });
+    const supervisor = createExtensionSupervisor({ adapter, startupTimeoutMs: 20, maxRestarts: 0 });
     await expect(supervisor.start()).rejects.toBeDefined();
-    expect(supervisor.state).toBe("failed");
+    await waitForState(supervisor, "quarantined");
+    expect(supervisor.state).toBe("quarantined");
   });
 
   it("propagates a caller abort through to the adapter's signal", async () => {
@@ -152,7 +174,7 @@ describe("extension supervisor: state machine (fake-first)", () => {
     expect(result.text).toBe("provider_unavailable");
   });
 
-  it("restarts a crashed provider up to the finite budget, then quarantines", async () => {
+  it("resets the restart budget after every successful recovery", async () => {
     const adapter = new FakeAdapter();
     const metrics = createMetricsRegistry();
     adapter.callBehavior = "reject";
@@ -160,25 +182,79 @@ describe("extension supervisor: state machine (fake-first)", () => {
       adapter,
       metrics,
       maxRestarts: 2,
-      backoffBaseMs: 5,
+      backoffBaseMs: 1,
       backoffJitterMs: 0
     });
     await supervisor.start();
     expect(supervisor.state).toBe("ready");
 
-    // Crash 1 -> restart 1 (allowed), Crash 2 -> restart 2 (allowed),
-    // Crash 3 -> restartAttempts 3 > maxRestarts 2 -> quarantine.
-    await supervisor.invoke("p.findOne", {});
+    for (let incident = 0; incident < 4; incident += 1) {
+      const failed = await supervisor.invoke("p.findOne", {});
+      expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
+      await tick();
+      expect(supervisor.state).toBe("ready");
+    }
+    expect(adapter.startCalls).toBe(5); // initial + one successful restart per incident
+    expect(metrics.snapshot()).toMatchObject({
+      extensionRestartsTotal: 4,
+      extensionQuarantinesTotal: 0,
+      requestQueued: 0
+    });
+  });
+
+  it("recovers an invalid provider session without replaying the failed tool call", async () => {
+    const adapter = new FakeAdapter();
+    const metrics = createMetricsRegistry();
+    adapter.callBehavior = "session_invalid";
+    const supervisor = createExtensionSupervisor({
+      adapter,
+      metrics,
+      maxRestarts: 2,
+      backoffBaseMs: 1,
+      backoffJitterMs: 0
+    });
+    await supervisor.start();
+
+    const failed = await supervisor.invoke("p.writeOne", { value: 1 });
+    expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
     await tick();
-    await supervisor.invoke("p.findOne", {});
-    await tick();
-    await supervisor.invoke("p.findOne", {});
-    await tick();
+    expect(supervisor.state).toBe("ready");
+    expect(adapter.callTools).toEqual(["p.writeOne"]); // no automatic replay
+
+    adapter.callBehavior = "resolve";
+    const retry = await supervisor.invoke("p.writeOne", { value: 1 });
+    expect(retry).toMatchObject({ isError: false, text: "ok" });
+    expect(adapter.callTools).toEqual(["p.writeOne", "p.writeOne"]);
+    expect(metrics.snapshot()).toMatchObject({
+      extensionSessionInvalidTotal: 1,
+      extensionSessionRecoverySuccessTotal: 1,
+      extensionSessionRecoveryFailureTotal: 0
+    });
+  });
+
+  it("records failed invalid-session recovery when the bounded restart budget is exhausted", async () => {
+    const adapter = new FakeAdapter();
+    const metrics = createMetricsRegistry();
+    const supervisor = createExtensionSupervisor({
+      adapter,
+      metrics,
+      maxRestarts: 2,
+      startupTimeoutMs: 20,
+      backoffBaseMs: 1,
+      backoffJitterMs: 0
+    });
+    await supervisor.start();
+    adapter.callBehavior = "session_invalid";
+    adapter.startBehavior = "reject";
+
+    const failed = await supervisor.invoke("p.findOne", {});
+    expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
+    await waitForState(supervisor, "quarantined");
     expect(supervisor.state).toBe("quarantined");
     expect(metrics.snapshot()).toMatchObject({
-      extensionRestartsTotal: 3,
-      extensionQuarantinesTotal: 1,
-      requestQueued: 0
+      extensionSessionInvalidTotal: 1,
+      extensionSessionRecoverySuccessTotal: 0,
+      extensionSessionRecoveryFailureTotal: 1
     });
   });
 

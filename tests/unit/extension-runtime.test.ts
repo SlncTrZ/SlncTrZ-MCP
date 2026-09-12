@@ -106,6 +106,81 @@ describe("extension runtime catalog attestation", () => {
     expect(runtime.registry.lookup("pi-core.extra_tool")).toBeUndefined();
   });
 
+  it("recovers one stale-session provider without restarting another provider", async () => {
+    const second: ExtensionManifestV1 = {
+      ...manifest,
+      id: "aux",
+      endpoint: "http://127.0.0.1:3004/mcp",
+      tools: [{ canonicalId: "aux.ping", riskClass: "read" }]
+    };
+    const initializeCounts = new Map<string, number>();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const providerId = url.port === "3003" ? "pi-core" : "aux";
+      const toolName = providerId === "pi-core" ? "run_pipeline" : "ping";
+      const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      if (body.method === "server/discover") {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "nf" } }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (body.method === "initialize") {
+        const next = (initializeCounts.get(providerId) ?? 0) + 1;
+        initializeCounts.set(providerId, next);
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-11-25" } }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "mcp-session-id": `${providerId}-${next}`
+            }
+          }
+        );
+      }
+      if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+      if (body.method === "tools/call") {
+        if (providerId === "pi-core" && headers["mcp-session-id"] === "pi-core-1") {
+          return new Response("stale session", { status: 404 });
+        }
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { content: [{ type: "text", text: `${providerId}-ok` }] }
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tools: [{ name: toolName }] } }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const registry = await compileExtensionRegistry([manifest, second]);
+    const runtime = await createExtensionRuntimeCatalog(registry);
+    expect(runtime.isReady("pi-core")).toBe(true);
+    expect(runtime.isReady("aux")).toBe(true);
+    expect(initializeCounts.get("pi-core")).toBe(1);
+    expect(initializeCounts.get("aux")).toBe(1);
+
+    const failed = await runtime.provider("pi-core")?.invoke("run_pipeline", {});
+    expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
+    const deadline = Date.now() + 1_000;
+    while (!runtime.isReady("pi-core") && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    expect(runtime.isReady("pi-core")).toBe(true);
+    expect(initializeCounts.get("pi-core")).toBe(2);
+    expect(initializeCounts.get("aux")).toBe(1);
+
+    const auxResult = await runtime.provider("aux")?.invoke("ping", {});
+    expect(auxResult).toMatchObject({ isError: false, text: "aux-ok" });
+  });
+
   it("treats provider-prefixed discovered names as protocol drift", async () => {
     vi.stubGlobal(
       "fetch",

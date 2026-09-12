@@ -5,7 +5,7 @@
  * The supervisor owns the state machine and resource bounds for one provider adapter. A
  * request timeout races the adapter so an uncooperative adapter cannot wedge the queue;
  * cancellation is removed before dispatch; stop settles the active caller; and failed
- * restarts consume one finite budget before the provider is quarantined.
+ * restarts consume one finite per-incident budget before the provider is quarantined.
  */
 
 import type { MetricsRegistry } from "../observability/metrics.js";
@@ -47,7 +47,7 @@ const VALID_TRANSITIONS: Readonly<Record<SupervisorState, readonly SupervisorSta
   restarting: ["starting", "quarantined", "stopped"],
   quarantined: ["stopped"],
   stopped: [],
-  failed: ["stopped"]
+  failed: ["restarting", "stopped"]
 };
 
 interface QueueEntry {
@@ -91,7 +91,6 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   const backoffJitterMs = options.backoffJitterMs ?? 100;
 
   let state: SupervisorState = "declared";
-  let restartAttempts = 0;
   let restarting: Promise<void> | undefined;
   let stopped = false;
   let abortStart: (() => void) | undefined;
@@ -173,13 +172,17 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     drain();
   };
 
-  const scheduleRestart = (): Promise<void> => {
+  const scheduleRestart = (reason?: AdapterError["code"]): Promise<void> => {
     if (restarting !== undefined) return restarting;
+    const sessionRecovery = reason === "provider_session_invalid";
+    if (sessionRecovery) options.metrics?.extensionSessionInvalid();
     restarting = (async () => {
       transition("restarting");
+      let restartAttempts = 0;
       while (!stopped) {
         restartAttempts += 1;
         if (restartAttempts > maxRestarts) {
+          if (sessionRecovery) options.metrics?.extensionSessionRecoveryFinished(false);
           transition("quarantined");
           rejectQueued("provider_unavailable");
           return;
@@ -191,6 +194,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
           await withTimeout(adapter.start(), startupTimeoutMs);
           if (state === "starting") {
             transition("ready");
+            if (sessionRecovery) options.metrics?.extensionSessionRecoveryFinished(true);
             drain();
           }
           return;
@@ -244,12 +248,14 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
 
       if (outcome.kind === "timeout") {
         entry.resolve({ isError: true, truncated: false, text: "provider_timeout" });
-        if (isRunnable(state)) void scheduleRestart();
+        if (isRunnable(state)) void scheduleRestart("provider_timeout");
       } else if (outcome.kind === "ok") {
         entry.resolve(outcome.result);
       } else if (outcome.kind === "adapter") {
-        entry.resolve({ isError: true, truncated: false, text: outcome.code });
-        if (isRunnable(state)) void scheduleRestart();
+        const callerCode =
+          outcome.code === "provider_session_invalid" ? "provider_unavailable" : outcome.code;
+        entry.resolve({ isError: true, truncated: false, text: callerCode });
+        if (isRunnable(state)) void scheduleRestart(outcome.code);
       } else {
         entry.reject(outcome.error);
       }
@@ -303,6 +309,10 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       } catch (error) {
         if (state === "starting") transition("failed");
         rejectQueued("provider_unavailable");
+        if (!stopped) {
+          const reason = error instanceof AdapterError ? error.code : "provider_unavailable";
+          void scheduleRestart(reason);
+        }
         throw error;
       } finally {
         abortStart = undefined;

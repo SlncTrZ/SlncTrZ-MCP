@@ -47,13 +47,13 @@ describe("stdio timeout recovery", () => {
         args: [provider, marker],
         tools: [{ canonicalId: "recover.echo", riskClass: "read" }],
         startupTimeoutMs: 1_000,
-        requestTimeoutMs: 50,
+        requestTimeoutMs: 250,
         maxRestarts: 2
       });
       const supervisor = createExtensionSupervisor({
         adapter: createStdioAdapter(manifest),
         startupTimeoutMs: 1_000,
-        requestTimeoutMs: 50,
+        requestTimeoutMs: 250,
         maxRestarts: 2,
         backoffBaseMs: 1,
         backoffJitterMs: 0

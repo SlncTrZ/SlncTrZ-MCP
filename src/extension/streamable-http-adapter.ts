@@ -273,6 +273,7 @@ export function createStreamableHttpAdapter(
     if (Buffer.byteLength(body, "utf8") > manifest.maxMessageBytes) {
       throw new AdapterError("provider_protocol_error", "request exceeds message cap");
     }
+    const hadLegacySession = requestEra === "legacy" && sessionId !== undefined;
     const response = await fetchWithRedirectGuard(
       base,
       {
@@ -284,6 +285,11 @@ export function createStreamableHttpAdapter(
       controller
     );
     if (!response.ok) {
+      if (response.status === 404 && hadLegacySession) {
+        sessionId = undefined;
+        ready = false;
+        throw new AdapterError("provider_session_invalid", "provider_session_invalid");
+      }
       throw new AdapterError("provider_unavailable", "provider_unavailable");
     }
     if (requestEra === "legacy") {
@@ -335,6 +341,7 @@ export function createStreamableHttpAdapter(
     timer.unref();
     const body = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
     try {
+      const hadLegacySession = sessionId !== undefined;
       const response = await fetchWithRedirectGuard(
         base,
         {
@@ -345,7 +352,14 @@ export function createStreamableHttpAdapter(
         },
         controller
       );
-      if (!response.ok) throw new AdapterError("provider_unavailable", "provider_unavailable");
+      if (!response.ok) {
+        if (response.status === 404 && hadLegacySession) {
+          sessionId = undefined;
+          ready = false;
+          throw new AdapterError("provider_session_invalid", "provider_session_invalid");
+        }
+        throw new AdapterError("provider_unavailable", "provider_unavailable");
+      }
     } finally {
       clearTimeout(timer);
     }

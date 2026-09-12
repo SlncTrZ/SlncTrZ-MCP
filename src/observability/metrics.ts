@@ -27,6 +27,9 @@ export interface MetricsSnapshot {
   readonly authFailuresTotal: number;
   readonly extensionRestartsTotal: number;
   readonly extensionQuarantinesTotal: number;
+  readonly extensionSessionInvalidTotal: number;
+  readonly extensionSessionRecoverySuccessTotal: number;
+  readonly extensionSessionRecoveryFailureTotal: number;
   readonly policyReloadLastDurationMs: number;
   readonly residentMemoryBytes: number;
   readonly cpuUserMicroseconds: number;
@@ -43,6 +46,8 @@ export interface MetricsRegistry {
   queueChanged(delta: 1 | -1): void;
   authFailed(): void;
   supervisorTransition(from: SupervisorMetricState, to: SupervisorMetricState): void;
+  extensionSessionInvalid(): void;
+  extensionSessionRecoveryFinished(success: boolean): void;
   policyReloadCompleted(durationMs: number): void;
   snapshot(): Readonly<MetricsSnapshot>;
 }
@@ -74,6 +79,9 @@ export function createMetricsRegistry(
   let authFailuresTotal = 0;
   let extensionRestartsTotal = 0;
   let extensionQuarantinesTotal = 0;
+  let extensionSessionInvalidTotal = 0;
+  let extensionSessionRecoverySuccessTotal = 0;
+  let extensionSessionRecoveryFailureTotal = 0;
   let policyReloadLastDurationMs = 0;
   const latencySamples: number[] = [];
 
@@ -108,6 +116,13 @@ export function createMetricsRegistry(
       if (to === "restarting") extensionRestartsTotal += 1;
       if (to === "quarantined") extensionQuarantinesTotal += 1;
     },
+    extensionSessionInvalid(): void {
+      extensionSessionInvalidTotal += 1;
+    },
+    extensionSessionRecoveryFinished(success: boolean): void {
+      if (success) extensionSessionRecoverySuccessTotal += 1;
+      else extensionSessionRecoveryFailureTotal += 1;
+    },
     policyReloadCompleted(durationMs: number): void {
       requireMeasurement(durationMs, "Policy reload duration");
       policyReloadLastDurationMs = durationMs;
@@ -128,6 +143,9 @@ export function createMetricsRegistry(
         authFailuresTotal,
         extensionRestartsTotal,
         extensionQuarantinesTotal,
+        extensionSessionInvalidTotal,
+        extensionSessionRecoverySuccessTotal,
+        extensionSessionRecoveryFailureTotal,
         policyReloadLastDurationMs,
         residentMemoryBytes: memory.rss,
         cpuUserMicroseconds: cpu.user,
