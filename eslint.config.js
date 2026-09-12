@@ -10,6 +10,7 @@ export default tseslint.config(
       "_reference/**",
       "research/**",
       "_runtime/**",
+      "_private/**",
       "*.tsbuildinfo"
     ]
   },

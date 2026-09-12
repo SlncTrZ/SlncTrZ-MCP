@@ -25,6 +25,7 @@ research/
 .ssh/
 .keyring/
 _runtime/
+_private/
 
 # Runtime state
 *.log
