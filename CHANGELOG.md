@@ -2,6 +2,34 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.2
+
+Date: 2026-09-12
+
+### Added
+
+- Provider-local observability counters for invalid Streamable HTTP sessions and successful/failed session recovery, without provider labels, credentials, tool arguments, or result content.
+- Regression coverage for repeated stale-session incidents, startup self-recovery, no-replay semantics, and two-provider recovery isolation.
+
+### Changed
+
+- Owner Console sessions now use a 3-hour sliding idle timeout capped by a 12-hour absolute lifetime instead of a fixed 15-minute window.
+- `/owner` Overview now focuses on Commands and MCP operational health; runtime/build details move to a collapsed Advanced panel and Usage is presented as a normal control.
+- Owner Console panel styling now uses the restrained cyan/violet visual language of the sign-in surface while preserving light/dark and reduced-motion behavior.
+- Signing out revokes only the current Owner session, and expired in-memory sessions are pruned during normal authentication activity.
+
+### Fixed
+
+- Streamable HTTP providers now recognize a session-bound legacy `404` as an invalid MCP session, clear stale session state, and recover with a fresh provider-local handshake without requiring Owner Console Sync.
+- The supervisor restart budget is now scoped to one recovery incident. A successful recovery no longer consumes a lifetime restart allowance that could quarantine a healthy provider on a later transient fault.
+- A provider that is temporarily unavailable during gateway startup now receives bounded background recovery instead of remaining failed until a policy reload.
+- Recovery never automatically replays the tool call that observed the failure, preventing duplicate write/execute side effects; callers receive the existing stable `provider_unavailable` result for that failed call and may retry explicitly.
+
+### Compatibility / known limitation
+
+- No managed-state schema migration is required; existing Paths, Commands, providers, credentials, Owner Passphrase, audit history, usage history, and harness state are preserved across update.
+- Automatic provider fault recovery is provider-local. Owner-driven provider configuration mutations (`Add`, `Enable/Disable`, `Sync`, credential activation) still activate through a policy/runtime generation reload and may restart other configured providers; generation-local mutation is a future scalability optimization.
+
 ## 0.3.1
 
 Date: 2026-09-11

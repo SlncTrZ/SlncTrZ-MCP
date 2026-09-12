@@ -94,7 +94,7 @@ The engineering is ahead of the community.
 
 We consider the core safety model, architecture, release model, and extension path mature enough to put in front of more real users. The weak point today is adoption: SlncTrZ-MCP is still a small project with very limited stars, forks, third-party integrations, independent review, and community testing.
 
-We are not going to hide that behind marketing language. v0.3.1 is about making the product easier to understand, showing users what the gateway is doing for them, and turning a technically complete system into something people can actually discover, install, evaluate, and contribute to.
+We are not going to hide that behind marketing language. v0.3.2 focuses on provider recovery and Owner Console reliability while retaining the usage visibility and clearer product surface introduced in v0.3.1.
 
 If the idea is useful to you, the most valuable contributions right now are straightforward: **try it, break it, report what is confusing, open issues, review the security model, and tell us which clients or workflows need better support.**
 

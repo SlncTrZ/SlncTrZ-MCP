@@ -375,3 +375,21 @@ A v0.3.1 public claim requires all normal release gates plus evidence for the fo
 - README/User Guide describe the product for human users and do not convert internal test maturity into an independent security certification claim.
 
 Do not publish v0.3.1 until supported-platform source/SEA/clean-install gates and real-client evidence required by the claimed targets are complete.
+
+## v0.3.2 provider recovery and Owner Console acceptance
+
+A v0.3.2 public claim requires all normal release gates plus evidence for the following reliability contract:
+
+- a legacy Streamable HTTP provider with a valid MCP session that receives `POST /mcp -> 404` is classified internally as an invalid session rather than an undifferentiated provider crash;
+- the tool call that observes the stale session fails once and is **never replayed automatically**, including write/execute-class provider tools;
+- provider-local recovery clears the stale session and performs a fresh handshake for that provider only;
+- a successful recovery resets the incident restart budget, so separated transient incidents do not accumulate toward quarantine across the lifetime of a healthy runtime generation;
+- repeated restart failures within one incident remain bounded by `maxRestarts` and fail closed by quarantining the provider;
+- an ordinary upstream `5xx`, authentication failure, or protocol/tool declaration failure is not misclassified as successful stale-session recovery;
+- a provider that is temporarily unavailable during gateway startup receives bounded background recovery without requiring Owner Console Sync;
+- a two-provider regression proves automatic recovery of provider A does not restart or mutate provider B;
+- process-local counters distinguish invalid-session observations, recovery success, and recovery failure without labels or payload content that could expose provider names, credentials, arguments, or results;
+- Owner Console sessions use a 3-hour sliding idle deadline capped by a 12-hour absolute deadline, prune expired records, preserve `Secure`/`HttpOnly`/`SameSite=Strict`/`Path=/owner`, and Sign out revokes only the current Owner session;
+- the installed `/owner` artifact presents Commands and MCP operational health in Overview, keeps detailed runtime metadata under collapsed Advanced, and preserves existing CSRF and mutation behavior.
+
+The v0.3.2 release does **not** claim generation-local activation for Owner-driven provider configuration mutations. Add/Enable/Disable/Sync/credential activation may still rebuild the policy/runtime generation; this is separate from the provider-local automatic fault-recovery path above and remains a future scalability optimization.
