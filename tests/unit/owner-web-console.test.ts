@@ -276,6 +276,11 @@ describe("Owner Console product surface", () => {
     const ownerPage = await (await fetch(`${origin}/owner`)).text();
     expect(ownerPage).toContain("x.title='Remove '+name");
     expect(ownerPage).not.toContain("el.appendChild(e);return}const risky");
+    expect(ownerPage).toContain('id="overview-command-count"');
+    expect(ownerPage).toContain('id="overview-mcp-count"');
+    expect(ownerPage).toContain('class="btn-deny button-link"');
+    expect(ownerPage).toContain('id="advanced-content" class="hidden"');
+    expect(ownerPage).not.toContain("q('overview').textContent=['Version '");
 
     commandReloadMode = "activated";
     const recoveredCommands = await fetch(`${origin}/owner/api/commands`, {

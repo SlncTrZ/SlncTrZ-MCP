@@ -17,18 +17,24 @@ import type { PolicyMutationService } from "./policy-mutation.js";
 import type { McpCredentialStore } from "./mcp-credential-store.js";
 import type { McpProviderService } from "./mcp-provider-service.js";
 import type { McpOwnerCredentialIntent, McpOwnerOrchestrator } from "./mcp-owner-orchestrator.js";
-import { deriveProviderStatus } from "./mcp-presentation.js";
+import { deriveProviderStatus, summarizeProviderStatuses } from "./mcp-presentation.js";
 import type { UsageReader } from "../observability/usage-query.js";
 import { parseUsageRange } from "../observability/usage-query.js";
 import { sendUsagePage } from "./usage-page.js";
 
-const SESSION_TTL_MS = 15 * 60_000;
+const SESSION_IDLE_TTL_MS = 3 * 60 * 60_000;
+const SESSION_ABSOLUTE_TTL_MS = 12 * 60 * 60_000;
 const MAX_BODY_BYTES = 65_536;
 const SESSION_COOKIE = "slnctrz_owner_session";
 
 interface SessionRecord {
-  readonly expiresAt: number;
+  readonly idleExpiresAt: number;
+  readonly absoluteExpiresAt: number;
   readonly csrf: string;
+}
+
+interface AuthenticatedSession extends SessionRecord {
+  readonly token: string;
 }
 
 export interface OwnerWebConsole {
@@ -55,15 +61,19 @@ function page(): string {
 @font-face{font-family:"SlncHertine";src:url(/assets/fonts/SlncHertine.woff2) format("woff2");font-display:swap;font-weight:400;font-style:normal}
 @property --angle{syntax:"<angle>";initial-value:0deg;inherits:false}
 *{box-sizing:border-box}
-body{margin:0;min-height:100dvh;padding:2.5rem 1rem;background:#eef0f3;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1a1d21;-webkit-font-smoothing:antialiased;line-height:1.5}
+body{margin:0;min-height:100dvh;padding:2.5rem 1rem;background:radial-gradient(circle at 15% 10%,rgba(34,211,238,.055),transparent 28rem),radial-gradient(circle at 88% 18%,rgba(168,85,247,.055),transparent 26rem),#eef0f3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#1a1d21;-webkit-font-smoothing:antialiased;line-height:1.5}
 .brandmark{font-family:"SlncHertine","Segoe UI",system-ui,sans-serif;font-size:2.1rem;font-weight:600;letter-spacing:.02em;color:#1a1d21;text-align:center;background:linear-gradient(45deg,#22d3ee 0%,#a855f7 50%,#22d3ee 100%);background-size:200% 200%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;filter:drop-shadow(0 0 6px rgba(34,211,238,.30)) drop-shadow(0 0 8px rgba(168,85,247,.30));animation:wordmark-flow 3s linear infinite;margin-bottom:1rem}
 @keyframes wordmark-flow{0%{background-position:0% 50%}100%{background-position:200% 50%}}
 .neon-frame{position:relative;width:100%;max-width:75rem;margin:auto;padding:1px;border-radius:12px;background:conic-gradient(from var(--angle),#22d3ee 0deg,#22d3ee 170deg,#a855f7 190deg,#a855f7 350deg,#22d3ee 360deg);animation:neon-spin 2.6s linear infinite;box-shadow:0 0 6px rgba(168,85,247,.14),0 0 6px rgba(34,211,238,.10),0 1px 2px rgba(16,24,40,.04);filter:drop-shadow(0 0 2px rgba(168,85,247,.12))}
 @keyframes neon-spin{to{--angle:360deg}}
 .login-frame{max-width:26rem;margin:1.5rem auto}
-.card{width:100%;background:linear-gradient(180deg,#fbfcfd 0%,#e9edf3 100%);border:none;border-radius:14px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 10px 28px rgba(16,24,40,.07);padding:1.3rem 1.4rem;margin:0 0 1rem}
+.card{position:relative;isolation:isolate;width:100%;background:linear-gradient(180deg,rgba(251,252,253,.98) 0%,rgba(233,237,243,.96) 100%);border:1px solid rgba(255,255,255,.78);border-radius:16px;box-shadow:0 12px 32px rgba(31,42,62,.08),inset 0 1px 0 rgba(255,255,255,.92);padding:1.3rem 1.4rem;margin:0 0 1rem}
+.card::before{content:"";position:absolute;inset:-1px;z-index:-1;border-radius:17px;padding:1px;background:linear-gradient(118deg,rgba(34,211,238,.72),rgba(168,85,247,.62) 48%,rgba(34,211,238,.34));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.58;pointer-events:none;transition:opacity .35s cubic-bezier(.32,.72,0,1),filter .35s cubic-bezier(.32,.72,0,1)}
+.card::after{content:"";position:absolute;inset:-4px;z-index:-2;border-radius:20px;background:linear-gradient(118deg,rgba(34,211,238,.12),rgba(168,85,247,.10));filter:blur(10px);opacity:.3;pointer-events:none;transition:opacity .35s cubic-bezier(.32,.72,0,1)}
+.card:hover::before{opacity:.82;filter:saturate(1.08)}
+.card:hover::after{opacity:.52}
 .card:last-child{margin-bottom:0}
-.panel{background:#f8fafc;border:1px solid #eaedf1;border-radius:11px;padding:1rem}
+.panel{background:rgba(248,250,252,.78);border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.72)}
 .brand{display:flex;align-items:center;gap:.5rem;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#697586;margin:0 0 .6rem}
 .brand .dot{width:.5rem;height:.5rem;border-radius:50%;background:#2f5a9e}
 h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
@@ -74,6 +84,24 @@ h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
 .app-grid .col{min-width:0}
 .muted{font-size:.8rem;color:#697586}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.84rem;word-break:break-word}
+.overview-stats{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:1rem;margin-top:.95rem;padding-top:1rem;border-top:1px solid rgba(100,116,139,.16)}
+.stat-block{min-width:0;padding:.1rem .25rem .2rem}
+.stat-block+.stat-block{border-left:1px solid rgba(100,116,139,.16);padding-left:1.25rem}
+.stat-label{font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7b8492}
+.stat-value{margin-top:.28rem;font-size:2rem;font-weight:680;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+.stat-note{margin-top:.45rem;font-size:.78rem;color:#697586}
+.health-list{display:flex;flex-wrap:wrap;gap:.45rem .9rem;margin-top:.55rem}
+.health-item{display:inline-flex;align-items:center;gap:.38rem;font-size:.78rem;color:#5f6977;font-variant-numeric:tabular-nums}
+.status-dot{width:.48rem;height:.48rem;border-radius:50%;background:#667085;box-shadow:0 0 0 3px rgba(102,112,133,.08)}
+.status-dot.working{background:#279b78;box-shadow:0 0 0 3px rgba(39,155,120,.10),0 0 8px rgba(39,155,120,.26)}
+.status-dot.attention{background:#c98a22;box-shadow:0 0 0 3px rgba(201,138,34,.10),0 0 8px rgba(201,138,34,.22)}
+.status-dot.error-dot{background:#c44444;box-shadow:0 0 0 3px rgba(196,68,68,.10),0 0 8px rgba(196,68,68,.22)}
+.status-dot.disabled{background:#8a94a3}
+.advanced-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem 1rem;padding-top:.9rem;border-top:1px solid rgba(100,116,139,.16)}
+.advanced-item{min-width:0}
+.advanced-key{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#7b8492}
+.advanced-value{margin-top:.18rem;font-size:.84rem;color:#344054;word-break:break-word}
+.advanced-actions{display:flex;justify-content:flex-end;margin-top:1rem;padding-top:.9rem;border-top:1px solid rgba(100,116,139,.16)}
 label{display:block;font-size:.82rem;font-weight:600;color:#1a1d21;margin:0 0 .35rem}
 input,textarea,select{width:100%;padding:.6rem .75rem;font-size:.9rem;color:#1a1d21;background:#fff;border:1px solid #d0d5dd;border-radius:9px;font-family:inherit}
 input:focus,textarea:focus,select:focus{outline:none;border-color:#2f5a9e;box-shadow:0 0 0 3px rgba(47,90,158,.18)}
@@ -84,8 +112,8 @@ textarea{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;min-he
 .login-form{display:flex;gap:.8rem;align-items:center}
 .login-form input{flex:1;min-width:0}
 .login-form button{flex:none}
-button{padding:.6rem .85rem;font-size:.9rem;font-weight:600;border-radius:9px;cursor:pointer;font-family:inherit;border:1px solid transparent;transition:background-color .15s ease,transform .05s ease;white-space:nowrap}
-button:active{transform:translateY(1px)}
+button,.button-link{display:inline-flex;align-items:center;justify-content:center;padding:.6rem .85rem;font-size:.9rem;font-weight:650;border-radius:9px;cursor:pointer;font-family:inherit;border:1px solid transparent;transition:background-color .24s cubic-bezier(.32,.72,0,1),color .24s cubic-bezier(.32,.72,0,1),border-color .24s cubic-bezier(.32,.72,0,1),transform .16s cubic-bezier(.32,.72,0,1),box-shadow .24s cubic-bezier(.32,.72,0,1);white-space:nowrap;text-decoration:none}
+button:active,.button-link:active{transform:translateY(1px) scale(.985)}
 .btn-approve{background:#2f5a9e;color:#fff}
 .btn-approve:hover{background:#274d88}
 .btn-approve:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(47,90,158,.4)}
@@ -109,13 +137,16 @@ button:active{transform:translateY(1px)}
 .hidden{display:none!important}
 .empty{font-size:.85rem;color:#8b94a3}
 @media (prefers-color-scheme:dark){
-body{background:#0f1115;color:#e6e8eb}
+body{background:radial-gradient(circle at 15% 10%,rgba(34,211,238,.055),transparent 28rem),radial-gradient(circle at 88% 18%,rgba(168,85,247,.06),transparent 26rem),#0f1115;color:#e6e8eb}
 .brandmark{color:#e6e8eb}
 .neon-frame{box-shadow:0 0 6px rgba(168,85,247,.16),0 0 6px rgba(34,211,238,.12)}
-.card{background:linear-gradient(180deg,#1a1e25 0%,#13161c 100%);border-color:#262b33;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.5)}
-.panel{background:#1b1f26;border-color:#262b33}
+.card{background:linear-gradient(180deg,rgba(26,30,37,.98) 0%,rgba(19,22,28,.98) 100%);border-color:rgba(255,255,255,.06);box-shadow:0 14px 34px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.035)}
+.card::before{opacity:.46}.card:hover::before{opacity:.75}.card::after{opacity:.26}.card:hover::after{opacity:.46}
+.panel{background:rgba(27,31,38,.88);border-color:rgba(255,255,255,.07)}
 .brand{color:#9aa4b2}.brand .dot{background:#5b8def}
 .muted{color:#9aa4b2}
+.stat-label,.advanced-key{color:#8f99a8}.stat-note,.health-item{color:#9aa4b2}.advanced-value{color:#c8ced7}
+.overview-stats,.stat-block+.stat-block,.advanced-grid,.advanced-actions{border-color:rgba(148,163,184,.14)}
 label{color:#e6e8eb}
 input,textarea,select{background:#0f1115;color:#e6e8eb;border-color:#333a44}
 input:focus,textarea:focus,select:focus{border-color:#5b8def;box-shadow:0 0 0 3px rgba(91,141,239,.25)}
@@ -129,9 +160,9 @@ input:focus,textarea:focus,select:focus{border-color:#5b8def;box-shadow:0 0 0 3p
 .empty{color:#6b7480}
 .note{color:#9aa4b2}
 }
-@media (prefers-reduced-motion:reduce){.brandmark{animation:none}.neon-frame{animation:none;background:conic-gradient(from 0deg,#22d3ee 0deg,#22d3ee 170deg,#a855f7 190deg,#a855f7 350deg,#22d3ee 360deg)}button{transition:none}}
+@media (prefers-reduced-motion:reduce){.brandmark{animation:none}.neon-frame{animation:none;background:conic-gradient(from 0deg,#22d3ee 0deg,#22d3ee 170deg,#a855f7 190deg,#a855f7 350deg,#22d3ee 360deg)}button,.button-link,.card::before,.card::after{transition:none}}
 @media (max-width:900px){.app-grid{grid-template-columns:1fr}}
-@media (max-width:640px){.row{flex-direction:column;align-items:stretch}.item{align-items:stretch;flex-direction:column}.item button{width:100%}}
+@media (max-width:640px){.row{flex-direction:column;align-items:stretch}.item{align-items:stretch;flex-direction:column}.item button{width:100%}.overview-stats,.advanced-grid{grid-template-columns:1fr}.stat-block+.stat-block{border-left:0;border-top:1px solid rgba(100,116,139,.16);padding-left:.25rem;padding-top:1rem}.button-link{width:auto}}
 </style></head><body>
 <div class="brandmark">&nbsp;&nbsp;&nbsp;&nbsp;SlncTrZ&nbsp;&nbsp;&nbsp;&nbsp;</div>
 <!-- LOGIN: neon frame chỉ quanh card login nhỏ -->
@@ -144,11 +175,11 @@ input:focus,textarea:focus,select:focus{border-color:#5b8def;box-shadow:0 0 0 3p
 <!-- APP -->
 <div id="app" class="hidden"><main class="app-grid">
 <div class="col">
-<section class="card"><div class="toolbar"><div class="grow"><h1>Overview</h1></div><a href="/usage" class="btn-deny" style="text-decoration:none">Usage</a></div><div id="overview" class="muted"></div></section>
+<section class="card"><div class="toolbar"><div class="grow"><h1>Overview</h1></div><a href="/usage" class="btn-deny button-link">Usage</a></div><div class="overview-stats"><div class="stat-block"><div class="stat-label">Commands</div><div id="overview-command-count" class="stat-value">—</div><div id="overview-command-note" class="stat-note">Catalog status</div></div><div class="stat-block"><div class="stat-label">MCP servers</div><div id="overview-mcp-count" class="stat-value">—</div><div class="health-list"><div class="health-item"><span class="status-dot working" aria-hidden="true"></span><span id="overview-mcp-working">0 working</span></div><div class="health-item"><span class="status-dot error-dot" aria-hidden="true"></span><span id="overview-mcp-error">0 error</span></div><div id="overview-mcp-attention-row" class="health-item hidden"><span class="status-dot attention" aria-hidden="true"></span><span id="overview-mcp-attention">0 attention</span></div><div id="overview-mcp-disabled-row" class="health-item hidden"><span class="status-dot disabled" aria-hidden="true"></span><span id="overview-mcp-disabled">0 disabled</span></div></div></div></div></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Autonomy</h1></div></div><div class="row"><select id="authority"><option value="restricted">Restricted — selected Paths + approved Commands</option><option value="autonomous">Autonomous — full runtime OS-user authority</option></select><button id="set-authority" class="btn-approve">Apply</button></div><p class="note">Restricted is recommended. Shells/interpreters can still exercise the runtime account's OS permissions.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Paths</h1></div></div><div id="paths"></div><div class="row"><input id="path" placeholder="/absolute/path"><button id="add-path" class="btn-approve">Add Path</button></div><p class="note">Built-in file tools stay inside these Paths in Restricted mode. OS permissions still apply.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>MCP Servers</h1></div><button id="show-add-mcp" class="btn-approve">Add MCP</button></div><div id="mcp"></div><div id="mcp-form" class="hidden panel"><div class="row"><input id="mcp-name" placeholder="Name"><input id="mcp-id" placeholder="provider-id"></div><div class="row"><input id="mcp-desc" placeholder="Description (optional) — what is this MCP server for?"></div><div class="row"><select id="mcp-transport"><option value="streamable-http">Remote URL</option><option value="stdio">Local command</option></select><input id="mcp-target" placeholder="https://service.example.com/mcp"></div><div class="row" id="mcp-args-row"><input id="mcp-args" placeholder="args (space separated, stdio only)"></div><div class="row"><select id="mcp-auth"><option value="none">No auth</option><option value="bearer">Bearer</option><option value="http-header">HTTP header</option></select><input id="mcp-auth-name" placeholder="Header name"><input id="mcp-auth-value" type="password" placeholder="Credential"></div><div class="row"><button id="add-mcp" class="btn-approve">Probe &amp; Add</button><button id="cancel-mcp" class="btn-deny">Cancel</button></div></div></section>
-<section class="card"><div class="toolbar"><div class="grow"><h1>Advanced</h1></div><button id="logout" class="btn-deny">Sign out</button></div><div id="status" class="muted"></div></section>
+<section class="card"><div class="toolbar"><div class="grow"><h1>Advanced</h1></div><button id="toggle-advanced" class="btn-deny">Show</button></div><div id="advanced-content" class="hidden"><div class="advanced-grid"><div class="advanced-item"><div class="advanced-key">Version</div><div id="advanced-version" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">Build</div><div id="advanced-build" class="advanced-value mono">—</div></div><div class="advanced-item"><div class="advanced-key">Authority</div><div id="advanced-authority" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">Paths</div><div id="advanced-paths" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">State root</div><div id="advanced-state" class="advanced-value mono">—</div></div><div class="advanced-item"><div class="advanced-key">Passphrase recovery</div><div id="advanced-recovery" class="advanced-value">—</div></div></div><div class="advanced-actions"><button id="logout" class="btn-deny">Sign out</button></div></div></section>
 </div>
 <aside class="col"><section class="card" id="commands-card"><div class="toolbar"><div class="grow"><h1>Commands</h1></div><button id="toggle-commands" class="btn-deny">Hide</button></div><div id="commands" class="commands-grid"></div><div class="row"><input id="command-input" placeholder="command"><button id="add-command" class="btn-approve">Add command</button></div></section></aside>
 </main></div>
@@ -158,7 +189,9 @@ async function api(path,opt={}){const headers={...(opt.body?{'content-type':'app
 function btn(text,cls,fn){const b=document.createElement('button');b.textContent=text;b.className=cls||'btn-deny';b.onclick=fn;return b}
 function showError(el,msg){el.textContent=msg;el.classList.remove('hidden')}
 function clearError(el){el.classList.add('hidden')}
-async function refresh(){const d=await api('/owner/api/state');q('status').textContent='Policy '+d.policyVersion;q('authority').value=d.authorityMode||'restricted';q('overview').textContent=['Version '+(d.product?.version||'unknown')+(d.product?.buildCommit?' ('+d.product.buildCommit+')':''),'Authority '+(d.authorityMode||'restricted'),'Paths '+((d.paths||[]).length),(d.commandCatalog?.status&&d.commandCatalog.status!=='ready'?'Commands '+d.commandCatalog.status:'Commands '+((d.commands||[]).length)),'MCP Servers '+((d.mcpServers||[]).length),'State '+(d.product?.stateRoot||''),'Passphrase recovery '+(d.product?.ownerPassphraseFile||'')].filter(Boolean).join(' · ');const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight()}
+function renderOverview(d){const commands=d.commands||[];const commandStatus=d.commandCatalog?.status||'unknown';q('overview-command-count').textContent=String(commands.length);q('overview-command-note').textContent=commandStatus==='ready'?'ready':commandStatus;const s=d.mcpSummary||{total:(d.mcpServers||[]).length,working:0,attention:0,error:0,disabled:0};q('overview-mcp-count').textContent=String(s.total);q('overview-mcp-working').textContent=String(s.working)+' working';q('overview-mcp-error').textContent=String(s.error)+' error';q('overview-mcp-attention').textContent=String(s.attention)+' attention';q('overview-mcp-disabled').textContent=String(s.disabled)+' disabled';q('overview-mcp-attention-row').classList.toggle('hidden',!s.attention);q('overview-mcp-disabled-row').classList.toggle('hidden',!s.disabled)}
+function renderAdvanced(d){const p=d.product||{};q('advanced-version').textContent=p.version||'unknown';q('advanced-build').textContent=p.buildCommit?String(p.buildCommit).slice(0,8):'unknown';q('advanced-authority').textContent=d.authorityMode||'restricted';q('advanced-paths').textContent=String((d.paths||[]).length);q('advanced-state').textContent=p.stateRoot||'unknown';q('advanced-recovery').textContent=p.ownerPassphraseFile?'configured':'unavailable'}
+async function refresh(){const d=await api('/owner/api/state');q('authority').value=d.authorityMode||'restricted';renderOverview(d);renderAdvanced(d);const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight()}
 function syncCommandHeight(){const card=q('commands-card'),col=document.querySelector('.app-grid > .col');if(card&&col)card.style.maxHeight=(col.offsetHeight)+'px'}
 window.addEventListener('resize',syncCommandHeight);
 function renderCommands(list,state){const el=q('commands');el.innerHTML='';if(state&&state.status!=='ready'){const e=document.createElement('div');e.className='error';e.textContent=state.message||('Command catalog '+state.status+'.');el.appendChild(e)}const risky=new Set(['bash','sh','powershell','cmd','python','python3','node','perl','ruby','sudo','su','docker','systemctl','apt','apt-get']);list.forEach(c=>{const name=String(c[0]||'');const chip=document.createElement('span');chip.className='cmd-chip';const label=document.createElement('span');label.textContent=c.join(' ')+(risky.has(name)?' ⚠':'');if(risky.has(name))label.title='This command can exercise the full OS permissions of the SlncTrZ runtime account.';const x=document.createElement('button');x.className='chip-x';x.title='Remove '+name;x.textContent='×';x.onclick=async()=>{if(!confirm('Remove command '+name+'?'))return;await removeCommand(name);await refresh()};chip.append(label,x);el.appendChild(chip)});if(list.length===0&&(!state||state.status==='ready')){const e=document.createElement('div');e.className='empty';e.textContent='No commands allowed.';el.appendChild(e)}}
@@ -166,6 +199,7 @@ function renderMcp(list){const el=q('mcp');el.innerHTML='';list.forEach(p=>{cons
 async function session(){try{const d=await api('/owner/api/session');csrf=d.csrf;q('login').classList.add('hidden');q('app').classList.remove('hidden');await refresh()}catch{q('login').classList.remove('hidden');q('app').classList.add('hidden')}}
 q('signin').onclick=async()=>{clearError(q('login-error'));try{const d=await api('/owner/api/login',{method:'POST',body:JSON.stringify({secret:q('secret').value})});csrf=d.csrf;q('secret').value='';await session()}catch(e){showError(q('login-error'),String(e))}};
 q('secret').addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();q('signin').click()}});
+q('toggle-advanced').onclick=()=>{const content=q('advanced-content');const hidden=content.classList.toggle('hidden');q('toggle-advanced').textContent=hidden?'Show':'Hide'};
 q('logout').onclick=async()=>{await api('/owner/api/logout',{method:'POST',body:'{}'}).catch(()=>{});location.reload()};
 q('set-authority').onclick=async()=>{const authorityMode=q('authority').value;if(authorityMode==='autonomous'&&!confirm('Autonomous mode gives SlncTrZ the full filesystem and command authority of the runtime OS account. Continue?'))return;try{await api('/owner/api/authority',{method:'PUT',body:JSON.stringify({authorityMode})});await refresh()}catch(e){alert(e.message||String(e))}};
 q('add-path').onclick=async()=>{const path=q('path').value.trim();if(!path)return;try{await api('/owner/api/paths',{method:'POST',body:JSON.stringify({path})});q('path').value='';await refresh()}catch(e){alert(e.message||String(e))}};
@@ -224,6 +258,7 @@ export function createOwnerWebConsole(options: {
   readonly mcpOrchestrator?: McpOwnerOrchestrator;
   readonly secureCookies?: boolean;
   readonly usage?: UsageReader;
+  readonly now?: () => number;
   readonly productInfo?: {
     readonly version: string;
     readonly buildCommit: string;
@@ -233,6 +268,11 @@ export function createOwnerWebConsole(options: {
 }): OwnerWebConsole {
   const sessions = new Map<string, SessionRecord>();
   const limiter = new FixedWindowRateLimiter({ limit: 10, windowSeconds: 60 });
+  const now = options.now ?? Date.now;
+  const cookie = (token: string, expiresAt: number, at: number): string =>
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/owner; HttpOnly; ${options.secureCookies === false ? "" : "Secure; "}SameSite=Strict; Max-Age=${Math.max(0, Math.floor((expiresAt - at) / 1000))}`;
+  const expireCookie = (): string =>
+    `${SESSION_COOKIE}=; Path=/owner; HttpOnly; ${options.secureCookies === false ? "" : "Secure; "}SameSite=Strict; Max-Age=0`;
   let commandMutationTail: Promise<void> = Promise.resolve();
   const serializeCommandMutation = <T>(operation: () => Promise<T>): Promise<T> => {
     const run = commandMutationTail.catch(() => undefined).then(operation);
@@ -242,22 +282,52 @@ export function createOwnerWebConsole(options: {
     );
     return run;
   };
-  const sessionFor = (req: IncomingMessage): SessionRecord | undefined => {
-    const token = (req.headers.cookie ?? "")
+  const sessionFor = (req: IncomingMessage): AuthenticatedSession | undefined => {
+    const encodedToken = (req.headers.cookie ?? "")
       .split(";")
       .map((part) => part.trim())
       .find((part) => part.startsWith(`${SESSION_COOKIE}=`))
       ?.slice(SESSION_COOKIE.length + 1);
-    if (token === undefined) return undefined;
-    const session = sessions.get(decodeURIComponent(token));
-    if (session !== undefined && session.expiresAt > Date.now()) return session;
-    return undefined;
+    if (encodedToken === undefined) return undefined;
+    let token: string;
+    try {
+      token = decodeURIComponent(encodedToken);
+    } catch {
+      return undefined;
+    }
+    const session = sessions.get(token);
+    if (session === undefined) return undefined;
+    const at = now();
+    if (session.idleExpiresAt <= at || session.absoluteExpiresAt <= at) {
+      sessions.delete(token);
+      return undefined;
+    }
+    return { token, ...session };
   };
-  const requireSession = (req: IncomingMessage, res: ServerResponse): SessionRecord | undefined => {
-    const session = sessionFor(req);
-    if (session === undefined)
+  const requireSession = (
+    req: IncomingMessage,
+    res: ServerResponse
+  ): AuthenticatedSession | undefined => {
+    const active = sessionFor(req);
+    if (active === undefined) {
       sendJson(res, 401, { error: { code: "unauthorized", message: "Owner session required" } });
-    return session;
+      return undefined;
+    }
+    const at = now();
+    const idleExpiresAt = Math.min(at + SESSION_IDLE_TTL_MS, active.absoluteExpiresAt);
+    const renewed = {
+      token: active.token,
+      csrf: active.csrf,
+      idleExpiresAt,
+      absoluteExpiresAt: active.absoluteExpiresAt
+    };
+    sessions.set(active.token, {
+      csrf: renewed.csrf,
+      idleExpiresAt: renewed.idleExpiresAt,
+      absoluteExpiresAt: renewed.absoluteExpiresAt
+    });
+    res.setHeader("set-cookie", cookie(active.token, idleExpiresAt, at));
+    return renewed;
   };
   const requireCsrf = (
     req: IncomingMessage,
@@ -382,11 +452,11 @@ export function createOwnerWebConsole(options: {
         }
         const token = randomBytes(32).toString("base64url");
         const csrf = randomBytes(24).toString("base64url");
-        sessions.set(token, { expiresAt: Date.now() + SESSION_TTL_MS, csrf });
-        res.setHeader(
-          "set-cookie",
-          `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/owner; HttpOnly; ${options.secureCookies === false ? "" : "Secure; "}SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`
-        );
+        const at = now();
+        const idleExpiresAt = at + SESSION_IDLE_TTL_MS;
+        const absoluteExpiresAt = at + SESSION_ABSOLUTE_TTL_MS;
+        sessions.set(token, { idleExpiresAt, absoluteExpiresAt, csrf });
+        res.setHeader("set-cookie", cookie(token, idleExpiresAt, at));
         sendJson(res, 200, { authenticated: true, csrf });
         return true;
       }
@@ -396,17 +466,15 @@ export function createOwnerWebConsole(options: {
         sendJson(res, 200, {
           authenticated: true,
           csrf: session.csrf,
-          expiresAt: new Date(session.expiresAt).toISOString()
+          expiresAt: new Date(session.idleExpiresAt).toISOString(),
+          absoluteExpiresAt: new Date(session.absoluteExpiresAt).toISOString()
         });
         return true;
       }
       if (method === "POST" && pathname === "/owner/api/logout") {
         if (!requireCsrf(req, res, session)) return true;
         sessions.clear();
-        res.setHeader(
-          "set-cookie",
-          `${SESSION_COOKIE}=; Path=/owner; HttpOnly; ${options.secureCookies === false ? "" : "Secure; "}SameSite=Strict; Max-Age=0`
-        );
+        res.setHeader("set-cookie", expireCookie());
         sendJson(res, 200, { authenticated: false });
         return true;
       }
@@ -457,6 +525,7 @@ export function createOwnerWebConsole(options: {
       if (method === "GET" && pathname === "/owner/api/state") {
         const snapshot = options.policyStore.capture();
         const commands = await commandsState();
+        const mcpServers = await providerState();
         sendJson(res, 200, {
           policyVersion: snapshot.version,
           authorityMode: snapshot.normalized.kernelPolicy.authorityMode,
@@ -467,7 +536,8 @@ export function createOwnerWebConsole(options: {
             status: commands.status,
             ...(commands.status === "ready" ? {} : { message: commands.message })
           },
-          mcpServers: await providerState(),
+          mcpServers,
+          mcpSummary: summarizeProviderStatuses(mcpServers.map((provider) => provider.status)),
           ...(options.productInfo === undefined ? {} : { product: options.productInfo })
         });
         return true;

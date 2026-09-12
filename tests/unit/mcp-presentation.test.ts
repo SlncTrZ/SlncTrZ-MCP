@@ -5,7 +5,8 @@ import {
   diffProviderTools,
   projectDiscoveredTools,
   projectProviderDetail,
-  discoverRiskClass
+  discoverRiskClass,
+  summarizeProviderStatuses
 } from "../../src/owner/mcp-presentation.js";
 import type { ManagedMcpProvider } from "../../src/owner/mcp-provider-store.js";
 import type { McpCredentialMetadata } from "../../src/owner/mcp-credential-store.js";
@@ -113,6 +114,23 @@ describe("deriveProviderStatus", () => {
         toolDrift: false
       })
     ).toBe("unavailable");
+  });
+});
+
+describe("summarizeProviderStatuses", () => {
+  it("groups operational provider health deterministically", () => {
+    expect(
+      summarizeProviderStatuses([
+        "ready",
+        "ready",
+        "connecting",
+        "restarting",
+        "needs_sync",
+        "auth_required",
+        "unavailable",
+        "disabled"
+      ])
+    ).toEqual({ total: 8, working: 2, attention: 4, error: 1, disabled: 1 });
   });
 });
 

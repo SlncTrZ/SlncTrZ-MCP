@@ -62,6 +62,30 @@ export function deriveProviderStatus(input: ProviderStatusInput): ProviderProduc
   return "ready";
 }
 
+export interface ProviderStatusSummary {
+  readonly total: number;
+  readonly working: number;
+  readonly attention: number;
+  readonly error: number;
+  readonly disabled: number;
+}
+
+export function summarizeProviderStatuses(
+  statuses: readonly ProviderProductStatus[]
+): ProviderStatusSummary {
+  let working = 0;
+  let attention = 0;
+  let error = 0;
+  let disabled = 0;
+  for (const status of statuses) {
+    if (status === "ready") working += 1;
+    else if (status === "unavailable") error += 1;
+    else if (status === "disabled") disabled += 1;
+    else attention += 1;
+  }
+  return Object.freeze({ total: statuses.length, working, attention, error, disabled });
+}
+
 export type ProviderFailureClass =
   "auth_required" | "connection_failed" | "protocol_error" | "tool_drift" | "provider_unavailable";
 
