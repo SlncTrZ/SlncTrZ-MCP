@@ -16,6 +16,12 @@ import {
 } from "@modelcontextprotocol/server";
 import { type AuthAuditSink } from "../observability/auth-audit.js";
 import { validateOwnerSecretHash, verifyOwnerSecret } from "./owner-verifier.js";
+import {
+  createSqliteOAuthGrantStore,
+  type OAuthGrantStore,
+  type VerifiedGrantToken
+} from "./oauth-grant-store.js";
+import { type AuthenticatedConnection, type SurfaceProfile } from "./connection-profile.js";
 
 const DEFAULT_SCOPE = "mcp:tools";
 const AUTHORIZATION_CODE_TTL_SECONDS = 300;
@@ -65,16 +71,9 @@ interface AuthorizationCodeRecord {
   readonly expiresAt: number;
 }
 
-interface TokenRecord {
-  readonly token: string;
-  readonly grantId: string;
-  readonly clientId: string;
-  readonly resource: string;
-  readonly scopes: readonly string[];
-  readonly expiresAt: number;
-}
-
 export interface OAuthServiceOptions {
+  /** Caller-owned durable grant store. Omission keeps an isolated ephemeral compatibility store. */
+  readonly grantStore?: OAuthGrantStore;
   readonly issuer: URL;
   readonly resource: URL;
   readonly ownerSecretHash: string;
@@ -170,6 +169,10 @@ function optionalStringArray(value: unknown, name: string): string[] | undefined
   return value as string[];
 }
 
+function hashToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
 function randomIdentifier(prefix: string): string {
   return `${prefix}_${randomBytes(32).toString("base64url")}`;
 }
@@ -262,7 +265,7 @@ function exactResource(requested: string, configured: URL): string {
   return parsed.href;
 }
 
-/** In-process OAuth authority. Dynamic client registrations may be durable; issued tokens remain ephemeral. */
+/** OAuth authority. Pending login/code state is ephemeral; injected grant state survives restart. */
 export class OAuthService implements OAuthTokenVerifier {
   readonly #issuer: URL;
   readonly #resource: URL;
@@ -279,8 +282,8 @@ export class OAuthService implements OAuthTokenVerifier {
   readonly #onAuthorized: ((clientId: string) => Promise<void>) | undefined;
   readonly #pending = new Map<string, PendingAuthorization>();
   readonly #codes = new Map<string, AuthorizationCodeRecord>();
-  readonly #accessTokens = new Map<string, TokenRecord>();
-  readonly #refreshTokens = new Map<string, TokenRecord>();
+  readonly #grants: OAuthGrantStore;
+  readonly #ownsGrantStore: boolean;
 
   constructor(options: OAuthServiceOptions) {
     this.#issuer = normalizeIssuer(options.issuer);
@@ -341,6 +344,8 @@ export class OAuthService implements OAuthTokenVerifier {
         issuedAt: this.#now()
       });
     }
+    this.#grants = options.grantStore ?? createSqliteOAuthGrantStore();
+    this.#ownsGrantStore = options.grantStore === undefined;
   }
 
   get issuer(): URL {
@@ -693,7 +698,7 @@ export class OAuthService implements OAuthTokenVerifier {
     }
 
     const token = requiredString(parameters.refresh_token, "refresh_token");
-    const record = this.#refreshTokens.get(token);
+    const record = this.#grants.findToken(hashToken(token), "refresh", this.#now());
     if (record === undefined) {
       throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
     }
@@ -705,13 +710,13 @@ export class OAuthService implements OAuthTokenVerifier {
       throw new OAuthError(OAuthErrorCode.InvalidGrant, "Refresh token binding failed");
     }
 
-    this.#refreshTokens.delete(token);
     return this.#issueTokens(
       record.clientId,
       record.resource,
       record.scopes,
       "token.refreshed",
-      record.grantId
+      record.grantId,
+      hashToken(token)
     );
   }
 
@@ -723,11 +728,14 @@ export class OAuthService implements OAuthTokenVerifier {
 
     const hinted =
       parameters.token_type_hint === "access_token"
-        ? this.#accessTokens.get(token)
+        ? this.#grants.findToken(hashToken(token), "access", this.#now())
         : parameters.token_type_hint === "refresh_token"
-          ? this.#refreshTokens.get(token)
+          ? this.#grants.findToken(hashToken(token), "refresh", this.#now())
           : undefined;
-    const record = hinted ?? this.#accessTokens.get(token) ?? this.#refreshTokens.get(token);
+    const record =
+      hinted ??
+      this.#grants.findToken(hashToken(token), "access", this.#now()) ??
+      this.#grants.findToken(hashToken(token), "refresh", this.#now());
     if (record === undefined) {
       this.#emit("token.revoked", "ignored", clientId, "invalid_token");
       return;
@@ -737,26 +745,18 @@ export class OAuthService implements OAuthTokenVerifier {
       return;
     }
 
-    for (const [key, value] of this.#accessTokens) {
-      if (value.grantId === record.grantId) this.#accessTokens.delete(key);
-    }
-    for (const [key, value] of this.#refreshTokens) {
-      if (value.grantId === record.grantId) this.#refreshTokens.delete(key);
-    }
+    this.#grants.revokeGrant(record.grantId);
     this.#emit("token.revoked", "success", clientId);
   }
 
   /** Owner-authorized control-plane revocation; never logs or returns token material. */
   revokeTokenByOwner(token: string): boolean {
     this.#purgeExpired();
-    const record = this.#accessTokens.get(token) ?? this.#refreshTokens.get(token);
+    const record =
+      this.#grants.findToken(hashToken(token), "access", this.#now()) ??
+      this.#grants.findToken(hashToken(token), "refresh", this.#now());
     if (record === undefined) return false;
-    for (const [key, value] of this.#accessTokens) {
-      if (value.grantId === record.grantId) this.#accessTokens.delete(key);
-    }
-    for (const [key, value] of this.#refreshTokens) {
-      if (value.grantId === record.grantId) this.#refreshTokens.delete(key);
-    }
+    this.#grants.revokeGrant(record.grantId);
     this.#emit("token.revoked", "success", record.clientId);
     return true;
   }
@@ -768,18 +768,13 @@ export class OAuthService implements OAuthTokenVerifier {
     const grantIds = new Set<string>();
     for (const value of this.#pending.values()) clientIds.add(value.clientId);
     for (const value of this.#codes.values()) clientIds.add(value.clientId);
-    for (const value of this.#accessTokens.values()) {
-      clientIds.add(value.clientId);
-      grantIds.add(value.grantId);
-    }
-    for (const value of this.#refreshTokens.values()) {
+    for (const value of this.#grants.listConnections(this.#now())) {
       clientIds.add(value.clientId);
       grantIds.add(value.grantId);
     }
     this.#pending.clear();
     this.#codes.clear();
-    this.#accessTokens.clear();
-    this.#refreshTokens.clear();
+    this.#grants.revokeAll();
     for (const clientId of this.#dynamicClientIds) this.#clients.delete(clientId);
     this.#dynamicClientIds.clear();
     this.#persistDynamicClients();
@@ -797,12 +792,7 @@ export class OAuthService implements OAuthTokenVerifier {
     for (const [key, value] of this.#codes) {
       if (value.clientId === clientId) this.#codes.delete(key);
     }
-    for (const [key, value] of this.#accessTokens) {
-      if (value.clientId === clientId) this.#accessTokens.delete(key);
-    }
-    for (const [key, value] of this.#refreshTokens) {
-      if (value.clientId === clientId) this.#refreshTokens.delete(key);
-    }
+    this.#grants.revokeClient(clientId);
     if (this.#dynamicClientIds.delete(clientId)) this.#clients.delete(clientId);
     this.#persistDynamicClients();
     if (known) this.#emit("token.revoked", "success", clientId);
@@ -817,19 +807,51 @@ export class OAuthService implements OAuthTokenVerifier {
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
     this.#purgeExpired();
-    const record = this.#accessTokens.get(token);
-    if (record === undefined) {
-      this.#emit("token.rejected", "failure", undefined, "invalid_token");
-      throw new OAuthError(OAuthErrorCode.InvalidToken, "Invalid or expired access token");
-    }
-
+    const record = this.#accessRecord(token);
     return {
-      token: record.token,
+      token,
       clientId: record.clientId,
       scopes: [...record.scopes],
       expiresAt: record.expiresAt,
       resource: safeUrl(record.resource, "Invalid resource")
     };
+  }
+
+  /** Resolve fresh on EVERY exchange, not once per cached MCP transport session. */
+  async authenticateConnection(token: string): Promise<AuthenticatedConnection> {
+    const record = this.#accessRecord(token);
+    return {
+      clientId: record.clientId,
+      grantId: record.grantId,
+      connectionId: record.connectionId,
+      scopes: [...record.scopes],
+      resource: record.resource,
+      surfaceProfile: record.surfaceProfile
+    };
+  }
+
+  /** Caller supplies the authenticated bearer, never a caller-selected grantId. */
+  restrictConnection(token: string, profile: SurfaceProfile): AuthenticatedConnection {
+    this.#accessRecord(token);
+    return this.#grants.restrictByAccessToken(hashToken(token), profile, this.#now());
+  }
+
+  /** Only closes the compatibility store owned by this service. Injected store belongs to caller. */
+  close(): void {
+    if (this.#ownsGrantStore) this.#grants.close();
+  }
+
+  #accessRecord(token: string): VerifiedGrantToken {
+    const record = this.#grants.findToken(hashToken(token), "access", this.#now());
+    if (
+      record === undefined ||
+      record.resource !== this.#resource.href ||
+      !this.#clients.has(record.clientId)
+    ) {
+      this.#emit("token.rejected", "failure", undefined, "invalid_token");
+      throw new OAuthError(OAuthErrorCode.InvalidToken, "Invalid or expired access token");
+    }
+    return record;
   }
 
   #verifyClientSecret(clientId: string, clientSecret: string | undefined): void {
@@ -862,28 +884,30 @@ export class OAuthService implements OAuthTokenVerifier {
     resource: string,
     scopes: readonly string[],
     auditType: "token.issued" | "token.refreshed",
-    existingGrantId?: string
+    existingGrantId?: string,
+    refreshHash?: string
   ): OAuthTokenResponse {
     const now = this.#now();
     const accessToken = randomIdentifier("at");
     const refreshToken = randomIdentifier("rt");
     const grantId = existingGrantId ?? randomIdentifier("grant");
-    this.#accessTokens.set(accessToken, {
-      token: accessToken,
-      grantId,
-      clientId,
-      resource,
-      scopes,
-      expiresAt: now + ACCESS_TOKEN_TTL_SECONDS
-    });
-    this.#refreshTokens.set(refreshToken, {
-      token: refreshToken,
-      grantId,
-      clientId,
-      resource,
-      scopes,
-      expiresAt: now + REFRESH_TOKEN_TTL_SECONDS
-    });
+    const tokens = [
+      {
+        tokenHash: hashToken(accessToken),
+        kind: "access" as const,
+        expiresAt: now + ACCESS_TOKEN_TTL_SECONDS
+      },
+      {
+        tokenHash: hashToken(refreshToken),
+        kind: "refresh" as const,
+        expiresAt: now + REFRESH_TOKEN_TTL_SECONDS
+      }
+    ];
+    if (refreshHash === undefined) {
+      this.#grants.issue({ grantId, clientId, resource, scopes }, tokens, now);
+    } else if (!this.#grants.rotate(refreshHash, clientId, resource, tokens, now)) {
+      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
+    }
     this.#emit(auditType, "success", clientId);
     // Fire-and-forget: an authenticated client is auto-bound into a workspace (idempotent).
     void this.#onAuthorized?.(clientId).catch(() => undefined);
@@ -941,8 +965,7 @@ export class OAuthService implements OAuthTokenVerifier {
     return (
       [...this.#pending.values()].some((record) => record.clientId === clientId) ||
       [...this.#codes.values()].some((record) => record.clientId === clientId) ||
-      [...this.#accessTokens.values()].some((record) => record.clientId === clientId) ||
-      [...this.#refreshTokens.values()].some((record) => record.clientId === clientId)
+      this.#grants.hasClient(clientId, this.#now())
     );
   }
 
@@ -971,11 +994,6 @@ export class OAuthService implements OAuthTokenVerifier {
     for (const [key, value] of this.#codes) {
       if (value.expiresAt <= now) this.#codes.delete(key);
     }
-    for (const [key, value] of this.#accessTokens) {
-      if (value.expiresAt <= now) this.#accessTokens.delete(key);
-    }
-    for (const [key, value] of this.#refreshTokens) {
-      if (value.expiresAt <= now) this.#refreshTokens.delete(key);
-    }
+    this.#grants.prune(now);
   }
 }
