@@ -58,7 +58,7 @@ async function api(path,opt={}){
 }
 function showError(error){q('page-error').textContent='Debate data unavailable: '+(error?.message||String(error));q('page-error').classList.remove('hidden')}
 function clearError(){q('page-error').classList.add('hidden');q('page-error').textContent=''}
-function participantName(snapshot,id){return snapshot?.participants?.find(x=>x.participantId===id)?.nickname||'Waiting'}
+function participantLabel(snapshot,id,fallbackNickname){if(!id)return fallbackNickname||'Waiting';const participant=snapshot?.participants?.find(x=>x.participantId===id);const nickname=fallbackNickname||participant?.nickname||id;const identity=participant?.role||String(id);return nickname+' · '+identity}
 function fmtTime(value){if(!value)return 'None';const d=new Date(value);return Number.isNaN(d.getTime())?'Unknown':d.toLocaleString()}
 function deadlineText(snapshot){const value=snapshot?.responseDeadlineAt||snapshot?.pickupDeadlineAt;if(!value)return snapshot?.status==='active'?'Awaiting turn':'None';const ms=Date.parse(value)-Date.now();if(ms<=0)return 'Due';const seconds=Math.ceil(ms/1000);if(seconds<60)return seconds+'s';return Math.ceil(seconds/60)+'m'}
 function stateClass(status){return 'status-'+String(status||'waiting').replace(/[^a-z_]/g,'')}
@@ -73,13 +73,13 @@ function renderList(rows){
     meta.append(status,turns);b.append(topic,meta);root.appendChild(b)
   }
 }
-function appendMessages(messages){
+function appendMessages(snapshot,messages){
   const root=q('transcript');
   for(const message of messages||[]){
     if(root.querySelector('[data-sequence="'+String(message.sequence)+'"]'))continue;
     const li=document.createElement('li');li.dataset.sequence=String(message.sequence);li.className='message'+(message.isFinal?' final-summary':'');
     const head=document.createElement('div');head.className='message-head';
-    const speaker=document.createElement('span');speaker.className='speaker';speaker.textContent=message.nickname||message.participantId||'Participant';
+    const speaker=document.createElement('span');speaker.className='speaker';speaker.textContent=participantLabel(snapshot,message.participantId,message.nickname||undefined);
     const time=document.createElement('time');time.className='timestamp';time.textContent=fmtTime(message.createdAt);if(message.createdAt)time.dateTime=message.createdAt;
     const body=document.createElement('div');body.className='message-body';body.textContent=message.content||'';
     head.append(speaker,time);li.append(head,body);root.appendChild(li)
@@ -91,14 +91,14 @@ function renderSnapshot(snapshot,resetTranscript){
   q('conversation').dataset.state=snapshot.status||'waiting';q('topic').textContent=snapshot.topic||'Untitled debate';q('debate-id').textContent=snapshot.debateId||'';
   const status=q('status');status.textContent=snapshot.status||'waiting';status.className='fact-value '+stateClass(snapshot.status);
   q('turns').textContent=String(snapshot.completedTurns||0)+' / '+String(snapshot.maxTurns||0);
-  q('speaker').textContent=participantName(snapshot,snapshot.currentParticipantId);
+  q('speaker').textContent=participantLabel(snapshot,snapshot.currentParticipantId);
   q('deadline').textContent=deadlineText(snapshot);
   q('resume-action').classList.toggle('hidden',snapshot.status!=='paused_timeout');
   q('stop-action').disabled=snapshot.status==='stopped'||snapshot.status==='completed';
-  if(resetTranscript)q('transcript').replaceChildren();appendMessages(snapshot.messages);
+  if(resetTranscript)q('transcript').replaceChildren();appendMessages(snapshot,snapshot.messages);
   lastSequence=Math.max(lastSequence,Number(snapshot.sequence||0));
   const note=q('turn-note'),statusText=String(snapshot.status||'waiting');
-  if(statusText==='active'){note.replaceChildren();const strong=document.createElement('strong');strong.textContent='active';note.append(strong,document.createTextNode(' with '+participantName(snapshot,snapshot.currentParticipantId)+' on turn.'))}
+  if(statusText==='active'){note.replaceChildren();const strong=document.createElement('strong');strong.textContent='active';note.append(strong,document.createTextNode(' with '+participantLabel(snapshot,snapshot.currentParticipantId)+' on turn.'))}
   else if(statusText==='paused_timeout'){note.replaceChildren();const strong=document.createElement('strong');strong.textContent='paused_timeout';note.append(strong,document.createTextNode(' after '+String(snapshot.pauseReason||'deadline')+'. Owner can resume or stop.'))}
   else if(statusText==='completed'){note.replaceChildren();const strong=document.createElement('strong');strong.textContent='completed';note.append(strong,document.createTextNode(' with the final summary persisted in the transcript.'))}
   else if(statusText==='stopped'){note.replaceChildren();const strong=document.createElement('strong');strong.textContent='stopped';note.append(strong,document.createTextNode(' by a participant or Owner.'))}
