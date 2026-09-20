@@ -57,6 +57,8 @@ interface MessageRow {
   readonly content: string;
   readonly content_hash: string;
   readonly is_final: number;
+  readonly result_current_participant_id: string | null;
+  readonly result_pickup_deadline_at: string | null;
   readonly created_at: string;
 }
 
@@ -286,7 +288,8 @@ export class DebateStore {
       const existing = this.#database
         .prepare(
           `SELECT sequence, participant_id, author_nickname, client_message_id, content,
-                  content_hash, is_final, created_at
+                  content_hash, is_final, result_current_participant_id,
+                  result_pickup_deadline_at, created_at
            FROM messages
            WHERE debate_id=? AND participant_id=? AND client_message_id=?`
         )
@@ -304,7 +307,7 @@ export class DebateStore {
           );
         }
         return Object.freeze({
-          debate: this.#snapshot(record.auth.debateId),
+          debate: this.#snapshotForSendReplay(record.auth.debateId, existing),
           message: asMessage(existing),
           idempotentReplay: true
         });
@@ -343,12 +346,22 @@ export class DebateStore {
       }
 
       const nextSequence = debate.sequence + 1;
+      const nextParticipant = isFinal
+        ? undefined
+        : this.#nextParticipant(
+            record.auth.debateId,
+            record.auth.participantId,
+            debate.finalizer_role,
+            nextCompletedTurns,
+            debate.max_turns
+          );
       this.#database
         .prepare(
           `INSERT INTO messages (
              debate_id, sequence, participant_id, author_nickname, client_message_id,
-             content, content_hash, is_final, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             content, content_hash, is_final, result_current_participant_id,
+             result_pickup_deadline_at, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           record.auth.debateId,
@@ -359,6 +372,8 @@ export class DebateStore {
           record.content,
           record.contentHash,
           isFinal ? 1 : 0,
+          nextParticipant?.participant_id ?? null,
+          isFinal ? null : record.nextPickupDeadlineAt,
           record.now
         );
 
@@ -373,13 +388,9 @@ export class DebateStore {
           )
           .run(nextSequence, nextCompletedTurns, record.now, record.now, record.auth.debateId);
       } else {
-        const nextParticipant = this.#nextParticipant(
-          record.auth.debateId,
-          record.auth.participantId,
-          debate.finalizer_role,
-          nextCompletedTurns,
-          debate.max_turns
-        );
+        if (nextParticipant === undefined) {
+          throw new DebateError("debate_invariant_failed", "Next Debate participant is missing");
+        }
         this.#database
           .prepare(
             `UPDATE debates
@@ -402,7 +413,8 @@ export class DebateStore {
       const message = this.#database
         .prepare(
           `SELECT sequence, participant_id, author_nickname, client_message_id, content,
-                  content_hash, is_final, created_at
+                  content_hash, is_final, result_current_participant_id,
+                  result_pickup_deadline_at, created_at
            FROM messages WHERE debate_id=? AND sequence=?`
         )
         .get(record.auth.debateId, nextSequence) as MessageRow | undefined;
@@ -564,6 +576,8 @@ export class DebateStore {
           content TEXT NOT NULL,
           content_hash TEXT NOT NULL,
           is_final INTEGER NOT NULL CHECK(is_final IN (0,1)),
+          result_current_participant_id TEXT,
+          result_pickup_deadline_at TEXT,
           created_at TEXT NOT NULL,
           UNIQUE(debate_id, sequence),
           UNIQUE(debate_id, participant_id, client_message_id)
@@ -692,7 +706,32 @@ export class DebateStore {
     return this.#snapshotFromRow(this.#requireDebate(debateId), afterSequence);
   }
 
-  #snapshotFromRow(row: DebateRow, afterSequence?: number): DebateSnapshot {
+  #snapshotForSendReplay(debateId: string, message: MessageRow): DebateSnapshot {
+    const current = this.#requireDebate(debateId);
+    const isFinal = message.is_final === 1;
+    const replayRow: DebateRow = {
+      ...current,
+      status: isFinal ? "completed" : "active",
+      sequence: message.sequence,
+      completed_turns: message.sequence,
+      current_participant_id: message.result_current_participant_id,
+      turn_assigned_at: isFinal ? null : message.created_at,
+      pickup_deadline_at: message.result_pickup_deadline_at,
+      turn_acknowledged_at: null,
+      response_deadline_at: null,
+      pause_reason: null,
+      updated_at: message.created_at,
+      completed_at: isFinal ? message.created_at : null,
+      stopped_at: null
+    };
+    return this.#snapshotFromRow(replayRow, undefined, message.sequence);
+  }
+
+  #snapshotFromRow(
+    row: DebateRow,
+    afterSequence?: number,
+    throughSequence?: number
+  ): DebateSnapshot {
     const participants = (
       this.#database
         .prepare(
@@ -707,13 +746,25 @@ export class DebateStore {
       null;
     const threshold = afterSequence ?? 0;
     const messages = (
-      this.#database
-        .prepare(
-          `SELECT sequence, participant_id, author_nickname, client_message_id, content,
-                  content_hash, is_final, created_at
-           FROM messages WHERE debate_id=? AND sequence>? ORDER BY sequence`
-        )
-        .all(row.debate_id, threshold) as unknown as MessageRow[]
+      throughSequence === undefined
+        ? (this.#database
+            .prepare(
+              `SELECT sequence, participant_id, author_nickname, client_message_id, content,
+                      content_hash, is_final, result_current_participant_id,
+                      result_pickup_deadline_at, created_at
+               FROM messages WHERE debate_id=? AND sequence>? ORDER BY sequence`
+            )
+            .all(row.debate_id, threshold) as unknown as MessageRow[])
+        : (this.#database
+            .prepare(
+              `SELECT sequence, participant_id, author_nickname, client_message_id, content,
+                      content_hash, is_final, result_current_participant_id,
+                      result_pickup_deadline_at, created_at
+               FROM messages
+               WHERE debate_id=? AND sequence>? AND sequence<=?
+               ORDER BY sequence`
+            )
+            .all(row.debate_id, threshold, throughSequence) as unknown as MessageRow[])
     ).map(asMessage);
     return Object.freeze({
       debateId: row.debate_id,

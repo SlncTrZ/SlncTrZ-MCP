@@ -1,7 +1,10 @@
 import { readFile, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
+import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createDebateService,
@@ -42,6 +45,20 @@ function expectDebateError(operation: () => unknown, code: DebateError["code"]):
     caught = error;
   }
   expect(caught).toMatchObject({ code });
+}
+
+async function bundleDebateServiceForWorker(path: string): Promise<string> {
+  const outfile = join(dirname(path), "debate-service-worker.mjs");
+  await build({
+    entryPoints: [join(process.cwd(), "src/debate/service.ts")],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node22",
+    outfile,
+    logLevel: "silent"
+  });
+  return pathToFileURL(outfile).href;
 }
 
 describe("durable Debate service", () => {
@@ -218,7 +235,7 @@ describe("durable Debate service", () => {
       maxTurns: 4,
       finalizerRole: "creator"
     });
-    service.join({
+    const joined = service.join({
       debateId: created.debate.debateId,
       nickname: "Two",
       connectionId: "grant-2"
@@ -228,6 +245,12 @@ describe("durable Debate service", () => {
       created.membership.participantId,
       created.membership.membershipCredential,
       "grant-1"
+    );
+    const joinerAuth = auth(
+      created.debate.debateId,
+      joined.membership.participantId,
+      joined.membership.membershipCredential,
+      "grant-2"
     );
     service.read({ auth: creatorAuth });
 
@@ -275,6 +298,26 @@ describe("durable Debate service", () => {
     expect(replay.idempotentReplay).toBe(true);
     expect(replay.debate.sequence).toBe(1);
 
+    service.read({ auth: joinerAuth });
+    service.send({
+      auth: joinerAuth,
+      expectedSequence: 1,
+      expectedTurnParticipantId: joined.membership.participantId,
+      clientMessageId: "msg-i2",
+      content: "advance the debate"
+    });
+
+    const replayAfterAdvance = service.send({
+      auth: creatorAuth,
+      expectedSequence: 0,
+      expectedTurnParticipantId: created.membership.participantId,
+      clientMessageId: "msg-i1",
+      content: "hello"
+    });
+    expect(replayAfterAdvance.idempotentReplay).toBe(true);
+    expect(replayAfterAdvance.message).toEqual(first.message);
+    expect(replayAfterAdvance.debate).toEqual(first.debate);
+
     expectDebateError(
       () =>
         service.send({
@@ -298,8 +341,11 @@ describe("durable Debate service", () => {
       "idempotency_conflict"
     );
     expect(service.read({ auth: creatorAuth })).toMatchObject({
-      sequence: 1,
-      messages: [expect.objectContaining({ clientMessageId: "msg-i1", content: "hello" })]
+      sequence: 2,
+      messages: [
+        expect.objectContaining({ clientMessageId: "msg-i1", content: "hello" }),
+        expect.objectContaining({ clientMessageId: "msg-i2", content: "advance the debate" })
+      ]
     });
 
     expectDebateError(
@@ -548,6 +594,88 @@ describe("durable Debate service", () => {
     service.close();
   });
 
+  it("loses only in-memory waiters across restart while preserving acknowledged deadlines", async () => {
+    const path = await databasePath("slnctrz-debate-wait-restart-");
+    let now = Date.parse("2026-09-20T14:00:00.000Z");
+    const ids = ["debate-wr", "participant-wr1", "participant-wr2"];
+    const first = createDebateService(path, {
+      now: () => now,
+      id: () => ids.shift() ?? "unexpected-id",
+      pickupTimeoutMs: 30_000,
+      responseTimeoutMs: 60_000,
+      requestWaitMs: 200
+    });
+    const created = first.create({
+      topic: "Wait restart durability",
+      nickname: "One",
+      connectionId: "grant-1",
+      maxTurns: 4,
+      finalizerRole: "creator"
+    });
+    const joined = first.join({
+      debateId: created.debate.debateId,
+      nickname: "Two",
+      connectionId: "grant-2"
+    });
+    const a = auth(
+      created.debate.debateId,
+      created.membership.participantId,
+      created.membership.membershipCredential,
+      "grant-1"
+    );
+    const b = auth(
+      created.debate.debateId,
+      joined.membership.participantId,
+      joined.membership.membershipCredential,
+      "grant-2"
+    );
+
+    const acknowledged = first.read({ auth: a });
+    expect(acknowledged.responseDeadlineAt).toBe("2026-09-20T14:01:00.000Z");
+
+    const staleWait = first.wait({ auth: b, afterSequence: 0, maxWaitMs: 150 });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+    first.close();
+    await expect(staleWait).rejects.toMatchObject({ code: "debate_store_closed" });
+
+    now += 10_000;
+    const restarted = createDebateService(path, {
+      now: () => now,
+      pickupTimeoutMs: 30_000,
+      responseTimeoutMs: 60_000,
+      requestWaitMs: 200
+    });
+    const afterRestart = restarted.read({ auth: a });
+    expect(afterRestart).toMatchObject({
+      status: "active",
+      sequence: 0,
+      turnAcknowledgedAt: "2026-09-20T14:00:00.000Z",
+      responseDeadlineAt: "2026-09-20T14:01:00.000Z"
+    });
+
+    const freshWait = restarted.wait({ auth: b, afterSequence: 0, maxWaitMs: 150 });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+    restarted.send({
+      auth: a,
+      expectedSequence: 0,
+      expectedTurnParticipantId: created.membership.participantId,
+      clientMessageId: "msg-wr1",
+      content: "continue after restart"
+    });
+
+    const continued = await freshWait;
+    expect(continued.timedOut).toBe(false);
+    expect(continued.debate).toMatchObject({
+      status: "active",
+      sequence: 1,
+      currentParticipantId: joined.membership.participantId,
+      turnAcknowledgedAt: "2026-09-20T14:00:10.000Z",
+      responseDeadlineAt: "2026-09-20T14:01:10.000Z"
+    });
+
+    restarted.close();
+  });
+
   it("wakes a bounded waiter immediately when a participant stops the debate", async () => {
     const path = await databasePath("slnctrz-debate-stop-wait-");
     const ids = ["debate-sw", "participant-sw1", "participant-sw2"];
@@ -588,6 +716,116 @@ describe("durable Debate service", () => {
     const woken = await waiting;
     expect(woken.timedOut).toBe(false);
     expect(woken.debate).toMatchObject({ status: "stopped", sequence: 0 });
+
+    service.close();
+  });
+
+  it("serializes concurrent stop/send across independent SQLite handles without half-state", async () => {
+    const path = await databasePath("slnctrz-debate-concurrent-race-");
+    const ids = ["debate-cr", "participant-cr1", "participant-cr2"];
+    const service = createDebateService(path, { id: () => ids.shift() ?? "unexpected-id" });
+    const created = service.create({
+      topic: "Concurrent stop/send race",
+      nickname: "One",
+      connectionId: "grant-1",
+      maxTurns: 4,
+      finalizerRole: "creator"
+    });
+    const joined = service.join({
+      debateId: created.debate.debateId,
+      nickname: "Two",
+      connectionId: "grant-2"
+    });
+    const a = auth(
+      created.debate.debateId,
+      created.membership.participantId,
+      created.membership.membershipCredential,
+      "grant-1"
+    );
+    const b = auth(
+      created.debate.debateId,
+      joined.membership.participantId,
+      joined.membership.membershipCredential,
+      "grant-2"
+    );
+    service.read({ auth: a });
+
+    const moduleUrl = await bundleDebateServiceForWorker(path);
+    const gateBuffer = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+    const gate = new Int32Array(gateBuffer);
+    const worker = new Worker(
+      `
+        const { parentPort, workerData } = require("node:worker_threads");
+        (async () => {
+          const { createDebateService } = await import(workerData.moduleUrl);
+          const service = createDebateService(workerData.path);
+          const gate = new Int32Array(workerData.gateBuffer);
+          Atomics.store(gate, 0, 1);
+          Atomics.notify(gate, 0);
+          while (Atomics.load(gate, 0) !== 2) Atomics.wait(gate, 0, 1);
+          try {
+            const result = service.send(workerData.input);
+            parentPort.postMessage({ ok: true, result });
+          } catch (error) {
+            parentPort.postMessage({
+              ok: false,
+              code: error && typeof error === "object" ? error.code : undefined,
+              message: error instanceof Error ? error.message : String(error)
+            });
+          } finally {
+            service.close();
+          }
+        })().catch((error) => {
+          parentPort.postMessage({ ok: false, code: "worker_failed", message: String(error) });
+        });
+      `,
+      {
+        eval: true,
+        workerData: {
+          moduleUrl,
+          path,
+          gateBuffer,
+          input: {
+            auth: a,
+            expectedSequence: 0,
+            expectedTurnParticipantId: created.membership.participantId,
+            clientMessageId: "msg-concurrent",
+            content: "race send"
+          }
+        }
+      }
+    );
+    const workerOutcome = new Promise<
+      | { readonly ok: true; readonly result: { readonly debate: { readonly sequence: number } } }
+      | { readonly ok: false; readonly code?: string; readonly message: string }
+    >((resolve, reject) => {
+      worker.once("message", resolve);
+      worker.once("error", reject);
+    });
+
+    expect(Atomics.wait(gate, 0, 0, 2_000)).not.toBe("timed-out");
+    Atomics.store(gate, 0, 2);
+    Atomics.notify(gate, 0);
+
+    const stopped = service.stop({ auth: b });
+    const outcome = await workerOutcome;
+    await worker.terminate();
+
+    const final = service.read({ auth: a });
+    expect(stopped.status).toBe("stopped");
+    expect(final.status).toBe("stopped");
+
+    if (outcome.ok) {
+      expect(outcome.result.debate.sequence).toBe(1);
+      expect(final).toMatchObject({ sequence: 1, completedTurns: 1 });
+      expect(final.messages).toEqual([
+        expect.objectContaining({ clientMessageId: "msg-concurrent", content: "race send" })
+      ]);
+    } else {
+      expect(outcome.code).toBe("debate_not_writable");
+      expect(final).toMatchObject({ sequence: 0, completedTurns: 0 });
+      expect(final.messages).toEqual([]);
+    }
 
     service.close();
   });
