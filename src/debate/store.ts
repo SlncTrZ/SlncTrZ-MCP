@@ -293,10 +293,14 @@ export class DebateStore {
         .get(record.auth.debateId, record.auth.participantId, record.clientMessageId) as
         MessageRow | undefined;
       if (existing !== undefined) {
-        if (existing.content_hash !== record.contentHash) {
+        const replayMatchesOriginalPayload =
+          existing.content_hash === record.contentHash &&
+          record.expectedSequence === existing.sequence - 1 &&
+          record.expectedTurnParticipantId === existing.participant_id;
+        if (!replayMatchesOriginalPayload) {
           throw new DebateError(
             "idempotency_conflict",
-            "clientMessageId was already used with different content"
+            "clientMessageId was already used with a different send payload"
           );
         }
         return Object.freeze({

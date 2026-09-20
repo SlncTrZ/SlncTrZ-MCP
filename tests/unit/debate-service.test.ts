@@ -279,6 +279,33 @@ describe("durable Debate service", () => {
       () =>
         service.send({
           auth: creatorAuth,
+          expectedSequence: 1,
+          expectedTurnParticipantId: created.membership.participantId,
+          clientMessageId: "msg-i1",
+          content: "hello"
+        }),
+      "idempotency_conflict"
+    );
+    expectDebateError(
+      () =>
+        service.send({
+          auth: creatorAuth,
+          expectedSequence: 0,
+          expectedTurnParticipantId: "participant-i2",
+          clientMessageId: "msg-i1",
+          content: "hello"
+        }),
+      "idempotency_conflict"
+    );
+    expect(service.read({ auth: creatorAuth })).toMatchObject({
+      sequence: 1,
+      messages: [expect.objectContaining({ clientMessageId: "msg-i1", content: "hello" })]
+    });
+
+    expectDebateError(
+      () =>
+        service.send({
+          auth: creatorAuth,
           expectedSequence: 0,
           expectedTurnParticipantId: created.membership.participantId,
           clientMessageId: "msg-i1",
@@ -517,6 +544,50 @@ describe("durable Debate service", () => {
       code: "wait_cancelled"
     } satisfies Partial<DebateError>);
     expect(service.read({ auth: a }).status).toBe("active");
+
+    service.close();
+  });
+
+  it("wakes a bounded waiter immediately when a participant stops the debate", async () => {
+    const path = await databasePath("slnctrz-debate-stop-wait-");
+    const ids = ["debate-sw", "participant-sw1", "participant-sw2"];
+    const service = createDebateService(path, {
+      id: () => ids.shift() ?? "unexpected-id",
+      requestWaitMs: 250
+    });
+    const created = service.create({
+      topic: "Stop wakes waiters",
+      nickname: "One",
+      connectionId: "grant-1",
+      maxTurns: 4,
+      finalizerRole: "creator"
+    });
+    const joined = service.join({
+      debateId: created.debate.debateId,
+      nickname: "Two",
+      connectionId: "grant-2"
+    });
+    const a = auth(
+      created.debate.debateId,
+      created.membership.participantId,
+      created.membership.membershipCredential,
+      "grant-1"
+    );
+    const b = auth(
+      created.debate.debateId,
+      joined.membership.participantId,
+      joined.membership.membershipCredential,
+      "grant-2"
+    );
+    service.read({ auth: a });
+
+    const waiting = service.wait({ auth: b, afterSequence: 0, maxWaitMs: 200 });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+    service.stop({ auth: a });
+
+    const woken = await waiting;
+    expect(woken.timedOut).toBe(false);
+    expect(woken.debate).toMatchObject({ status: "stopped", sequence: 0 });
 
     service.close();
   });

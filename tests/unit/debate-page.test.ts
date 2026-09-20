@@ -119,6 +119,8 @@ describe("Debate owner page foundation", () => {
     expect(html).toContain("@media(prefers-reduced-motion:reduce)");
     expect(html).toContain(":focus-visible");
     expect(html).toContain("min-height:100dvh");
+    expect(html).toContain("--cyan:");
+    expect(html).toContain("linear-gradient(90deg,var(--cyan),var(--violet))");
 
     for (const state of [
       "loading",
