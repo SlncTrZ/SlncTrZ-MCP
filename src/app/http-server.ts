@@ -6,6 +6,7 @@
  */
 
 import type { HarnessRuntime } from "../context/runtime.js";
+import type { DebateService } from "../debate/index.js";
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -78,6 +79,7 @@ export interface GatewayServerOptions {
   readonly mcpEventBus?: ServerEventBus;
   readonly taskRuntime?: TaskRuntime;
   readonly harnessRuntime?: HarnessRuntime;
+  readonly debateService?: DebateService;
   readonly onError?: (error: Error) => void;
 }
 
@@ -180,6 +182,13 @@ function responseBodyCounter(res: ServerResponse): () => number {
     return Reflect.apply(originalEnd, this, args) as ServerResponse;
   } as ServerResponse["end"];
   return () => bytes;
+}
+
+function bearerToken(authorization: string | undefined): string | undefined {
+  if (authorization === undefined) return undefined;
+  const match = /^Bearer\s+(.+)$/iu.exec(authorization);
+  const token = match?.[1]?.trim();
+  return token === undefined || token.length === 0 ? undefined : token;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -357,6 +366,13 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           return;
         }
 
+        const accessToken = bearerToken(req.headers.authorization);
+        if (accessToken === undefined) {
+          throw new Error("Verified OAuth request is missing its bearer token");
+        }
+        const authenticatedConnection =
+          await options.oauthService.authenticateConnection(accessToken);
+
         const captured = options.policyStore?.captureLease();
         let releaseRuntime = captured?.release;
         let resolution: ExchangePolicyResolution;
@@ -391,7 +407,11 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
           ...(options.harnessRuntime === undefined
             ? {}
-            : { harnessRuntime: options.harnessRuntime })
+            : { harnessRuntime: options.harnessRuntime }),
+          authenticatedConnection,
+          ...(options.debateService === undefined ? {} : { debateService: options.debateService }),
+          restrictSurfaceProfile: (profile) =>
+            options.oauthService.restrictConnection(accessToken, profile)
         });
         const requestHandleMcp = toNodeHandler(
           requestHandler,

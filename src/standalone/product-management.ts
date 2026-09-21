@@ -309,6 +309,7 @@ function installedSystemServiceSetup(
   options: {
     readonly activation?: ActivationRecord;
     readonly rollbackActivation?: ActivationRecord;
+    readonly lifecycleIntentReason?: "release_restart";
   } = {}
 ) {
   return {
@@ -353,6 +354,7 @@ async function activateInstalledSystemService(
   await activateSystemService(
     installedSystemServiceSetup(context, {
       activation,
+      lifecycleIntentReason: "release_restart",
       ...(rollbackActivation === undefined ? {} : { rollbackActivation })
     }),
     systemServiceDependencies(dependencies)

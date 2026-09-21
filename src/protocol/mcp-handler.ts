@@ -6,7 +6,9 @@
  * contract implemented by the official TypeScript SDK v2.
  */
 
+import type { AuthenticatedConnection, SurfaceProfile } from "../auth/connection-profile.js";
 import type { HarnessRuntime } from "../context/runtime.js";
+import type { DebateService } from "../debate/index.js";
 
 import {
   createMcpHandler,
@@ -30,6 +32,9 @@ export interface McpHandlerOptions {
   readonly eventBus?: ServerEventBus;
   readonly taskRuntime?: TaskRuntime;
   readonly harnessRuntime?: HarnessRuntime;
+  readonly authenticatedConnection?: AuthenticatedConnection;
+  readonly debateService?: DebateService;
+  readonly restrictSurfaceProfile?: (profile: SurfaceProfile) => AuthenticatedConnection;
 }
 
 /** Create one handler whose factory isolates every modern and legacy exchange. */
@@ -48,18 +53,30 @@ export function createGatewayMcpHandler(options: McpHandlerOptions = {}): McpHtt
           ? {}
           : { ownerConsoleUrl: options.ownerConsoleUrl }),
         ...(options.gatewayInfo === undefined ? {} : { gatewayInfo: options.gatewayInfo }),
-        ...(context.authInfo === undefined
-          ? {}
+        ...(options.authenticatedConnection === undefined
+          ? context.authInfo === undefined
+            ? {}
+            : {
+                principal: {
+                  clientId: context.authInfo.clientId,
+                  scopes: context.authInfo.scopes
+                }
+              }
           : {
+              authenticatedConnection: options.authenticatedConnection,
               principal: {
-                clientId: context.authInfo.clientId,
-                scopes: context.authInfo.scopes
+                clientId: options.authenticatedConnection.clientId,
+                scopes: [...options.authenticatedConnection.scopes]
               }
             }),
         ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
         ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
         ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
-        ...(options.harnessRuntime === undefined ? {} : { harnessRuntime: options.harnessRuntime })
+        ...(options.harnessRuntime === undefined ? {} : { harnessRuntime: options.harnessRuntime }),
+        ...(options.debateService === undefined ? {} : { debateService: options.debateService }),
+        ...(options.restrictSurfaceProfile === undefined
+          ? {}
+          : { restrictSurfaceProfile: options.restrictSurfaceProfile })
       }),
     {
       legacy: "stateless",

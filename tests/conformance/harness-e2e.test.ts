@@ -68,7 +68,7 @@ interface ToolReply {
   };
   error?: unknown;
 }
-async function start(withProvider = false) {
+async function start(withProvider = false, providerFailure = false) {
   const global = await temp(),
     project = await temp();
   await ensureHarnessLayout(global);
@@ -97,6 +97,18 @@ async function start(withProvider = false) {
       health: () => "ready",
       invoke: async (_name, args) => {
         providerCalls.push(args);
+        if (providerFailure) {
+          return {
+            isError: true,
+            truncated: false,
+            text: "provider_unavailable",
+            diagnostic: {
+              correlationId: "provider-incident-1",
+              failureClass: "transport_failure" as const,
+              recoveryState: "recovering" as const
+            }
+          };
+        }
         return { isError: false, truncated: false, text: JSON.stringify(args) };
       }
     })
@@ -342,6 +354,27 @@ it("gates upstream provider dispatch and strips the receipt from provider argume
   });
   expect(reply.result.isError).not.toBe(true);
   expect(g.providerCalls).toEqual([{ value: "test" }]);
+});
+
+it("keeps provider incident correlation in audit without leaking it into tool output", async () => {
+  const g = await start(true, true);
+  const boot = await g.rpc("tools/call", { name: "context.bootstrap", arguments: {} });
+  const reply = await g.rpc("tools/call", {
+    name: "sample.echo",
+    arguments: { value: "test", slnctrzContext: boot.result.structuredContent.contextToken }
+  });
+  expect(reply.result.isError).toBe(true);
+  expect(reply.result.content[0]?.text).toBe("provider_unavailable");
+  expect(JSON.stringify(reply.result)).not.toContain("provider-incident-1");
+
+  const event = g.audit.find((entry) => entry.toolId === "sample.echo");
+  expect(event).toMatchObject({
+    providerId: "sample",
+    correlationId: "provider-incident-1",
+    providerFailureClass: "transport_failure",
+    recoveryState: "recovering",
+    result: "error"
+  });
 });
 
 it("permits owned task cancellation when instructions become unreadable", async () => {

@@ -28,9 +28,12 @@ async function fixture() {
 }
 
 describe("managed owner state", () => {
-  it("derives the static OAuth redirect store from the managed state root", async () => {
+  it("derives durable OAuth and Debate state from the managed state root", async () => {
     const { paths } = await fixture();
     expect(paths.oauthStaticRedirectsFile).toBe(join(paths.root, "oauth-static-redirects.json"));
+    expect(paths.oauthGrantsDatabaseFile).toBe(join(paths.root, "oauth-grants.sqlite3"));
+    expect(paths.debateDatabaseFile).toBe(join(paths.root, "debate.sqlite3"));
+    expect(paths.lifecycleIntentFile).toBe(join(paths.root, "lifecycle-intent.json"));
   });
 
   it.skipIf(process.platform === "win32")(

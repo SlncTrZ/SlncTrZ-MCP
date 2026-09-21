@@ -27,9 +27,14 @@ describe("SQLite audit sink", () => {
       requestId: "req-1",
       clientId: "client-1",
       workspaceId: "default",
-      capabilityId: "core.exec",
+      capabilityId: "sample.echo",
+      providerId: "sample",
+      correlationId: "provider-incident-1",
+      providerFailureClass: "transport_failure",
+      recoveryState: "recovering",
+      lifecycleReason: "SIGTERM",
       policyVersion: "policy-1",
-      result: "success",
+      result: "error",
       durationMs: 17
     });
     sink.close();
@@ -40,8 +45,13 @@ describe("SQLite audit sink", () => {
 
     expect(row.category).toBe("tool");
     expect(row.request_id).toBe("req-1");
-    expect(row.capability_id).toBe("core.exec");
-    expect(row.result).toBe("success");
+    expect(row.capability_id).toBe("sample.echo");
+    expect(row.provider_id).toBe("sample");
+    expect(row.correlation_id).toBe("provider-incident-1");
+    expect(row.provider_failure_class).toBe("transport_failure");
+    expect(row.recovery_state).toBe("recovering");
+    expect(row.lifecycle_reason).toBe("SIGTERM");
+    expect(row.result).toBe("error");
     expect(row.duration_ms).toBe(17);
     expect(typeof row.build_version).toBe("string");
     expect(typeof row.build_commit).toBe("string");

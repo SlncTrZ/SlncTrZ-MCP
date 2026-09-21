@@ -13,7 +13,8 @@ import {
   type ExtensionAdapter,
   type ExtensionCallResult,
   type ExtensionToolInfo,
-  type ProviderCredential
+  type ProviderCredential,
+  type ProviderDiagnostic
 } from "./adapter.js";
 import { createExtensionSupervisor, type SupervisorState } from "./supervisor.js";
 import { type CompiledExtensionRegistry } from "./registry.js";
@@ -29,6 +30,7 @@ export interface ExtensionProviderRuntime {
     options?: { readonly signal?: AbortSignal }
   ): Promise<ExtensionCallResult>;
   stop(): Promise<void>;
+  diagnostic?(): ProviderDiagnostic | undefined;
 }
 
 export interface ExtensionRuntimeCatalog {
@@ -158,7 +160,11 @@ export async function createExtensionRuntimeCatalog(
       administrativelyDisabled || credentialError
         ? {
             async start() {
-              throw new AdapterError("provider_unavailable", "provider credentials unavailable");
+              throw new AdapterError(
+                "provider_unavailable",
+                "provider credentials unavailable",
+                "authorization_failure"
+              );
             },
             async listTools() {
               throw new AdapterError("provider_unavailable", "provider_unavailable");

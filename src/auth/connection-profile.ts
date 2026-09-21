@@ -23,6 +23,7 @@ export function resolveSurfaceProfile(
 }
 const GATEWAY_BUILTINS = new Set([
   "core.ping",
+  "connection.restrict",
   "debate.create",
   "debate.join",
   "debate.read",

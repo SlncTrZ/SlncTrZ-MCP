@@ -1,5 +1,6 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { createServer } from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,6 +9,8 @@ import { bootstrap } from "../../src/app/main.js";
 import type { RuntimeConfig } from "../../src/app/config.js";
 import { listenControlPlane, type ControlListenAddress } from "../../src/control-plane/server.js";
 import { listenGateway, type ListenAddress } from "../../src/app/http-server.js";
+import { writeGatewayLifecycleIntent } from "../../src/observability/lifecycle-observability.js";
+import { managedStatePaths } from "../../src/owner/managed-state.js";
 
 const probeServers: ReturnType<typeof createServer>[] = [];
 const cleanup: string[] = [];
@@ -76,6 +79,64 @@ describe("bootstrap lifecycle", () => {
     await expect(
       assertPortIsAvailable(controlAddress as ControlListenAddress)
     ).resolves.toBeUndefined();
+  });
+
+  it("creates durable OAuth grant and Debate databases under stateRoot", async () => {
+    const root = await stateRoot();
+    const lifecycle = await bootstrap({
+      config: runtimeConfig(root),
+      shutdownTimeoutMs: 1_000
+    });
+
+    const oauthPath = join(root, "oauth-grants.sqlite3");
+    const debatePath = join(root, "debate.sqlite3");
+    expect((await stat(oauthPath)).isFile()).toBe(true);
+    expect((await stat(debatePath)).isFile()).toBe(true);
+
+    await lifecycle.shutdown();
+
+    for (const path of [oauthPath, debatePath]) {
+      const database = new DatabaseSync(path, { readOnly: true });
+      expect(database.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 1 });
+      database.close();
+    }
+  });
+
+  it("persists restart correlation and explicit shutdown reason without inventing one", async () => {
+    const root = await stateRoot();
+    const paths = managedStatePaths(root);
+    await writeGatewayLifecycleIntent(paths.lifecycleIntentFile, "release_restart", {
+      correlationId: () => "release-restart-1"
+    });
+
+    const lifecycle = await bootstrap({
+      config: runtimeConfig(root),
+      shutdownTimeoutMs: 1_000
+    });
+    await lifecycle.shutdown("SIGTERM");
+
+    const database = new DatabaseSync(paths.auditDatabaseFile, { readOnly: true });
+    const rows = database
+      .prepare(
+        "SELECT capability_id, correlation_id, lifecycle_reason, result FROM audit_events WHERE category = 'lifecycle' ORDER BY id"
+      )
+      .all() as Record<string, unknown>[];
+    database.close();
+
+    expect(rows).toEqual([
+      {
+        capability_id: "gateway.startup",
+        correlation_id: "release-restart-1",
+        lifecycle_reason: "release_restart",
+        result: "success"
+      },
+      {
+        capability_id: "gateway.shutdown",
+        correlation_id: null,
+        lifecycle_reason: "SIGTERM",
+        result: "success"
+      }
+    ]);
   });
 
   it("returns an idempotent shutdown handle that closes both listeners", async () => {

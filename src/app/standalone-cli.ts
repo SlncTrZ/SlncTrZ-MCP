@@ -80,6 +80,9 @@ function help(): string {
     "  owner status",
     "  owner policy",
     "  owner reload",
+    "  owner connections",
+    "  owner profile <grant-id> <full|gateway-only>",
+    "  owner client-default <client-id> <full|gateway-only>",
     "  --help",
     "  --version",
     "  --build-info",
@@ -426,6 +429,47 @@ export async function runStandaloneCli(
     const paths = managedStatePaths(stateRoot);
     await initializeDefaultWorkspace({ paths, root });
     output.write(JSON.stringify({ workspaceId: "default", root, policyFile: paths.policyFile }));
+    return true;
+  }
+  if (command === "connections" && args.length === 2) {
+    output.write(
+      JSON.stringify(await ownerRequest("/connections", { method: "GET" }, environment, fetchImpl))
+    );
+    return true;
+  }
+  if (command === "profile" || command === "client-default") {
+    if (args.length !== 4) {
+      throw new Error(
+        command === "profile"
+          ? "Usage: slnctrz-mcp owner profile <grant-id> <full|gateway-only>"
+          : "Usage: slnctrz-mcp owner client-default <client-id> <full|gateway-only>"
+      );
+    }
+    const id = args[2];
+    const profile = args[3];
+    if (id === undefined || id.length === 0) throw new Error("Connection identifier is required");
+    if (profile !== "full" && profile !== "gateway-only") {
+      throw new Error("Surface profile must be full or gateway-only");
+    }
+    const grantMutation = command === "profile";
+    output.write(
+      JSON.stringify(
+        await ownerRequest(
+          grantMutation ? "/connections/profile" : "/connections/default",
+          {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(
+              grantMutation
+                ? { grantId: id, surfaceProfile: profile }
+                : { clientId: id, surfaceProfile: profile }
+            )
+          },
+          environment,
+          fetchImpl
+        )
+      )
+    );
     return true;
   }
   const route =

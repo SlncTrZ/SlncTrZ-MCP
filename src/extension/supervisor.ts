@@ -8,6 +8,7 @@
  * restarts consume one finite per-incident budget before the provider is quarantined.
  */
 
+import { randomUUID } from "node:crypto";
 import type { MetricsRegistry } from "../observability/metrics.js";
 import {
   AdapterError,
@@ -15,7 +16,9 @@ import {
   type AdapterHealth,
   type ExtensionAdapter,
   type ExtensionCallResult,
-  type ExtensionToolInfo
+  type ExtensionToolInfo,
+  type ProviderDiagnostic,
+  type ProviderFailureClass
 } from "./adapter.js";
 
 export type SupervisorState =
@@ -63,7 +66,11 @@ interface QueueEntry {
 type CallOutcome =
   | { readonly kind: "ok"; readonly result: ExtensionCallResult }
   | { readonly kind: "timeout" }
-  | { readonly kind: "adapter"; readonly code: AdapterError["code"] }
+  | {
+      readonly kind: "adapter";
+      readonly code: AdapterError["code"];
+      readonly failureClass: ProviderFailureClass;
+    }
   | { readonly kind: "error"; readonly error: unknown };
 
 function isRunnable(state: SupervisorState): boolean {
@@ -81,6 +88,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   ): Promise<ExtensionCallResult>;
   stop(): Promise<void>;
   health(): AdapterHealth;
+  diagnostic(): ProviderDiagnostic | undefined;
 } {
   const adapter = options.adapter;
   const startupTimeoutMs = options.startupTimeoutMs ?? 10_000;
@@ -96,7 +104,29 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   let abortStart: (() => void) | undefined;
   let activeCall: QueueEntry | undefined;
   let abortActive: (() => void) | undefined;
+  let incident: ProviderDiagnostic | undefined;
   const queue: QueueEntry[] = [];
+
+  const snapshotIncident = (): ProviderDiagnostic | undefined =>
+    incident === undefined ? undefined : Object.freeze({ ...incident });
+
+  const beginIncident = (failureClass: ProviderFailureClass): ProviderDiagnostic => {
+    if (incident === undefined || incident.recoveryState === "recovered") {
+      incident = Object.freeze({
+        correlationId: randomUUID(),
+        failureClass,
+        recoveryState: "recovering" as const
+      });
+    } else if (incident.failureClass === "unknown" && failureClass !== "unknown") {
+      incident = Object.freeze({ ...incident, failureClass });
+    }
+    return snapshotIncident() as ProviderDiagnostic;
+  };
+
+  const markIncident = (recoveryState: ProviderDiagnostic["recoveryState"]): void => {
+    if (incident === undefined) return;
+    incident = Object.freeze({ ...incident, recoveryState });
+  };
 
   const transition = (to: SupervisorState): void => {
     if (!VALID_TRANSITIONS[state].includes(to)) {
@@ -172,7 +202,11 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     drain();
   };
 
-  const scheduleRestart = (reason?: AdapterError["code"]): Promise<void> => {
+  const scheduleRestart = (
+    reason?: AdapterError["code"],
+    failureClass: ProviderFailureClass = "unknown"
+  ): Promise<void> => {
+    beginIncident(failureClass);
     if (restarting !== undefined) return restarting;
     const sessionRecovery = reason === "provider_session_invalid";
     if (sessionRecovery) options.metrics?.extensionSessionInvalid();
@@ -184,6 +218,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
         if (restartAttempts > maxRestarts) {
           if (sessionRecovery) options.metrics?.extensionSessionRecoveryFinished(false);
           transition("quarantined");
+          markIncident("quarantined");
           rejectQueued("provider_unavailable");
           return;
         }
@@ -194,6 +229,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
           await withTimeout(adapter.start(), startupTimeoutMs);
           if (state === "starting") {
             transition("ready");
+            markIncident("recovered");
             if (sessionRecovery) options.metrics?.extensionSessionRecoveryFinished(true);
             drain();
           }
@@ -221,7 +257,11 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     });
     abortActive = (): void => {
       controller.abort();
-      settleStopped?.({ kind: "adapter", code: "provider_unavailable" });
+      settleStopped?.({
+        kind: "adapter",
+        code: "provider_unavailable",
+        failureClass: "cancelled"
+      });
     };
 
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -238,7 +278,11 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       .then((result) => ({ kind: "ok", result }) as CallOutcome)
       .catch((error: unknown) =>
         error instanceof AdapterError
-          ? ({ kind: "adapter", code: error.code } as CallOutcome)
+          ? ({
+              kind: "adapter",
+              code: error.code,
+              failureClass: error.failureClass
+            } as CallOutcome)
           : ({ kind: "error", error } as CallOutcome)
       );
 
@@ -247,15 +291,34 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       caller?.removeEventListener("abort", linkAbort);
 
       if (outcome.kind === "timeout") {
-        entry.resolve({ isError: true, truncated: false, text: "provider_timeout" });
-        if (isRunnable(state)) void scheduleRestart("provider_timeout");
+        const diagnostic = beginIncident("timeout");
+        entry.resolve({
+          isError: true,
+          truncated: false,
+          text: "provider_timeout",
+          diagnostic
+        });
+        if (isRunnable(state)) void scheduleRestart("provider_timeout", "timeout");
       } else if (outcome.kind === "ok") {
-        entry.resolve(outcome.result);
+        const recovery = incident?.recoveryState === "recovered" ? snapshotIncident() : undefined;
+        entry.resolve(
+          recovery === undefined ? outcome.result : { ...outcome.result, diagnostic: recovery }
+        );
+        if (recovery !== undefined) incident = undefined;
       } else if (outcome.kind === "adapter") {
         const callerCode =
           outcome.code === "provider_session_invalid" ? "provider_unavailable" : outcome.code;
-        entry.resolve({ isError: true, truncated: false, text: callerCode });
-        if (isRunnable(state)) void scheduleRestart(outcome.code);
+        const diagnostic =
+          stopped && outcome.failureClass === "cancelled"
+            ? undefined
+            : beginIncident(outcome.failureClass);
+        entry.resolve({
+          isError: true,
+          truncated: false,
+          text: callerCode,
+          ...(diagnostic === undefined ? {} : { diagnostic })
+        });
+        if (isRunnable(state)) void scheduleRestart(outcome.code, outcome.failureClass);
       } else {
         entry.reject(outcome.error);
       }
@@ -311,7 +374,12 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
         rejectQueued("provider_unavailable");
         if (!stopped) {
           const reason = error instanceof AdapterError ? error.code : "provider_unavailable";
-          void scheduleRestart(reason);
+          const failureClass =
+            error instanceof AdapterError && error.failureClass !== "unknown"
+              ? error.failureClass
+              : "startup_unavailable";
+          beginIncident(failureClass);
+          void scheduleRestart(reason, failureClass);
         }
         throw error;
       } finally {
@@ -332,7 +400,15 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       callOptions: AdapterCallOptions = {}
     ): Promise<ExtensionCallResult> {
       if (!isRunnable(state) && state !== "restarting") {
-        return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+        const diagnostic = snapshotIncident();
+        return Promise.reject(
+          new AdapterError(
+            "provider_unavailable",
+            "provider_unavailable",
+            diagnostic?.failureClass ?? "startup_unavailable",
+            diagnostic
+          )
+        );
       }
       return new Promise<ExtensionCallResult>((resolve, reject) => {
         enqueue({ resolve, reject, toolId, args, options: callOptions, removed: false });
@@ -353,6 +429,10 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
 
     health(): AdapterHealth {
       return adapter.health();
+    },
+
+    diagnostic(): ProviderDiagnostic | undefined {
+      return snapshotIncident();
     }
   };
 }

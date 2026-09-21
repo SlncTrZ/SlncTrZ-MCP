@@ -196,9 +196,12 @@ describe("streamable http adapter (integration against real fetch)", () => {
     expect(toolCalls).toBe(2); // caller retried once; adapter never replayed the failed call
   });
 
-  it.each([401, 503])(
-    "does not misclassify ordinary legacy HTTP %i as a stale session",
-    async (status) => {
+  it.each([
+    [401, "authorization_failure"],
+    [503, "transport_failure"]
+  ] as const)(
+    "classifies ordinary legacy HTTP %i without mistaking it for a stale session",
+    async (status, failureClass) => {
       const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
         if (body.method === "server/discover") {
@@ -226,7 +229,8 @@ describe("streamable http adapter (integration against real fetch)", () => {
       const adapter = createStreamableHttpAdapter(manifest);
       await adapter.start();
       await expect(adapter.callTool("ping", {}, {})).rejects.toMatchObject({
-        code: "provider_unavailable"
+        code: "provider_unavailable",
+        failureClass
       });
     }
   );

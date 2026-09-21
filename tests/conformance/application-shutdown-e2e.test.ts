@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
@@ -356,6 +357,15 @@ describe.skipIf(process.platform === "win32")("application entry graceful shutdo
       await expect(waitForExit(gateway)).resolves.toBeUndefined();
       expect(gateway.exitCode, stderr).not.toBeNull();
       await expect(expectProcessGone(descendantPid)).resolves.toBeUndefined();
+
+      const audit = new DatabaseSync(join(stateRoot, "audit.sqlite3"), { readOnly: true });
+      const lifecycle = audit
+        .prepare(
+          "SELECT lifecycle_reason, result FROM audit_events WHERE category = 'lifecycle' AND capability_id = 'gateway.shutdown' ORDER BY id DESC LIMIT 1"
+        )
+        .get() as Record<string, unknown> | undefined;
+      audit.close();
+      expect(lifecycle).toEqual({ lifecycle_reason: signal, result: "success" });
     }, 15_000);
   }
 });

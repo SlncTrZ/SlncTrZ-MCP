@@ -5,7 +5,7 @@
  * attach request arguments, output, paths, endpoints, environment data, or credentials.
  */
 
-export type AuditCategory = "auth" | "policy" | "tool" | "control";
+export type AuditCategory = "auth" | "policy" | "tool" | "control" | "lifecycle";
 
 export interface ExportableAuditEvent {
   readonly timestamp: string;
@@ -16,6 +16,10 @@ export interface ExportableAuditEvent {
   readonly capabilityId?: string;
   readonly commandId?: string;
   readonly providerId?: string;
+  readonly correlationId?: string;
+  readonly providerFailureClass?: string;
+  readonly recoveryState?: string;
+  readonly lifecycleReason?: string;
   readonly policyVersion?: string;
   readonly result: "success" | "error" | "cancelled" | "timeout" | "denied";
   readonly durationMs?: number;
@@ -47,6 +51,12 @@ export function createAuditJournal(options: {
         ...(event.capabilityId === undefined ? {} : { capabilityId: event.capabilityId }),
         ...(event.commandId === undefined ? {} : { commandId: event.commandId }),
         ...(event.providerId === undefined ? {} : { providerId: event.providerId }),
+        ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }),
+        ...(event.providerFailureClass === undefined
+          ? {}
+          : { providerFailureClass: event.providerFailureClass }),
+        ...(event.recoveryState === undefined ? {} : { recoveryState: event.recoveryState }),
+        ...(event.lifecycleReason === undefined ? {} : { lifecycleReason: event.lifecycleReason }),
         ...(event.policyVersion === undefined ? {} : { policyVersion: event.policyVersion }),
         result: event.result,
         ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs })
