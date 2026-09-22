@@ -235,7 +235,10 @@ describe("gateway HTTP surface", () => {
     };
 
     expect(listResponse.status).toBe(200);
-    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual(["core.ping"]);
+    expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
+      "connection.restrict",
+      "core.ping"
+    ]);
 
     const callResponse = await fetch(`${origin}/mcp`, {
       method: "POST",
@@ -368,7 +371,7 @@ describe("gateway HTTP surface", () => {
     };
     const tools = listPayload.result?.tools ?? [];
     const names = tools.map((tool) => tool.name);
-    expect(names).toEqual(["core.ping"]);
+    expect(names).toEqual(["connection.restrict", "core.ping"]);
     expect(names.some((name) => name?.startsWith("owner."))).toBe(false);
     expect(names).not.toContain("core.read");
     expect(names).not.toContain("core.write");
@@ -554,6 +557,7 @@ describe("gateway HTTP surface", () => {
       result?: { tools?: { name?: string }[] };
     };
     expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
+      "connection.restrict",
       "core.ping",
       "core.read",
       "media.read_image",
@@ -629,6 +633,7 @@ describe("gateway HTTP surface", () => {
       result?: { tools?: { name?: string }[] };
     };
     expect(listPayload.result?.tools?.map((tool) => tool.name)).toEqual([
+      "connection.restrict",
       "core.ping",
       "core.read",
       "media.read_image",

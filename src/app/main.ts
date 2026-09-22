@@ -14,6 +14,8 @@ import { join } from "node:path";
 import { InMemoryServerEventBus } from "@modelcontextprotocol/server";
 import { createDynamicClientFileStore } from "../auth/dynamic-client-store.js";
 import { OAuthService } from "../auth/oauth-service.js";
+import { createSqliteOAuthGrantStore } from "../auth/oauth-grant-store.js";
+import { OwnerConnectionService } from "../auth/owner-connection-service.js";
 import { resolveOwnerSecret } from "../auth/owner-secret-store.js";
 import {
   createStaticClientRedirectStore,
@@ -25,6 +27,10 @@ import {
 } from "../observability/auth-audit.js";
 import { createAuditJournal } from "../observability/audit-journal.js";
 import { createMetricsRegistry } from "../observability/metrics.js";
+import {
+  consumeGatewayLifecycleIntent,
+  type GatewayLifecycleReason
+} from "../observability/lifecycle-observability.js";
 import { createSqliteAuditSink } from "../observability/sqlite-audit.js";
 import { createSqliteUsageStore, type SqliteUsageStore } from "../observability/sqlite-usage.js";
 import { createSafeUsageObserver, NOOP_USAGE_OBSERVER } from "../observability/usage-types.js";
@@ -32,6 +38,7 @@ import {
   createJsonLineToolAuditSink,
   createJournalToolAuditSink
 } from "../observability/tool-audit.js";
+import { createDebateService } from "../debate/index.js";
 import { createExtensionRuntimeCatalog } from "../extension/runtime.js";
 import { compilePolicyDocument, loadPolicyDocument } from "../policy/policy-config.js";
 import { buildActivePolicySnapshot, type ActivePolicySnapshot } from "../policy/policy-snapshot.js";
@@ -70,7 +77,7 @@ export interface BootstrapDependencies {
 }
 
 export interface ApplicationLifecycle {
-  shutdown(): Promise<void>;
+  shutdown(reason?: GatewayLifecycleReason): Promise<void>;
 }
 
 const DEFAULT_APPLICATION_SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -151,6 +158,12 @@ export async function bootstrap(
     onPersistError: (error) =>
       console.error(`[audit-sqlite] ${error instanceof Error ? error.message : "persist failed"}`)
   });
+  const startupIntent = await consumeGatewayLifecycleIntent(statePaths.lifecycleIntentFile).catch(
+    () => {
+      console.error("[lifecycle] restart intent unavailable");
+      return undefined;
+    }
+  );
   const ownerSecret = await resolveOwnerSecret({
     secretFile: statePaths.ownerPassphraseFile,
     ...(config.ownerSecretHash === undefined ? {} : { environmentHash: config.ownerSecretHash })
@@ -184,6 +197,9 @@ export async function bootstrap(
     config.maxDynamicClients
   );
   const staticRedirectStore = createStaticClientRedirectStore(statePaths.oauthStaticRedirectsFile);
+  const oauthGrantStore = createSqliteOAuthGrantStore(statePaths.oauthGrantsDatabaseFile);
+  const ownerConnections = new OwnerConnectionService(oauthGrantStore);
+  const debateService = createDebateService(statePaths.debateDatabaseFile);
   const staticClient =
     config.staticClient === undefined
       ? undefined
@@ -209,6 +225,7 @@ export async function bootstrap(
     maxDynamicClients: config.maxDynamicClients,
     audit: createJournalAuthAuditSink(auditJournal, createJsonLineAuthAuditSink(), metrics),
     dynamicClientStore,
+    grantStore: oauthGrantStore,
     ...(staticClient === undefined ? {} : { staticClient, staticRedirectStore })
   });
   const loadActivePolicy = async (policyFile: string): Promise<ActivePolicySnapshot> => {
@@ -292,6 +309,8 @@ export async function bootstrap(
         mcpProviders: mcpProviderService,
         mcpCredentials: mcpCredentialStore,
         mcpOrchestrator,
+        connections: ownerConnections,
+        debates: debateService,
         secureCookies: config.publicMcpUrl.protocol === "https:",
         ...(usageStore === undefined ? {} : { usage: usageStore }),
         productInfo: {
@@ -340,6 +359,7 @@ export async function bootstrap(
     mcpEventBus,
     taskRuntime,
     harnessRuntime,
+    debateService,
     allowedHostnames: config.allowedHostnames,
     allowedOriginHostnames: config.allowedOriginHostnames,
     onError: (error) => console.error(error.message)
@@ -348,6 +368,7 @@ export async function bootstrap(
     ownerSecretHash,
     oauthService,
     policyStore,
+    connections: ownerConnections,
     auditJournal,
     gatewayInfo: { version: APP_VERSION, buildCommit: BUILD_COMMIT },
     ...(metrics === undefined ? {} : { metrics }),
@@ -355,9 +376,16 @@ export async function bootstrap(
   });
   let shutdownPromise: Promise<void> | undefined;
   const lifecycle: ApplicationLifecycle = Object.freeze({
-    shutdown() {
+    shutdown(reason: GatewayLifecycleReason = "requested") {
       if (shutdownPromise !== undefined) return shutdownPromise;
       shutdownPromise = (async () => {
+        auditJournal.append({
+          timestamp: new Date().toISOString(),
+          category: "lifecycle",
+          capabilityId: "gateway.shutdown",
+          lifecycleReason: reason,
+          result: reason === "startup_failure" ? "error" : "success"
+        });
         // close() immediately stops new TCP accepts while allowing in-flight requests to drain.
         const gatewayClosing = closeServerBounded(server, shutdownTimeoutMs);
         const controlClosing = closeServerBounded(controlServer, shutdownTimeoutMs);
@@ -370,6 +398,8 @@ export async function bootstrap(
         if (active.stop !== undefined) {
           await boundedCleanup(active.stop(), shutdownTimeoutMs);
         }
+        debateService.close();
+        oauthGrantStore.close();
         closeAudit();
         usageStore?.close();
       })();
@@ -386,10 +416,30 @@ export async function bootstrap(
     });
     address = await startGateway(server, { host: config.host, port: config.port });
   } catch (error) {
-    await lifecycle.shutdown();
+    auditJournal.append({
+      timestamp: new Date().toISOString(),
+      category: "lifecycle",
+      capabilityId: "gateway.startup",
+      ...(startupIntent === undefined ? {} : { correlationId: startupIntent.correlationId }),
+      lifecycleReason: "startup_failure",
+      result: "error"
+    });
+    await lifecycle.shutdown("startup_failure");
     throw error;
   }
 
+  auditJournal.append({
+    timestamp: new Date().toISOString(),
+    category: "lifecycle",
+    capabilityId: "gateway.startup",
+    ...(startupIntent === undefined
+      ? {}
+      : {
+          correlationId: startupIntent.correlationId,
+          lifecycleReason: startupIntent.reason
+        }),
+    result: "success"
+  });
   console.log(`SlncTrZ-MCP listening on http://${address.host}:${address.port}/mcp`);
   console.log(
     `SlncTrZ-MCP control plane listening on http://${controlAddress.host}:${controlAddress.port}`

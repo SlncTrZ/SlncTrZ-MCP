@@ -72,6 +72,8 @@ function activated(): ReloadResult {
 async function fixture() {
   const revokedClients: string[] = [];
   const revokedTokens: string[] = [];
+  const grantProfiles: { grantId: string; profile: "full" | "gateway-only" }[] = [];
+  const clientDefaults: { clientId: string; profile: "full" | "gateway-only" }[] = [];
   const server = createControlPlaneServer({
     ownerSecretHash: createOwnerSecretHash(secret),
     oauthService: {
@@ -90,13 +92,33 @@ async function fixture() {
         return activated();
       }
     },
+    connections: {
+      listConnections: () => [
+        {
+          grantId: "grant-1",
+          connectionId: "grant-1",
+          clientId: "client-1",
+          resource: "https://gateway.test/mcp",
+          scopes: ["mcp:tools"],
+          surfaceProfile: "full" as const,
+          createdAt: 1,
+          lastSeenAt: 2
+        }
+      ],
+      setGrantProfile(grantId, profile) {
+        grantProfiles.push({ grantId, profile });
+      },
+      setClientDefault(clientId, profile) {
+        clientDefaults.push({ clientId, profile });
+      }
+    },
     auditJournal: createAuditJournal({ capacity: 8 }),
     gatewayInfo: { version: "1.2.3", buildCommit: "abc123" }
   });
   servers.push(server);
   const address = await listenControlPlane(server, { host: "127.0.0.1", port: 0 });
   const origin = `http://127.0.0.1:${address.port}`;
-  return { origin, revokedClients, revokedTokens };
+  return { origin, revokedClients, revokedTokens, grantProfiles, clientDefaults };
 }
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
@@ -136,6 +158,31 @@ describe("control plane server", () => {
     });
     expect(reload.status).toBe(200);
     expect(await reload.json()).toMatchObject({ activated: true, activeVersion: "policy-v2" });
+  });
+
+  it("lists connections and mutates grant/client surface profiles", async () => {
+    const { origin, grantProfiles, clientDefaults } = await fixture();
+
+    const connections = await fetch(`${origin}/connections`, { headers: authHeaders() });
+    expect(await connections.json()).toEqual({
+      connections: [expect.objectContaining({ grantId: "grant-1", surfaceProfile: "full" })]
+    });
+
+    const grant = await fetch(`${origin}/connections/profile`, {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ grantId: "grant-1", surfaceProfile: "gateway-only" })
+    });
+    expect(grant.status).toBe(200);
+    expect(grantProfiles).toEqual([{ grantId: "grant-1", profile: "gateway-only" }]);
+
+    const client = await fetch(`${origin}/connections/default`, {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ clientId: "client-1", surfaceProfile: "full" })
+    });
+    expect(client.status).toBe(200);
+    expect(clientDefaults).toEqual([{ clientId: "client-1", profile: "full" }]);
   });
 
   it("revokes clients/tokens and rejects malformed bodies", async () => {

@@ -9,6 +9,12 @@ import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import * as z from "zod/v4";
 import {
+  isToolVisibleForProfile,
+  type AuthenticatedConnection,
+  type SurfaceProfile
+} from "../auth/connection-profile.js";
+import { DebateError, type DebateService } from "../debate/index.js";
+import {
   DEFAULT_MAX_EXEC_ARGS,
   HARD_EXEC_OUTPUT_CEILING_BYTES,
   HARD_EXEC_TIMEOUT_CEILING_MS,
@@ -40,7 +46,7 @@ import {
   SearchError
 } from "../kernel/fs-search.js";
 import { type WriteOptions, WriteError, writeContainedFile } from "../kernel/fs-write.js";
-import { AdapterError } from "../extension/adapter.js";
+import { AdapterError, type ProviderDiagnostic } from "../extension/adapter.js";
 import { toolNameOf } from "../kernel/tool-identity.js";
 import { buildAgentHarnessInstructions, type AgentHarness } from "../shared/agent-harness.js";
 import { APP_VERSION } from "../shared/build-info.js";
@@ -159,6 +165,9 @@ export interface McpServerOptions {
   /** Gateway-lifetime in-process task runtime. */
   readonly taskRuntime?: TaskRuntime;
   readonly harnessRuntime?: HarnessRuntime;
+  readonly authenticatedConnection?: AuthenticatedConnection;
+  readonly debateService?: DebateService;
+  readonly restrictSurfaceProfile?: (profile: SurfaceProfile) => AuthenticatedConnection;
 }
 
 function authorizedContext(
@@ -440,11 +449,13 @@ async function editWithin(
 
 /** Build a fresh MCP server whose tool surface is filtered by principal and policy snapshot. */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {
+  const surfaceProfile = options.authenticatedConnection?.surfaceProfile ?? "full";
+  const fullSurface = surfaceProfile === "full";
   const agentHarness = options.gatewayInfo?.agentHarness;
   const server = new McpServer(SERVER_INFO, {
     instructions: [
-      agentHarness === undefined ? "" : buildAgentHarnessInstructions(agentHarness),
-      options.harnessRuntime === undefined ? "" : HARNESS_GUIDANCE
+      !fullSurface || agentHarness === undefined ? "" : buildAgentHarnessInstructions(agentHarness),
+      !fullSurface || options.harnessRuntime === undefined ? "" : HARNESS_GUIDANCE
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -456,18 +467,29 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     });
   const toolAudit = options.toolAudit ?? NOOP_TOOL_AUDIT;
   const harnessRuntime = options.harnessRuntime;
+  const registerBuiltinTool = ((...args: Parameters<typeof server.registerTool>) => {
+    const tool = server.registerTool(...args);
+    if (!isToolVisibleForProfile(surfaceProfile, { name: args[0], source: "builtin" })) {
+      tool.disable();
+    }
+    return tool;
+  }) as typeof server.registerTool;
   const harnessActor =
     options.principal === undefined
       ? undefined
       : { principal: options.principal, policy: kernelPolicy };
-  if (harnessRuntime !== undefined && harnessActor?.principal.scopes.includes("mcp:tools")) {
+  if (
+    fullSurface &&
+    harnessRuntime !== undefined &&
+    harnessActor?.principal.scopes.includes("mcp:tools")
+  ) {
     registerHarnessTools(server, harnessRuntime, harnessActor, toolAudit, agentHarness);
   }
   const requireHarness = async (
     args: { slnctrzContext?: string | undefined },
     context: ServerContext
   ): Promise<void> => {
-    if (harnessRuntime === undefined) return;
+    if (!fullSurface || harnessRuntime === undefined) return;
     if (harnessActor === undefined)
       throw new HarnessError("context_required", "Authenticated context is required.");
     try {
@@ -503,7 +525,302 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       ].sort((left, right) => left.localeCompare(right))
     : [];
 
-  server.registerTool(
+  if (
+    options.authenticatedConnection !== undefined &&
+    options.restrictSurfaceProfile !== undefined
+  ) {
+    registerBuiltinTool(
+      "connection.restrict",
+      {
+        title: "Restrict Connection Surface",
+        description:
+          "Permanently reduce this authenticated OAuth grant to Gateway-only. Owner action is required to restore Full.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ profile: z.literal("gateway-only") }).strict()
+      },
+      async (args) =>
+        observeToolInvocation(options.metrics, async () => {
+          const restricted = options.restrictSurfaceProfile?.(args.profile);
+          if (restricted === undefined) {
+            return {
+              isError: true,
+              content: [{ type: "text" as const, text: "connection_profile_unavailable" }]
+            };
+          }
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Connection surface restricted to ${restricted.surfaceProfile}`
+              }
+            ],
+            structuredContent: {
+              connectionId: restricted.connectionId,
+              surfaceProfile: restricted.surfaceProfile
+            }
+          };
+        })
+    );
+  }
+
+  const debateService = options.debateService;
+  const debateConnection = options.authenticatedConnection;
+  const debateErrorResult = (error: DebateError) => ({
+    isError: true as const,
+    content: [{ type: "text" as const, text: `${error.code}: ${error.message}` }]
+  });
+  const debateAuthSchema = {
+    debateId: z.string().min(1),
+    participantId: z.string().min(1),
+    membershipCredential: z.string().min(1)
+  } as const;
+  const debateAuth = (args: {
+    readonly debateId: string;
+    readonly participantId: string;
+    readonly membershipCredential: string;
+  }) => ({
+    debateId: args.debateId,
+    participantId: args.participantId,
+    membershipCredential: args.membershipCredential,
+    connectionId: debateConnection?.connectionId ?? ""
+  });
+
+  if (debateService !== undefined && debateConnection !== undefined) {
+    registerBuiltinTool(
+      "debate.create",
+      {
+        title: "Create Debate",
+        description:
+          "Create a durable two-participant Debate and receive an opaque membership credential.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            topic: z.string().min(1),
+            nickname: z.string().min(1),
+            maxTurns: z.number().int().min(3).max(64),
+            finalizerRole: z.enum(["creator", "joiner"])
+          })
+          .strict()
+      },
+      async (args) =>
+        observeToolInvocation(options.metrics, async () => {
+          try {
+            const result = debateService.create({
+              topic: args.topic,
+              nickname: args.nickname,
+              connectionId: debateConnection.connectionId,
+              maxTurns: args.maxTurns,
+              finalizerRole: args.finalizerRole
+            });
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(result) }],
+              structuredContent: { debate: result.debate, membership: result.membership }
+            };
+          } catch (error) {
+            if (error instanceof DebateError) return debateErrorResult(error);
+            throw error;
+          }
+        })
+    );
+
+    registerBuiltinTool(
+      "debate.join",
+      {
+        title: "Join Debate",
+        description: "Join a waiting Debate as its second connection-bound participant.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ debateId: z.string().min(1), nickname: z.string().min(1) }).strict()
+      },
+      async (args) =>
+        observeToolInvocation(options.metrics, async () => {
+          try {
+            const result = debateService.join({
+              debateId: args.debateId,
+              nickname: args.nickname,
+              connectionId: debateConnection.connectionId
+            });
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(result) }],
+              structuredContent: { debate: result.debate, membership: result.membership }
+            };
+          } catch (error) {
+            if (error instanceof DebateError) return debateErrorResult(error);
+            throw error;
+          }
+        })
+    );
+
+    registerBuiltinTool(
+      "debate.read",
+      {
+        title: "Read Debate",
+        description:
+          "Read durable Debate state/transcript. Reading the assigned turn acknowledges receipt and starts its response deadline.",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            ...debateAuthSchema,
+            afterSequence: z.number().int().nonnegative().optional()
+          })
+          .strict()
+      },
+      async (args) =>
+        observeToolInvocation(options.metrics, async () => {
+          try {
+            const result = debateService.read({
+              auth: debateAuth(args),
+              ...(args.afterSequence === undefined ? {} : { afterSequence: args.afterSequence })
+            });
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(result) }],
+              structuredContent: { ...result }
+            };
+          } catch (error) {
+            if (error instanceof DebateError) return debateErrorResult(error);
+            throw error;
+          }
+        })
+    );
+
+    registerBuiltinTool(
+      "debate.send",
+      {
+        title: "Send Debate Turn",
+        description:
+          "Commit the assigned Debate turn using expected sequence/participant and a retry-safe clientMessageId.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            ...debateAuthSchema,
+            expectedSequence: z.number().int().nonnegative(),
+            expectedTurnParticipantId: z.string().min(1),
+            clientMessageId: z.string().min(1),
+            content: z.string().min(1)
+          })
+          .strict()
+      },
+      async (args) =>
+        observeToolInvocation(options.metrics, async () => {
+          try {
+            const result = debateService.send({
+              auth: debateAuth(args),
+              expectedSequence: args.expectedSequence,
+              expectedTurnParticipantId: args.expectedTurnParticipantId,
+              clientMessageId: args.clientMessageId,
+              content: args.content
+            });
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(result) }],
+              structuredContent: {
+                debate: result.debate,
+                message: result.message,
+                idempotentReplay: result.idempotentReplay
+              }
+            };
+          } catch (error) {
+            if (error instanceof DebateError) return debateErrorResult(error);
+            throw error;
+          }
+        })
+    );
+
+    registerBuiltinTool(
+      "debate.wait",
+      {
+        title: "Wait for Debate",
+        description:
+          "Wait briefly for a Debate state change or your turn. The wait is bounded below the public HTTP request timeout.",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z
+          .object({
+            ...debateAuthSchema,
+            afterSequence: z.number().int().nonnegative(),
+            maxWaitMs: z.number().int().positive().max(25_000).optional()
+          })
+          .strict()
+      },
+      async (args, context) =>
+        observeToolInvocation(options.metrics, async () => {
+          try {
+            const result = await debateService.wait({
+              auth: debateAuth(args),
+              afterSequence: args.afterSequence,
+              ...(args.maxWaitMs === undefined ? {} : { maxWaitMs: args.maxWaitMs }),
+              ...(context.http?.req?.signal === undefined
+                ? {}
+                : { signal: context.http.req.signal })
+            });
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(result) }],
+              structuredContent: { debate: result.debate, timedOut: result.timedOut }
+            };
+          } catch (error) {
+            if (error instanceof DebateError) return debateErrorResult(error);
+            throw error;
+          }
+        })
+    );
+
+    registerBuiltinTool(
+      "debate.stop",
+      {
+        title: "Stop Debate",
+        description: "Stop a Debate as one of its authenticated members.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: false
+        },
+        inputSchema: z.object({ ...debateAuthSchema }).strict()
+      },
+      async (args) =>
+        observeToolInvocation(options.metrics, async () => {
+          try {
+            const result = debateService.stop({ auth: debateAuth(args) });
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(result) }],
+              structuredContent: { ...result }
+            };
+          } catch (error) {
+            if (error instanceof DebateError) return debateErrorResult(error);
+            throw error;
+          }
+        })
+    );
+  }
+
+  registerBuiltinTool(
     "core.ping",
     {
       title: "Gateway Ping",
@@ -529,10 +846,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           : [];
         const workspace = kp
           ? {
-              capabilities: [...kp.capabilities],
-              // Shared-root model: one Paths set covers read/write/exec for enabled capabilities.
-              paths: kp.readRoots ?? [],
-              ...(commands.length > 0 ? { commands } : {})
+              capabilities: fullSurface ? [...kp.capabilities] : [],
+              // Gateway-only intentionally does not advertise coding roots or command authority.
+              paths: fullSurface ? (kp.readRoots ?? []) : [],
+              ...(fullSurface && commands.length > 0 ? { commands } : {})
             }
           : { capabilities: [], paths: [] };
         const gi = options.gatewayInfo;
@@ -547,24 +864,25 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               ? "(none)"
               : "embedded docs/MODEL_GUIDE.md (structuredContent.modelGuide)";
         const authorityMode = kp?.authorityMode ?? "restricted";
-        const guidance =
-          (harnessRuntime === undefined ? "" : HARNESS_GUIDANCE + " ") +
-          "You are connected to a SlncTrZ-MCP gateway. Active authority mode: " +
-          authorityMode +
-          ". Your capabilities are under workspace.capabilities. In restricted mode, core file tools " +
-          "use configured Paths and core.exec uses the command catalog. In autonomous mode, core tools " +
-          "may use the authority of the gateway OS user outside Paths when the task requires it. " +
-          "To understand the system, read the workspace docs: " +
-          docsLabel +
-          ". In source checkouts, model guidance lives in docs/MODEL_GUIDE.md; standalone builds expose the embedded guide in core.ping structuredContent.modelGuide. " +
-          (productAgentHarness === undefined
-            ? ""
-            : "Canonical SlncTrZ working guidance is available in core.ping structuredContent.agentHarness and is product guidance, not capability authority. ") +
-          "core.search matches files and directories case-insensitively. " +
-          "Gateway config remains owner-managed; do not silently change policy/commands/providers. " +
-          "Use the Owner Console" +
-          (options.ownerConsoleUrl ? ` at ${options.ownerConsoleUrl}` : "") +
-          " for normal configuration changes.";
+        const guidance = fullSurface
+          ? (harnessRuntime === undefined ? "" : HARNESS_GUIDANCE + " ") +
+            "You are connected to a SlncTrZ-MCP gateway. Active authority mode: " +
+            authorityMode +
+            ". Your capabilities are under workspace.capabilities. In restricted mode, core file tools " +
+            "use configured Paths and core.exec uses the command catalog. In autonomous mode, core tools " +
+            "may use the authority of the gateway OS user outside Paths when the task requires it. " +
+            "To understand the system, read the workspace docs: " +
+            docsLabel +
+            ". In source checkouts, model guidance lives in docs/MODEL_GUIDE.md; standalone builds expose the embedded guide in core.ping structuredContent.modelGuide. " +
+            (productAgentHarness === undefined
+              ? ""
+              : "Canonical SlncTrZ working guidance is available in core.ping structuredContent.agentHarness and is product guidance, not capability authority. ") +
+            "core.search matches files and directories case-insensitively. " +
+            "Gateway config remains owner-managed; do not silently change policy/commands/providers. " +
+            "Use the Owner Console" +
+            (options.ownerConsoleUrl ? ` at ${options.ownerConsoleUrl}` : "") +
+            " for normal configuration changes."
+          : "You are connected with the Gateway-only surface profile. Coding/file/media/context/skills/task tools are hidden. Use core.ping, debate.*, connection.restrict, and owner-enabled provider tools. Provider calls do not require a gateway harness context.";
         const extensionRuntime = kp?.extensionRuntime;
         const configuredProviders = new Set(kp?.extensions.map((tool) => tool.providerId) ?? [])
           .size;
@@ -584,24 +902,26 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             ? {}
             : { catalogFingerprint: kp.toolCatalogFingerprint })
         };
+        const visibleTaskSurface = fullSurface && taskSurfaceEnabled;
         const managedTasks = {
-          enabled: taskSurfaceEnabled,
+          enabled: visibleTaskSurface,
           persistence: "in-memory" as const,
-          advertisedTools: [...advertisedTaskTools],
+          advertisedTools: visibleTaskSurface ? [...advertisedTaskTools] : [],
           runner: {
-            canStart: taskStartAvailable,
+            canStart: fullSurface && taskStartAvailable,
             visibility: "creator-private" as const,
-            tools: taskSurfaceEnabled
+            tools: visibleTaskSurface
               ? [...(taskStartAvailable ? ["task.start" as const] : []), ...TASK_MANAGEMENT_TOOLS]
               : []
           },
           coordinator: {
-            available: taskSurfaceEnabled,
+            available: visibleTaskSurface,
             visibility: "workspace" as const,
-            tools: taskSurfaceEnabled ? [...COORDINATION_TASK_TOOLS] : []
+            tools: visibleTaskSurface ? [...COORDINATION_TASK_TOOLS] : []
           }
         };
         const imageReadAvailable =
+          fullSurface &&
           authorizedContext(kernelPolicy, options.principal, "core.read") !== undefined;
         const media = {
           advertisedTools: imageReadAvailable ? ["media.read_image"] : [],
@@ -635,6 +955,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           content: [{ type: "text" as const, text }],
           structuredContent: {
             status: "ok",
+            surfaceProfile,
             ...(options.ownerConsoleUrl === undefined
               ? {}
               : { ownerConsoleUrl: options.ownerConsoleUrl }),
@@ -651,7 +972,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             extensions,
             managedTasks,
             media,
-            ...(harnessRuntime === undefined
+            ...(!fullSurface || harnessRuntime === undefined
               ? {}
               : {
                   harness: {
@@ -667,9 +988,11 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                   }
                 }),
             ...(config === undefined ? {} : { config: { ...config } }),
-            ...(docs.length === 0 ? {} : { docs: [...docs] }),
-            ...(modelGuide === undefined ? {} : { modelGuide }),
-            ...(productAgentHarness === undefined ? {} : { agentHarness: productAgentHarness }),
+            ...(!fullSurface || docs.length === 0 ? {} : { docs: [...docs] }),
+            ...(!fullSurface || modelGuide === undefined ? {} : { modelGuide }),
+            ...(!fullSurface || productAgentHarness === undefined
+              ? {}
+              : { agentHarness: productAgentHarness }),
             ...(config === undefined &&
             docs.length === 0 &&
             modelGuide === undefined &&
@@ -696,7 +1019,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
 
   const readAuthorization = authorizedContext(kernelPolicy, options.principal, "core.read");
   if (readAuthorization !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "core.read",
       {
         title: "Read File",
@@ -776,7 +1099,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
 
   const imageAuthorization = authorizedContext(kernelPolicy, options.principal, "core.read");
   if (imageAuthorization !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "media.read_image",
       {
         title: "Read Image",
@@ -876,7 +1199,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
 
   const searchAuthorization = authorizedContext(kernelPolicy, options.principal, "core.search");
   if (searchAuthorization !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "core.search",
       {
         title: "Search Files",
@@ -974,7 +1297,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
 
   const writeAuthorization = authorizedContext(kernelPolicy, options.principal, "core.write");
   if (writeAuthorization !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "core.write",
       {
         title: "Write File",
@@ -1067,7 +1390,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
 
   const editAuthorization = authorizedContext(kernelPolicy, options.principal, "core.edit");
   if (editAuthorization !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "core.edit",
       {
         title: "Edit File",
@@ -1154,7 +1477,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   }
 
   if (execAuthorization !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "core.exec",
       {
         title: "Execute Command",
@@ -1262,7 +1585,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   }
 
   if (taskRuntime !== undefined && taskActor !== undefined && execAuthorization !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "task.start",
       {
         title: "Start Managed Task",
@@ -1353,7 +1676,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   }
 
   if (taskRuntime !== undefined && taskActor !== undefined) {
-    server.registerTool(
+    registerBuiltinTool(
       "task.create",
       {
         title: "Create Coordination Task",
@@ -1409,7 +1732,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.list",
       {
         title: "List Coordination Tasks",
@@ -1458,7 +1781,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.claim",
       {
         title: "Claim Coordination Task",
@@ -1507,7 +1830,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.release",
       {
         title: "Release Coordination Task",
@@ -1558,7 +1881,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.complete",
       {
         title: "Complete Coordination Task",
@@ -1615,7 +1938,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.fail",
       {
         title: "Fail Coordination Task",
@@ -1672,7 +1995,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.get",
       {
         title: "Get Managed Task",
@@ -1724,7 +2047,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.wait",
       {
         title: "Wait for Managed Task",
@@ -1800,7 +2123,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         })
     );
 
-    server.registerTool(
+    registerBuiltinTool(
       "task.cancel",
       {
         title: "Cancel Managed Task",
@@ -1885,11 +2208,13 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           observeToolInvocation(options.metrics, async () => {
             const startedAt = Date.now();
             let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
+            let providerDiagnostic: ProviderDiagnostic | undefined;
             try {
               await requireHarness(args, context);
               // Re-check readiness immediately before dispatch. No name, endpoint, command or
               // provider selector is accepted from the caller; only this captured canonical tool.
               if (!extensionRuntime.isReady(tool.providerId)) {
+                providerDiagnostic = provider.diagnostic?.();
                 return {
                   isError: true,
                   content: [{ type: "text", text: "provider_unavailable" }]
@@ -1906,6 +2231,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                     : { signal: context.http.req.signal })
                 }
               );
+              providerDiagnostic = result.diagnostic;
               auditResult = result.isError
                 ? result.text === "provider_timeout"
                   ? "timeout"
@@ -1928,6 +2254,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                 return harnessErrorResult(error);
               }
               if (error instanceof AdapterError) {
+                providerDiagnostic = error.diagnostic ?? provider.diagnostic?.();
                 auditResult = error.code === "provider_timeout" ? "timeout" : "error";
                 return { isError: true, content: [{ type: "text", text: error.code }] };
               }
@@ -1941,6 +2268,13 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                 toolId: tool.canonicalId,
                 providerId: tool.providerId,
                 canonicalToolId: tool.canonicalId,
+                ...(providerDiagnostic === undefined
+                  ? {}
+                  : {
+                      correlationId: providerDiagnostic.correlationId,
+                      providerFailureClass: providerDiagnostic.failureClass,
+                      recoveryState: providerDiagnostic.recoveryState
+                    }),
                 riskClass: tool.riskClass,
                 policyVersion: kernelPolicy.version,
                 decision: "allow",

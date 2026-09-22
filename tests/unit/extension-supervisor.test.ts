@@ -216,14 +216,32 @@ describe("extension supervisor: state machine (fake-first)", () => {
     await supervisor.start();
 
     const failed = await supervisor.invoke("p.writeOne", { value: 1 });
-    expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
+    expect(failed).toMatchObject({
+      isError: true,
+      text: "provider_unavailable",
+      diagnostic: {
+        failureClass: "session_invalid",
+        recoveryState: "recovering"
+      }
+    });
+    const incidentId = failed.diagnostic?.correlationId;
+    expect(typeof incidentId).toBe("string");
+    if (incidentId === undefined) throw new Error("missing provider incident correlation");
     await tick();
     expect(supervisor.state).toBe("ready");
     expect(adapter.callTools).toEqual(["p.writeOne"]); // no automatic replay
 
     adapter.callBehavior = "resolve";
     const retry = await supervisor.invoke("p.writeOne", { value: 1 });
-    expect(retry).toMatchObject({ isError: false, text: "ok" });
+    expect(retry).toMatchObject({
+      isError: false,
+      text: "ok",
+      diagnostic: {
+        failureClass: "session_invalid",
+        recoveryState: "recovered",
+        correlationId: incidentId
+      }
+    });
     expect(adapter.callTools).toEqual(["p.writeOne", "p.writeOne"]);
     expect(metrics.snapshot()).toMatchObject({
       extensionSessionInvalidTotal: 1,
@@ -251,6 +269,12 @@ describe("extension supervisor: state machine (fake-first)", () => {
     expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
     await waitForState(supervisor, "quarantined");
     expect(supervisor.state).toBe("quarantined");
+    const diagnostic = supervisor.diagnostic();
+    expect(diagnostic).toMatchObject({
+      failureClass: "session_invalid",
+      recoveryState: "quarantined"
+    });
+    expect(typeof diagnostic?.correlationId).toBe("string");
     expect(metrics.snapshot()).toMatchObject({
       extensionSessionInvalidTotal: 1,
       extensionSessionRecoverySuccessTotal: 0,

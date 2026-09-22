@@ -8,7 +8,7 @@ import { runApplication } from "./application-runner.js";
 import type { ApplicationLifecycle } from "./main.js";
 
 let lifecycle: ApplicationLifecycle | undefined;
-let pendingSignal: NodeJS.Signals | undefined;
+let pendingSignal: "SIGTERM" | "SIGINT" | undefined;
 let shutdownPromise: Promise<void> | undefined;
 
 const removeSignalHandlers = (): void => {
@@ -16,10 +16,10 @@ const removeSignalHandlers = (): void => {
   process.off("SIGINT", onSigint);
 };
 
-const requestShutdown = (signal: NodeJS.Signals): Promise<void> => {
+const requestShutdown = (signal: "SIGTERM" | "SIGINT"): Promise<void> => {
   pendingSignal ??= signal;
   if (lifecycle === undefined) return Promise.resolve();
-  shutdownPromise ??= lifecycle.shutdown().finally(() => {
+  shutdownPromise ??= lifecycle.shutdown(signal).finally(() => {
     removeSignalHandlers();
   });
   return shutdownPromise;

@@ -74,7 +74,11 @@ function sanitizedEnv(
   for (const credential of credentials) {
     if (credential.kind !== "env") continue;
     if (!manifest.envAllowlist.includes(credential.name)) {
-      throw new AdapterError("provider_unavailable", "credential env key is not allowlisted");
+      throw new AdapterError(
+        "provider_unavailable",
+        "credential env key is not allowlisted",
+        "authorization_failure"
+      );
     }
     env[credential.name] = credential.value;
   }
@@ -111,7 +115,11 @@ export function createStdioAdapter(
 ): ExtensionAdapter {
   const command = manifest.command;
   if (command === undefined) {
-    throw new AdapterError("provider_unavailable", "stdio adapter requires a command");
+    throw new AdapterError(
+      "provider_unavailable",
+      "stdio adapter requires a command",
+      "startup_unavailable"
+    );
   }
 
   let generation: StdioGeneration | undefined;
@@ -123,7 +131,7 @@ export function createStdioAdapter(
 
   const assertCurrentStartup = (epoch: number): void => {
     if (epoch !== lifecycleEpoch) {
-      throw new AdapterError("provider_unavailable", "provider startup was cancelled");
+      throw new AdapterError("provider_unavailable", "provider startup was cancelled", "cancelled");
     }
   };
 
@@ -132,7 +140,11 @@ export function createStdioAdapter(
     code: AdapterError["code"] = "provider_unavailable"
   ): void => {
     for (const entry of current.pending.values()) {
-      entry.reject(new AdapterError(code, code));
+      entry.reject(
+        code === "provider_unavailable"
+          ? new AdapterError(code, code, "transport_failure")
+          : new AdapterError(code, code)
+      );
     }
     current.pending.clear();
   };
@@ -233,7 +245,9 @@ export function createStdioAdapter(
   ): Promise<RpcResponse> => {
     const stdin = current.child.stdin;
     if (stdin === null || stdin === undefined || current.stopped || generation !== current) {
-      return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+      return Promise.reject(
+        new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure")
+      );
     }
     const id = nextId;
     nextId += 1;
@@ -249,7 +263,9 @@ export function createStdioAdapter(
       stdin.write(line, (error) => {
         if (error === undefined || error === null) return;
         current.pending.delete(id);
-        reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+        reject(
+          new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure")
+        );
       });
     });
   };
@@ -285,7 +301,9 @@ export function createStdioAdapter(
   ): Promise<void> => {
     const stdin = current.child.stdin;
     if (stdin === null || stdin === undefined || current.stopped || generation !== current) {
-      return Promise.reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+      return Promise.reject(
+        new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure")
+      );
     }
     const line = `${JSON.stringify({
       jsonrpc: "2.0",
@@ -300,7 +318,10 @@ export function createStdioAdapter(
     return new Promise<void>((resolve, reject) => {
       stdin.write(line, (error) => {
         if (error === undefined || error === null) resolve();
-        else reject(new AdapterError("provider_unavailable", "provider_unavailable"));
+        else
+          reject(
+            new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure")
+          );
       });
     });
   };
@@ -336,7 +357,7 @@ export function createStdioAdapter(
     } catch (error) {
       stopGeneration(legacy);
       if (error instanceof AdapterError) throw error;
-      throw new AdapterError("provider_unavailable", "initialize failed");
+      throw new AdapterError("provider_unavailable", "initialize failed", "transport_failure");
     }
   };
 
@@ -376,7 +397,11 @@ export function createStdioAdapter(
       } else {
         stopGeneration(probe);
         if (error instanceof AdapterError) throw error;
-        throw new AdapterError("provider_unavailable", "provider discovery failed");
+        throw new AdapterError(
+          "provider_unavailable",
+          "provider discovery failed",
+          "transport_failure"
+        );
       }
     }
 
@@ -388,7 +413,7 @@ export function createStdioAdapter(
   const activeGeneration = (): StdioGeneration => {
     const current = generation;
     if (current === undefined || current.stopped || current.child.exitCode !== null) {
-      throw new AdapterError("provider_unavailable", "provider_unavailable");
+      throw new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure");
     }
     return current;
   };
@@ -429,7 +454,11 @@ export function createStdioAdapter(
         timeoutMs
       );
       if (generation !== current || current.stopped) {
-        throw new AdapterError("provider_unavailable", "provider generation was stopped");
+        throw new AdapterError(
+          "provider_unavailable",
+          "provider generation was stopped",
+          "transport_failure"
+        );
       }
       const result = asResult(response) as ListToolsResult;
       startupToolListPending = false;
@@ -453,7 +482,7 @@ export function createStdioAdapter(
       const signal = options.signal;
       if (signal?.aborted === true) {
         stopGeneration(current);
-        throw new AdapterError("provider_unavailable", "provider_unavailable");
+        throw new AdapterError("provider_unavailable", "provider_unavailable", "cancelled");
       }
       const onAbort = (): void => stopGeneration(current);
       signal?.addEventListener("abort", onAbort, { once: true });

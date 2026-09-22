@@ -1,6 +1,7 @@
 /** Loopback-only local diagnostics and revocation control plane. */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { OwnerConnectionService } from "../auth/owner-connection-service.js";
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
 import type { OAuthService } from "../auth/oauth-service.js";
 import type { AuditJournal } from "../observability/audit-journal.js";
@@ -19,6 +20,10 @@ export interface ControlPlaneOptions {
   readonly ownerSecretHash: string;
   readonly oauthService: Pick<OAuthService, "revokeClientByOwner" | "revokeTokenByOwner">;
   readonly policyStore: Pick<PolicySnapshotStore, "capture" | "reload">;
+  readonly connections?: Pick<
+    OwnerConnectionService,
+    "listConnections" | "setGrantProfile" | "setClientDefault"
+  >;
   readonly auditJournal: AuditJournal;
   readonly metrics?: MetricsRegistry;
   readonly gatewayInfo?: { readonly version: string; readonly buildCommit: string };
@@ -59,6 +64,23 @@ function exactStringBody(body: unknown, key: string, maxLength: number): string 
   if (Object.keys(record).length !== 1 || typeof record[key] !== "string") return undefined;
   const value = record[key];
   return value.length > 0 && value.length <= maxLength ? value : undefined;
+}
+
+function profileMutationBody(
+  body: unknown,
+  idKey: "grantId" | "clientId"
+): { readonly id: string; readonly profile: "full" | "gateway-only" } | undefined {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return undefined;
+  const record = body as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 2 ||
+    typeof record[idKey] !== "string" ||
+    (record.surfaceProfile !== "full" && record.surfaceProfile !== "gateway-only")
+  )
+    return undefined;
+  const id = record[idKey];
+  if (id.length < 1 || id.length > 256) return undefined;
+  return { id, profile: record.surfaceProfile };
 }
 
 function authorized(req: IncomingMessage, ownerSecretHash: string): boolean {
@@ -123,6 +145,61 @@ export function createControlPlaneServer(options: ControlPlaneOptions): Server {
         const result = await options.policyStore.reload();
         sendJson(res, result.activated ? 200 : 409, result);
         audit(result.activated ? "success" : "error");
+        return;
+      }
+
+      if (method === "GET" && pathname === "/connections") {
+        if (options.connections === undefined) {
+          sendJson(res, 503, {
+            error: {
+              code: "connections_unavailable",
+              message: "Connection profiles are unavailable"
+            }
+          });
+          audit("error");
+          return;
+        }
+        sendJson(res, 200, { connections: options.connections.listConnections() });
+        audit("success");
+        return;
+      }
+
+      if (
+        method === "PUT" &&
+        (pathname === "/connections/profile" || pathname === "/connections/default")
+      ) {
+        if (options.connections === undefined) {
+          sendJson(res, 503, {
+            error: {
+              code: "connections_unavailable",
+              message: "Connection profiles are unavailable"
+            }
+          });
+          audit("error");
+          return;
+        }
+        const grantMutation = pathname === "/connections/profile";
+        const parsed = profileMutationBody(
+          await readBoundedJson(req, maxBodyBytes),
+          grantMutation ? "grantId" : "clientId"
+        );
+        if (parsed === undefined) {
+          sendJson(res, 400, {
+            error: { code: "invalid_request", message: "Expected connection profile mutation" }
+          });
+          audit("error");
+          return;
+        }
+        if (grantMutation) options.connections.setGrantProfile(parsed.id, parsed.profile);
+        else options.connections.setClientDefault(parsed.id, parsed.profile);
+        sendJson(
+          res,
+          200,
+          grantMutation
+            ? { grantId: parsed.id, surfaceProfile: parsed.profile }
+            : { clientId: parsed.id, surfaceProfile: parsed.profile }
+        );
+        audit("success");
         return;
       }
 

@@ -106,12 +106,12 @@ async function fetchWithRedirectGuard(
       });
     } catch (error) {
       if (error instanceof AdapterError) throw error;
-      throw new AdapterError("provider_unavailable", "provider_unavailable");
+      throw new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure");
     }
     if (response.status < 300 || response.status >= 400) return response;
     if (redirects >= MAX_REDIRECTS) {
       controller.abort();
-      throw new AdapterError("provider_unavailable", "too many redirects");
+      throw new AdapterError("provider_unavailable", "too many redirects", "transport_failure");
     }
     const location = response.headers.get("location");
     if (location === null) {
@@ -181,14 +181,22 @@ function providerHeaders(
     if (credential.kind === "env") continue;
     if (credential.kind === "bearer") {
       if (headers.authorization !== undefined) {
-        throw new AdapterError("provider_unavailable", "duplicate authorization credential");
+        throw new AdapterError(
+          "provider_unavailable",
+          "duplicate authorization credential",
+          "authorization_failure"
+        );
       }
       headers.authorization = `Bearer ${credential.value}`;
       continue;
     }
     const key = credential.name.toLowerCase();
     if (denied.has(key) || key === "authorization" || headers[key] !== undefined) {
-      throw new AdapterError("provider_unavailable", "invalid provider credential header");
+      throw new AdapterError(
+        "provider_unavailable",
+        "invalid provider credential header",
+        "authorization_failure"
+      );
     }
     headers[key] = credential.value;
   }
@@ -202,19 +210,31 @@ export function createStreamableHttpAdapter(
 ): ExtensionAdapter {
   const endpoint = manifest.endpoint;
   if (endpoint === undefined) {
-    throw new AdapterError("provider_unavailable", "http adapter requires an endpoint");
+    throw new AdapterError(
+      "provider_unavailable",
+      "http adapter requires an endpoint",
+      "startup_unavailable"
+    );
   }
   let base: URL;
   try {
     base = new URL(endpoint);
   } catch {
-    throw new AdapterError("provider_unavailable", "http adapter requires valid https endpoint");
+    throw new AdapterError(
+      "provider_unavailable",
+      "http adapter requires valid https endpoint",
+      "startup_unavailable"
+    );
   }
   // HTTPS-only by default; the sole controlled exception is an http: endpoint whose host
   // is a loopback address (see adr-025). Fail-closed for every other host.
   const httpLoopback = base.protocol === "http:" && isLoopbackHost(base.hostname);
   if (base.protocol !== "https:" && !httpLoopback) {
-    throw new AdapterError("provider_unavailable", "http adapter requires https");
+    throw new AdapterError(
+      "provider_unavailable",
+      "http adapter requires https",
+      "startup_unavailable"
+    );
   }
 
   const credentialHeaders = providerHeaders(credentials);
@@ -290,7 +310,13 @@ export function createStreamableHttpAdapter(
         ready = false;
         throw new AdapterError("provider_session_invalid", "provider_session_invalid");
       }
-      throw new AdapterError("provider_unavailable", "provider_unavailable");
+      throw new AdapterError(
+        "provider_unavailable",
+        "provider_unavailable",
+        response.status === 401 || response.status === 403
+          ? "authorization_failure"
+          : "transport_failure"
+      );
     }
     if (requestEra === "legacy") {
       const nextSessionId = response.headers.get("mcp-session-id");
@@ -328,7 +354,7 @@ export function createStreamableHttpAdapter(
     } catch (error) {
       if (timedOut) throw new AdapterError("provider_timeout", "provider_timeout");
       if (error instanceof AdapterError) throw error;
-      throw new AdapterError("provider_unavailable", "provider_unavailable");
+      throw new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure");
     } finally {
       clearTimeout(timer);
       caller?.removeEventListener("abort", linkAbort);
@@ -358,7 +384,13 @@ export function createStreamableHttpAdapter(
           ready = false;
           throw new AdapterError("provider_session_invalid", "provider_session_invalid");
         }
-        throw new AdapterError("provider_unavailable", "provider_unavailable");
+        throw new AdapterError(
+          "provider_unavailable",
+          "provider_unavailable",
+          response.status === 401 || response.status === 403
+            ? "authorization_failure"
+            : "transport_failure"
+        );
       }
     } finally {
       clearTimeout(timer);

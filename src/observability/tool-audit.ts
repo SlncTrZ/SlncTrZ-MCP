@@ -22,6 +22,9 @@ export interface ToolAuditEvent {
   /** Present only for a dispatched extension; no endpoint, arguments or output is retained. */
   readonly providerId?: string;
   readonly canonicalToolId?: string;
+  readonly correlationId?: string;
+  readonly providerFailureClass?: string;
+  readonly recoveryState?: string;
 }
 
 export type ToolAuditSink = (event: ToolAuditEvent) => void;
@@ -40,6 +43,11 @@ export function createJournalToolAuditSink(
       capabilityId: event.canonicalToolId ?? event.toolId,
       ...(event.commandId === undefined ? {} : { commandId: event.commandId }),
       ...(event.providerId === undefined ? {} : { providerId: event.providerId }),
+      ...(event.correlationId === undefined ? {} : { correlationId: event.correlationId }),
+      ...(event.providerFailureClass === undefined
+        ? {}
+        : { providerFailureClass: event.providerFailureClass }),
+      ...(event.recoveryState === undefined ? {} : { recoveryState: event.recoveryState }),
       policyVersion: event.policyVersion,
       result: event.decision === "deny" ? "denied" : event.result,
       durationMs: event.durationMs

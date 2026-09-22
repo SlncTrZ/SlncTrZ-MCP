@@ -228,6 +228,64 @@ describe("system service setup", () => {
   );
 
   it.skipIf(process.platform !== "linux")(
+    "writes restart intent before restarting an already-active service",
+    async () => {
+      const root = await directory("slnctrz-system-intent-");
+      const workspace = await directory("slnctrz-system-intent-workspace-");
+      const setup = await prepareProductSetup(
+        {
+          installMode: "system",
+          port: 9134,
+          initialPath: workspace,
+          manifestUrl: "https://updates.example.test/manifest.json",
+          installRoot: join(root, "install"),
+          stateRoot: join(root, "state"),
+          configRoot: join(root, "config")
+        },
+        setupDependencies(Buffer.from("system-release"))
+      );
+
+      let restarted = false;
+      let intentObservedAtRestart: Record<string, unknown> | undefined;
+      const run: SystemCommandRunner = async (command, args) => {
+        if (command === "systemctl" && args[0] === "restart") {
+          intentObservedAtRestart = JSON.parse(
+            await readFile(join(setup.installation.stateRoot, "lifecycle-intent.json"), "utf8")
+          ) as Record<string, unknown>;
+          restarted = true;
+        }
+        if (command === "systemctl" && args.includes("--property=User"))
+          return { code: 0, stdout: `${runtimeIdentity.username}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=Group"))
+          return { code: 0, stdout: `${runtimeIdentity.groupName}\n`, stderr: "" };
+        if (command === "systemctl" && args.includes("--property=MainPID"))
+          return { code: 0, stdout: restarted ? "778\n" : "777\n", stderr: "" };
+        if (command === "ps")
+          return { code: 0, stdout: `${runtimeIdentity.uid} ${runtimeIdentity.gid}\n`, stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      };
+
+      await activateSystemService(
+        { ...setup, lifecycleIntentReason: "release_restart" },
+        {
+          run,
+          serviceUnitRoot: join(root, "systemd"),
+          isRoot: () => true,
+          fetch: async () => new Response('{"status":"ok"}', { status: 200 }),
+          sleep: async () => undefined
+        }
+      );
+
+      expect(intentObservedAtRestart).toMatchObject({
+        reason: "release_restart"
+      });
+      expect(typeof intentObservedAtRestart?.correlationId).toBe("string");
+      expect(typeof intentObservedAtRestart?.createdAt).toBe("string");
+      expect(typeof intentObservedAtRestart?.expiresAt).toBe("string");
+    }
+  );
+
+  it.skipIf(process.platform !== "linux")(
     "attests a new PID, runtime UID/GID, version, and build before accepting activation",
     async () => {
       const root = await directory("slnctrz-system-attest-");

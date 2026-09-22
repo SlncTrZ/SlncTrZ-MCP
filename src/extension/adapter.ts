@@ -20,13 +20,47 @@ export type AdapterErrorCode =
   | "provider_session_invalid"
   | "queue_overflow";
 
+export type ProviderFailureClass =
+  | "session_invalid"
+  | "startup_unavailable"
+  | "transport_failure"
+  | "authorization_failure"
+  | "protocol_error"
+  | "timeout"
+  | "cancelled"
+  | "unknown";
+
+export type ProviderRecoveryState = "recovering" | "recovered" | "quarantined";
+
+export interface ProviderDiagnostic {
+  readonly correlationId: string;
+  readonly failureClass: ProviderFailureClass;
+  readonly recoveryState: ProviderRecoveryState;
+}
+
+function defaultFailureClass(code: AdapterErrorCode): ProviderFailureClass {
+  if (code === "provider_session_invalid") return "session_invalid";
+  if (code === "provider_timeout") return "timeout";
+  if (code === "provider_protocol_error") return "protocol_error";
+  return "unknown";
+}
+
 export class AdapterError extends Error {
   readonly code: AdapterErrorCode;
+  readonly failureClass: ProviderFailureClass;
+  readonly diagnostic?: ProviderDiagnostic;
 
-  constructor(code: AdapterErrorCode, message: string) {
+  constructor(
+    code: AdapterErrorCode,
+    message: string,
+    failureClass: ProviderFailureClass = defaultFailureClass(code),
+    diagnostic?: ProviderDiagnostic
+  ) {
     super(message);
     this.name = "AdapterError";
     this.code = code;
+    this.failureClass = failureClass;
+    if (diagnostic !== undefined) this.diagnostic = diagnostic;
   }
 }
 
@@ -42,6 +76,8 @@ export interface ExtensionCallResult {
   readonly truncated: boolean;
   // A caller-facing text result; never raw command output or credentials.
   readonly text: string;
+  /** Internal, secret-free incident metadata. Never render this as provider output. */
+  readonly diagnostic?: ProviderDiagnostic;
 }
 
 export interface AdapterCallOptions {

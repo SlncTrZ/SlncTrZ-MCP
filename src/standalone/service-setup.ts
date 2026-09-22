@@ -3,7 +3,11 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { resolveApplicationRoot } from "../owner/managed-state.js";
+import { managedStatePaths, resolveApplicationRoot } from "../owner/managed-state.js";
+import {
+  writeGatewayLifecycleIntent,
+  type GatewayRestartIntentReason
+} from "../observability/lifecycle-observability.js";
 import { readStandaloneTextAsset } from "./assets.js";
 import {
   restoreStandaloneActivation,
@@ -32,6 +36,7 @@ export interface SystemServiceSetup {
   readonly activation?: ActivationRecord;
   readonly rollbackActivation?: ActivationRecord;
   readonly ownerPassphraseFile?: string;
+  readonly lifecycleIntentReason?: GatewayRestartIntentReason;
 }
 
 export interface SystemServiceDependencies {
@@ -497,6 +502,12 @@ export async function activateSystemService(
   }
   try {
     await requireSuccess(run, "systemctl", ["enable", configured.serviceName]);
+    if (configured.previousMainPid > 0 && setup.lifecycleIntentReason !== undefined) {
+      await writeGatewayLifecycleIntent(
+        managedStatePaths(setup.installation.stateRoot).lifecycleIntentFile,
+        setup.lifecycleIntentReason
+      );
+    }
     await requireSuccess(run, "systemctl", ["restart", configured.serviceName]);
     const processIdentity = await waitForProcessIdentity(
       setup,

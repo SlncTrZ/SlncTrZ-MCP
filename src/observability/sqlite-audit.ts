@@ -33,6 +33,10 @@ function ensureColumns(database: DatabaseSync): void {
   const additions = [
     ["command_id", "TEXT"],
     ["provider_id", "TEXT"],
+    ["correlation_id", "TEXT"],
+    ["provider_failure_class", "TEXT"],
+    ["recovery_state", "TEXT"],
+    ["lifecycle_reason", "TEXT"],
     ["build_version", "TEXT NOT NULL DEFAULT 'unknown'"],
     ["build_commit", "TEXT NOT NULL DEFAULT 'unknown'"]
   ] as const;
@@ -78,6 +82,10 @@ export function createSqliteAuditSink(
       capability_id TEXT,
       command_id TEXT,
       provider_id TEXT,
+      correlation_id TEXT,
+      provider_failure_class TEXT,
+      recovery_state TEXT,
+      lifecycle_reason TEXT,
       policy_version TEXT,
       result TEXT NOT NULL,
       duration_ms INTEGER,
@@ -96,8 +104,9 @@ export function createSqliteAuditSink(
   const insert = database.prepare(`
     INSERT INTO audit_events (
       timestamp, category, request_id, client_id, workspace_id, capability_id,
-      command_id, provider_id, policy_version, result, duration_ms, build_version, build_commit
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      command_id, provider_id, correlation_id, provider_failure_class, recovery_state,
+      lifecycle_reason, policy_version, result, duration_ms, build_version, build_commit
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   let writesSincePrune = 0;
 
@@ -112,6 +121,10 @@ export function createSqliteAuditSink(
         event.capabilityId ?? null,
         event.commandId ?? null,
         event.providerId ?? null,
+        event.correlationId ?? null,
+        event.providerFailureClass ?? null,
+        event.recoveryState ?? null,
+        event.lifecycleReason ?? null,
         event.policyVersion ?? null,
         event.result,
         event.durationMs ?? null,

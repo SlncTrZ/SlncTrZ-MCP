@@ -7,7 +7,9 @@ import { randomBytes } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { FixedWindowRateLimiter } from "../auth/fixed-window-rate-limiter.js";
+import type { OwnerConnectionService } from "../auth/owner-connection-service.js";
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
+import { DebateError, type DebateService } from "../debate/index.js";
 import { compileCommandCatalog, parseCommandAllowlist } from "../kernel/command-catalog.js";
 import type { ExtensionManifestV1 } from "../extension/manifest.js";
 import { readBoundedJson } from "../shared/http-body.js";
@@ -20,6 +22,7 @@ import type { McpOwnerCredentialIntent, McpOwnerOrchestrator } from "./mcp-owner
 import { deriveProviderStatus, summarizeProviderStatuses } from "./mcp-presentation.js";
 import type { UsageReader } from "../observability/usage-query.js";
 import { parseUsageRange } from "../observability/usage-query.js";
+import { sendDebatePage } from "./debate-page.js";
 import { sendUsagePage } from "./usage-page.js";
 
 const SESSION_IDLE_TTL_MS = 3 * 60 * 60_000;
@@ -175,8 +178,9 @@ input:focus,textarea:focus,select:focus{border-color:#5b8def;box-shadow:0 0 0 3p
 <!-- APP -->
 <div id="app" class="hidden"><main class="app-grid">
 <div class="col">
-<section class="card"><div class="toolbar"><div class="grow"><h1>Overview</h1></div><a href="/usage" class="btn-deny button-link">Usage</a></div><div class="overview-stats"><div class="stat-block"><div class="stat-label">Commands</div><div id="overview-command-count" class="stat-value">—</div><div id="overview-command-note" class="stat-note">Catalog status</div></div><div class="stat-block"><div class="stat-label">MCP servers</div><div id="overview-mcp-count" class="stat-value">—</div><div class="health-list"><div class="health-item"><span class="status-dot working" aria-hidden="true"></span><span id="overview-mcp-working">0 working</span></div><div class="health-item"><span class="status-dot error-dot" aria-hidden="true"></span><span id="overview-mcp-error">0 error</span></div><div id="overview-mcp-attention-row" class="health-item hidden"><span class="status-dot attention" aria-hidden="true"></span><span id="overview-mcp-attention">0 attention</span></div><div id="overview-mcp-disabled-row" class="health-item hidden"><span class="status-dot disabled" aria-hidden="true"></span><span id="overview-mcp-disabled">0 disabled</span></div></div></div></div></section>
+<section class="card"><div class="toolbar"><div class="grow"><h1>Overview</h1></div><div class="row"><a href="/usage" class="btn-deny button-link">Usage</a><a href="/debate" class="btn-deny button-link">Debate</a></div></div><div class="overview-stats"><div class="stat-block"><div class="stat-label">Commands</div><div id="overview-command-count" class="stat-value">—</div><div id="overview-command-note" class="stat-note">Catalog status</div></div><div class="stat-block"><div class="stat-label">MCP servers</div><div id="overview-mcp-count" class="stat-value">—</div><div class="health-list"><div class="health-item"><span class="status-dot working" aria-hidden="true"></span><span id="overview-mcp-working">0 working</span></div><div class="health-item"><span class="status-dot error-dot" aria-hidden="true"></span><span id="overview-mcp-error">0 error</span></div><div id="overview-mcp-attention-row" class="health-item hidden"><span class="status-dot attention" aria-hidden="true"></span><span id="overview-mcp-attention">0 attention</span></div><div id="overview-mcp-disabled-row" class="health-item hidden"><span class="status-dot disabled" aria-hidden="true"></span><span id="overview-mcp-disabled">0 disabled</span></div></div></div></div></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Autonomy</h1></div></div><div class="row"><select id="authority"><option value="restricted">Restricted — selected Paths + approved Commands</option><option value="autonomous">Autonomous — full runtime OS-user authority</option></select><button id="set-authority" class="btn-approve">Apply</button></div><p class="note">Restricted is recommended. Shells/interpreters can still exercise the runtime account's OS permissions.</p></section>
+<section class="card"><div class="toolbar"><div class="grow"><h1>Connections</h1><span class="muted">Tool surface per OAuth grant</span></div></div><div id="connections"></div><p class="note">Full exposes the coding gateway. Gateway-only keeps core.ping, Debate, and enabled MCP provider tools. Agents may restrict themselves, but only the Owner can restore Full.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Paths</h1></div></div><div id="paths"></div><div class="row"><input id="path" placeholder="/absolute/path"><button id="add-path" class="btn-approve">Add Path</button></div><p class="note">Built-in file tools stay inside these Paths in Restricted mode. OS permissions still apply.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>MCP Servers</h1></div><button id="show-add-mcp" class="btn-approve">Add MCP</button></div><div id="mcp"></div><div id="mcp-form" class="hidden panel"><div class="row"><input id="mcp-name" placeholder="Name"><input id="mcp-id" placeholder="provider-id"></div><div class="row"><input id="mcp-desc" placeholder="Description (optional) — what is this MCP server for?"></div><div class="row"><select id="mcp-transport"><option value="streamable-http">Remote URL</option><option value="stdio">Local command</option></select><input id="mcp-target" placeholder="https://service.example.com/mcp"></div><div class="row" id="mcp-args-row"><input id="mcp-args" placeholder="args (space separated, stdio only)"></div><div class="row"><select id="mcp-auth"><option value="none">No auth</option><option value="bearer">Bearer</option><option value="http-header">HTTP header</option></select><input id="mcp-auth-name" placeholder="Header name"><input id="mcp-auth-value" type="password" placeholder="Credential"></div><div class="row"><button id="add-mcp" class="btn-approve">Probe &amp; Add</button><button id="cancel-mcp" class="btn-deny">Cancel</button></div></div></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Advanced</h1></div><button id="toggle-advanced" class="btn-deny">Show</button></div><div id="advanced-content" class="hidden"><div class="advanced-grid"><div class="advanced-item"><div class="advanced-key">Version</div><div id="advanced-version" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">Build</div><div id="advanced-build" class="advanced-value mono">—</div></div><div class="advanced-item"><div class="advanced-key">Authority</div><div id="advanced-authority" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">Paths</div><div id="advanced-paths" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">State root</div><div id="advanced-state" class="advanced-value mono">—</div></div><div class="advanced-item"><div class="advanced-key">Passphrase recovery</div><div id="advanced-recovery" class="advanced-value">—</div></div></div><div class="advanced-actions"><button id="logout" class="btn-deny">Sign out</button></div></div></section>
@@ -191,7 +195,8 @@ function showError(el,msg){el.textContent=msg;el.classList.remove('hidden')}
 function clearError(el){el.classList.add('hidden')}
 function renderOverview(d){const commands=d.commands||[];const commandStatus=d.commandCatalog?.status||'unknown';q('overview-command-count').textContent=String(commands.length);q('overview-command-note').textContent=commandStatus==='ready'?'ready':commandStatus;const s=d.mcpSummary||{total:(d.mcpServers||[]).length,working:0,attention:0,error:0,disabled:0};q('overview-mcp-count').textContent=String(s.total);q('overview-mcp-working').textContent=String(s.working)+' working';q('overview-mcp-error').textContent=String(s.error)+' error';q('overview-mcp-attention').textContent=String(s.attention)+' attention';q('overview-mcp-disabled').textContent=String(s.disabled)+' disabled';q('overview-mcp-attention-row').classList.toggle('hidden',!s.attention);q('overview-mcp-disabled-row').classList.toggle('hidden',!s.disabled)}
 function renderAdvanced(d){const p=d.product||{};q('advanced-version').textContent=p.version||'unknown';q('advanced-build').textContent=p.buildCommit?String(p.buildCommit).slice(0,8):'unknown';q('advanced-authority').textContent=d.authorityMode||'restricted';q('advanced-paths').textContent=String((d.paths||[]).length);q('advanced-state').textContent=p.stateRoot||'unknown';q('advanced-recovery').textContent=p.ownerPassphraseFile?'configured':'unavailable'}
-async function refresh(){const d=await api('/owner/api/state');q('authority').value=d.authorityMode||'restricted';renderOverview(d);renderAdvanced(d);const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight()}
+function renderConnections(list){const el=q('connections');el.replaceChildren();for(const c of list||[]){const row=document.createElement('div');row.className='item';const main=document.createElement('div');main.className='grow';const title=document.createElement('div');title.textContent=String(c.clientId||'OAuth client');const meta=document.createElement('div');meta.className='muted mono';meta.textContent='grant '+String(c.grantId||c.connectionId||'unknown')+' · '+String((c.scopes||[]).join(' '));main.append(title,meta);const select=document.createElement('select');select.setAttribute('aria-label','Tool surface for '+String(c.clientId||'connection'));for(const value of ['full','gateway-only']){const option=document.createElement('option');option.value=value;option.textContent=value==='full'?'Full':'Gateway-only';select.appendChild(option)}select.value=c.surfaceProfile||'full';const apply=btn('Apply','btn-approve',async()=>{await api('/owner/api/connections/profile',{method:'PUT',body:JSON.stringify({grantId:c.grantId,surfaceProfile:select.value})});await refresh()});const makeDefault=btn('Set client default','btn-deny',async()=>{await api('/owner/api/connections/default',{method:'PUT',body:JSON.stringify({clientId:c.clientId,surfaceProfile:select.value})});await refresh()});row.append(main,select,apply,makeDefault);el.appendChild(row)}if(!(list||[]).length){const empty=document.createElement('div');empty.className='empty';empty.textContent='No active OAuth connections.';el.appendChild(empty)}}
+async function refresh(){const d=await api('/owner/api/state');q('authority').value=d.authorityMode||'restricted';renderOverview(d);renderAdvanced(d);renderConnections(d.connections||[]);const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight()}
 function syncCommandHeight(){const card=q('commands-card'),col=document.querySelector('.app-grid > .col');if(card&&col)card.style.maxHeight=(col.offsetHeight)+'px'}
 window.addEventListener('resize',syncCommandHeight);
 function renderCommands(list,state){const el=q('commands');el.innerHTML='';if(state&&state.status!=='ready'){const e=document.createElement('div');e.className='error';e.textContent=state.message||('Command catalog '+state.status+'.');el.appendChild(e)}const risky=new Set(['bash','sh','powershell','cmd','python','python3','node','perl','ruby','sudo','su','docker','systemctl','apt','apt-get']);list.forEach(c=>{const name=String(c[0]||'');const chip=document.createElement('span');chip.className='cmd-chip';const label=document.createElement('span');label.textContent=c.join(' ')+(risky.has(name)?' ⚠':'');if(risky.has(name))label.title='This command can exercise the full OS permissions of the SlncTrZ runtime account.';const x=document.createElement('button');x.className='chip-x';x.title='Remove '+name;x.textContent='×';x.onclick=async()=>{if(!confirm('Remove command '+name+'?'))return;await removeCommand(name);await refresh()};chip.append(label,x);el.appendChild(chip)});if(list.length===0&&(!state||state.status==='ready')){const e=document.createElement('div');e.className='empty';e.textContent='No commands allowed.';el.appendChild(e)}}
@@ -256,6 +261,14 @@ export function createOwnerWebConsole(options: {
   readonly mcpProviders?: McpProviderService;
   readonly mcpCredentials?: McpCredentialStore;
   readonly mcpOrchestrator?: McpOwnerOrchestrator;
+  readonly connections?: Pick<
+    OwnerConnectionService,
+    "listConnections" | "setGrantProfile" | "setClientDefault"
+  >;
+  readonly debates?: Pick<
+    DebateService,
+    "listForOwner" | "readForOwner" | "stopAsOwner" | "resumeAsOwner"
+  >;
   readonly secureCookies?: boolean;
   readonly usage?: UsageReader;
   readonly now?: () => number;
@@ -427,11 +440,20 @@ export function createOwnerWebConsole(options: {
 
   return Object.freeze({
     async handle(req: IncomingMessage, res: ServerResponse, pathname: string) {
-      if (pathname !== "/owner" && pathname !== "/usage" && !pathname.startsWith("/owner/api/"))
+      if (
+        pathname !== "/owner" &&
+        pathname !== "/usage" &&
+        pathname !== "/debate" &&
+        !pathname.startsWith("/owner/api/")
+      )
         return false;
       const method = req.method ?? "GET";
       if (method === "GET" && pathname === "/usage") {
         sendUsagePage(res);
+        return true;
+      }
+      if (method === "GET" && pathname === "/debate") {
+        sendDebatePage(res);
         return true;
       }
       if (method === "GET" && pathname === "/owner") {
@@ -477,6 +499,156 @@ export function createOwnerWebConsole(options: {
           absoluteExpiresAt: new Date(session.absoluteExpiresAt).toISOString()
         });
         return true;
+      }
+      if (method === "GET" && pathname === "/owner/api/connections") {
+        if (options.connections === undefined) {
+          sendJson(res, 503, {
+            error: {
+              code: "connections_unavailable",
+              message: "Connection profiles are unavailable"
+            }
+          });
+          return true;
+        }
+        sendJson(res, 200, { connections: options.connections.listConnections() });
+        return true;
+      }
+      if (
+        method === "PUT" &&
+        (pathname === "/owner/api/connections/profile" ||
+          pathname === "/owner/api/connections/default")
+      ) {
+        if (!requireCsrf(req, res, session)) return true;
+        if (options.connections === undefined) {
+          sendJson(res, 503, {
+            error: {
+              code: "connections_unavailable",
+              message: "Connection profiles are unavailable"
+            }
+          });
+          return true;
+        }
+        const body = (await readBoundedJson(req, MAX_BODY_BYTES)) as {
+          grantId?: unknown;
+          clientId?: unknown;
+          surfaceProfile?: unknown;
+        };
+        if (body.surfaceProfile !== "full" && body.surfaceProfile !== "gateway-only") {
+          sendJson(res, 400, {
+            error: { code: "invalid_surface_profile", message: "Surface profile is invalid" }
+          });
+          return true;
+        }
+        if (pathname.endsWith("/profile")) {
+          if (typeof body.grantId !== "string" || body.grantId.length === 0) {
+            sendJson(res, 400, {
+              error: { code: "invalid_grant_id", message: "grantId is required" }
+            });
+            return true;
+          }
+          options.connections.setGrantProfile(body.grantId, body.surfaceProfile);
+          sendJson(res, 200, {
+            grantId: body.grantId,
+            surfaceProfile: body.surfaceProfile
+          });
+          return true;
+        }
+        if (typeof body.clientId !== "string" || body.clientId.length === 0) {
+          sendJson(res, 400, {
+            error: { code: "invalid_client_id", message: "clientId is required" }
+          });
+          return true;
+        }
+        options.connections.setClientDefault(body.clientId, body.surfaceProfile);
+        sendJson(res, 200, {
+          clientId: body.clientId,
+          surfaceProfile: body.surfaceProfile
+        });
+        return true;
+      }
+      if (pathname === "/owner/api/debates" && method === "GET") {
+        if (options.debates === undefined) {
+          sendJson(res, 503, {
+            error: { code: "debate_unavailable", message: "Debate service is unavailable" }
+          });
+          return true;
+        }
+        sendJson(res, 200, { debates: options.debates.listForOwner() });
+        return true;
+      }
+      if (pathname.startsWith("/owner/api/debates/")) {
+        if (options.debates === undefined) {
+          sendJson(res, 503, {
+            error: { code: "debate_unavailable", message: "Debate service is unavailable" }
+          });
+          return true;
+        }
+        const suffix = pathname.slice("/owner/api/debates/".length);
+        const parts = suffix.split("/");
+        let debateId: string;
+        try {
+          debateId = decodeURIComponent(parts[0] ?? "");
+        } catch {
+          sendJson(res, 400, {
+            error: { code: "invalid_debate_id", message: "Debate ID is invalid" }
+          });
+          return true;
+        }
+        if (debateId.length === 0) {
+          sendJson(res, 400, {
+            error: { code: "invalid_debate_id", message: "Debate ID is required" }
+          });
+          return true;
+        }
+        try {
+          if (method === "GET" && parts.length === 1) {
+            const url = new URL(req.url ?? pathname, "http://localhost");
+            const rawAfter = url.searchParams.get("afterSequence");
+            let afterSequence: number | undefined;
+            if (rawAfter !== null) {
+              afterSequence = Number(rawAfter);
+              if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+                sendJson(res, 400, {
+                  error: {
+                    code: "invalid_after_sequence",
+                    message: "afterSequence must be a non-negative integer"
+                  }
+                });
+                return true;
+              }
+            }
+            sendJson(
+              res,
+              200,
+              options.debates.readForOwner(
+                debateId,
+                ...(afterSequence === undefined ? [] : [afterSequence])
+              )
+            );
+            return true;
+          }
+          if (
+            method === "POST" &&
+            parts.length === 2 &&
+            (parts[1] === "stop" || parts[1] === "resume")
+          ) {
+            if (!requireCsrf(req, res, session)) return true;
+            const snapshot =
+              parts[1] === "stop"
+                ? options.debates.stopAsOwner(debateId)
+                : options.debates.resumeAsOwner(debateId);
+            sendJson(res, 200, snapshot);
+            return true;
+          }
+        } catch (error) {
+          if (error instanceof DebateError) {
+            const status =
+              error.code === "debate_not_found" ? 404 : error.code === "invalid_input" ? 400 : 409;
+            sendJson(res, status, { error: { code: error.code, message: error.message } });
+            return true;
+          }
+          throw error;
+        }
       }
       if (method === "POST" && pathname === "/owner/api/logout") {
         if (!requireCsrf(req, res, session)) return true;
@@ -545,6 +717,7 @@ export function createOwnerWebConsole(options: {
           },
           mcpServers,
           mcpSummary: summarizeProviderStatuses(mcpServers.map((provider) => provider.status)),
+          connections: options.connections?.listConnections() ?? [],
           ...(options.productInfo === undefined ? {} : { product: options.productInfo })
         });
         return true;
