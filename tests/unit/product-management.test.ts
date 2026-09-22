@@ -132,7 +132,8 @@ describe("installed product management", () => {
     expect(diagnostics.some((item) => item.code === "installed_release_integrity_ok")).toBe(true);
     expect(diagnostics.some((item) => item.code === "policy_valid")).toBe(true);
     expect(await readFile(join(f.stateRoot, "policy.json"), "utf8")).toBe(beforePolicy);
-  });
+    // Windows CI runners can exceed the default 5s timeout on fixture + doctor I/O.
+  }, 15_000);
 
   it("detects a running-version mismatch through the configured authenticated control port", async () => {
     const f = await fixture();
