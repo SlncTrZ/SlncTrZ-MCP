@@ -236,7 +236,8 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     expect(ownerPage).toContain('id="toggle-mcp"');
     expect(ownerPage).toContain('id="connections-body" class="collapsible"');
     expect(ownerPage).toContain("/owner/api/connections/profile");
-    expect(ownerPage).toContain("/owner/api/connections/default");
+    expect(ownerPage).not.toContain("/owner/api/connections/default");
+    expect(ownerPage).not.toContain("Save as default for future grants of this client");
     expect(ownerPage).toContain("/owner/api/connections/label");
     expect(ownerPage).toContain('href="/debate"');
 
