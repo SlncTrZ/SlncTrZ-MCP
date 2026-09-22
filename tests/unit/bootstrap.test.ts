@@ -95,9 +95,12 @@ describe("bootstrap lifecycle", () => {
 
     await lifecycle.shutdown();
 
-    for (const path of [oauthPath, debatePath]) {
+    for (const [path, user_version] of [
+      [oauthPath, 2],
+      [debatePath, 1]
+    ] as const) {
       const database = new DatabaseSync(path, { readOnly: true });
-      expect(database.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 1 });
+      expect(database.prepare("PRAGMA user_version").get()).toMatchObject({ user_version });
       database.close();
     }
   });
