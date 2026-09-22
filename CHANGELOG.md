@@ -2,6 +2,33 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.5
+
+Date: 2026-09-22
+
+### Added
+
+- Owner-only Debate delete on `/debate`: finished, timed-out, or abandoned debates can be removed with their transcripts after confirmation. Active debates must be stopped first, and the six-tool Debate MCP surface is unchanged.
+- Smooth collapsible Owner Console cards: Connections, Paths, MCP Servers, Commands, and Advanced now expand and collapse with animation (disabled under `prefers-reduced-motion`).
+
+### Changed
+
+- The Connections card leads with the display label plus a Full/Gateway-only badge, drops raw grant/client identifiers from the row, and renames inline through a pencil control (Enter applies, Escape cancels) instead of a separate form row.
+
+### Fixed
+
+- Long grant and client identifiers no longer stretch or break the Connections layout; profile, default, and rename actions are visually grouped per connection.
+
+### Security
+
+- Debate deletion requires an authenticated Owner session plus CSRF, returns not-found/conflict codes without leaking state, and never/auto-replays or disturbs active model sessions.
+- Connection listings continue to expose no token values or hashes.
+
+### Compatibility / known limitation
+
+- No state migration in this release; all v0.3.4 managed state remains valid.
+- Rolling back to v0.3.4 hides the delete control and the collapsible animation while preserving all data.
+
 ## 0.3.4
 
 Date: 2026-09-22
