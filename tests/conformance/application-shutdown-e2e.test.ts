@@ -16,7 +16,12 @@ afterEach(async () => {
   for (const child of children.splice(0)) {
     if (child.exitCode === null) child.kill("SIGKILL");
   }
-  await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  // Killed Windows descendants can briefly retain directory handles; retry the removal.
+  await Promise.all(
+    cleanup
+      .splice(0)
+      .map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  );
 });
 
 async function freePort(): Promise<number> {
