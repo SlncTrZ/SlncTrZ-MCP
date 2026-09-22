@@ -83,6 +83,7 @@ function help(): string {
     "  owner connections",
     "  owner profile <grant-id> <full|gateway-only>",
     "  owner client-default <client-id> <full|gateway-only>",
+    "  owner rename <grant-id> <label>",
     "  --help",
     "  --version",
     "  --build-info",
@@ -464,6 +465,32 @@ export async function runStandaloneCli(
                 ? { grantId: id, surfaceProfile: profile }
                 : { clientId: id, surfaceProfile: profile }
             )
+          },
+          environment,
+          fetchImpl
+        )
+      )
+    );
+    return true;
+  }
+  if (command === "rename") {
+    if (args.length !== 4) {
+      throw new Error("Usage: slnctrz-mcp owner rename <grant-id> <label>");
+    }
+    const id = args[2];
+    const label = args[3];
+    if (id === undefined || id.length === 0) throw new Error("Connection identifier is required");
+    if (label === undefined || label.trim().length === 0 || label.trim().length > 64) {
+      throw new Error("Label must be 1-64 characters");
+    }
+    output.write(
+      JSON.stringify(
+        await ownerRequest(
+          "/connections/label",
+          {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ grantId: id, label })
           },
           environment,
           fetchImpl

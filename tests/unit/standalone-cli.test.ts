@@ -141,7 +141,8 @@ describe("standalone CLI", () => {
     await runStandaloneCli(["owner", "connections"], common);
     await runStandaloneCli(["owner", "profile", "grant-1", "gateway-only"], common);
     await runStandaloneCli(["owner", "client-default", "client-1", "full"], common);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    await runStandaloneCli(["owner", "rename", "grant-1", "Web chat"], common);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
 
     const grantCall = fetchMock.mock.calls[4];
     expect(String(grantCall?.[0])).toContain("/connections/profile");
@@ -157,6 +158,17 @@ describe("standalone CLI", () => {
       clientId: "client-1",
       surfaceProfile: "full"
     });
+
+    const renameCall = fetchMock.mock.calls[6];
+    expect(String(renameCall?.[0])).toContain("/connections/label");
+    expect(renameCall?.[1]?.method).toBe("PUT");
+    expect(JSON.parse(String(renameCall?.[1]?.body))).toEqual({
+      grantId: "grant-1",
+      label: "Web chat"
+    });
+    await expect(runStandaloneCli(["owner", "rename", "grant-1", "   "], common)).rejects.toThrow(
+      "1-64"
+    );
   });
 
   it("rejects malformed and non-absolute commands", async () => {

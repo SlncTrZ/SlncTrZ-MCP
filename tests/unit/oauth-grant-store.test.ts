@@ -12,7 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { createSqliteOAuthGrantStore } from "../../src/auth/oauth-grant-store.js";
+import {
+  createSqliteOAuthGrantStore,
+  validateConnectionLabel
+} from "../../src/auth/oauth-grant-store.js";
 import { OAuthService } from "../../src/auth/oauth-service.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { createDynamicClientFileStore } from "../../src/auth/dynamic-client-store.js";
@@ -330,6 +333,92 @@ describe("durable OAuth grants and profiles", () => {
     db.exec("PRAGMA user_version=999");
     db.close();
     expect(() => createSqliteOAuthGrantStore(path)).toThrow("oauth_grant_store");
+  });
+});
+
+describe("connection display labels", () => {
+  let issuedCount = 0;
+  function issued(store: ReturnType<typeof createSqliteOAuthGrantStore>, grantId: string) {
+    issuedCount += 1;
+    const hex = (suffix: "a" | "b"): string =>
+      "a".repeat(61) + String(issuedCount).padStart(2, "0") + suffix;
+    store.issue(
+      { grantId, clientId: "client-1", resource: RESOURCE.href, scopes: ["mcp:tools"] },
+      [
+        { tokenHash: hex("a"), kind: "access", expiresAt: 9000 },
+        { tokenHash: hex("b"), kind: "refresh", expiresAt: 9000 }
+      ],
+      1000
+    );
+  }
+  it("auto-assigns Agent N names, renames durably, and validates bounds", () => {
+    const f = fixture();
+    issued(f.store, "g1");
+    issued(f.store, "g2");
+    expect(f.owner.listConnections().map((c) => c.label)).toEqual(["Agent 1", "Agent 2"]);
+    f.owner.setConnectionLabel("g1", "  Web chat  ");
+    expect(f.owner.listConnections()[0]?.label).toBe("Web chat");
+    expect(() => f.owner.setConnectionLabel("g1", "   ")).toThrow("invalid_connection_label");
+    expect(() => f.owner.setConnectionLabel("g1", "x".repeat(65))).toThrow(
+      "invalid_connection_label"
+    );
+    expect(() => f.owner.setConnectionLabel("unknown", "Agent X")).toThrow("oauth_grant_not_found");
+    expect(validateConnectionLabel(" Pi ")).toBe("Pi");
+    f.store.close();
+    const reopened = f.open();
+    expect(reopened.owner.listConnections().map((c) => c.label)).toEqual(["Web chat", "Agent 2"]);
+  });
+  it("migrates v1 databases by backfilling Agent N names in creation order", () => {
+    const directory = mkdtempSync(join(tmpdir(), "oauth-migrate-"));
+    directories.push(directory);
+    const path = join(directory, "oauth-grants.sqlite3");
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE client_defaults (
+        clientId TEXT PRIMARY KEY, surfaceProfile TEXT NOT NULL CHECK(surfaceProfile IN ('full','gateway-only'))
+      ) STRICT;
+      CREATE TABLE grants (
+        grantId TEXT PRIMARY KEY, clientId TEXT NOT NULL, resource TEXT NOT NULL,
+        scopes TEXT NOT NULL, surfaceProfile TEXT NOT NULL CHECK(surfaceProfile IN ('full','gateway-only')),
+        createdAt INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL
+      ) STRICT;
+      CREATE TABLE tokens (
+        tokenHash TEXT PRIMARY KEY CHECK(length(tokenHash)=64),
+        kind TEXT NOT NULL CHECK(kind IN ('access','refresh')),
+        grantId TEXT NOT NULL REFERENCES grants(grantId) ON DELETE CASCADE,
+        expiresAt INTEGER NOT NULL
+      ) STRICT;
+      PRAGMA user_version=1;
+    `);
+    // Insert newest first to prove backfill follows createdAt, not row order.
+    legacy
+      .prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?)")
+      .run("newer", "client-1", RESOURCE.href, `["mcp:tools"]`, "full", 200, 200);
+    legacy
+      .prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?)")
+      .run("older", "client-1", RESOURCE.href, `["mcp:tools"]`, "gateway-only", 100, 100);
+    legacy
+      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+      .run("a".repeat(64), "access", "newer", 9000);
+    legacy
+      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+      .run("b".repeat(64), "refresh", "newer", 9000);
+    legacy
+      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+      .run("c".repeat(64), "access", "older", 9000);
+    legacy
+      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+      .run("d".repeat(64), "refresh", "older", 9000);
+    legacy.close();
+    const store = createSqliteOAuthGrantStore(path);
+    stores.push(store);
+    const owner = new OwnerConnectionService(store, () => 1000);
+    expect(owner.listConnections().map((c) => [c.grantId, c.label, c.surfaceProfile])).toEqual([
+      ["older", "Agent 1", "gateway-only"],
+      ["newer", "Agent 2", "full"]
+    ]);
+    owner.setConnectionLabel("older", "Legacy Pi");
+    expect(owner.listConnections()[0]?.label).toBe("Legacy Pi");
   });
 });
 

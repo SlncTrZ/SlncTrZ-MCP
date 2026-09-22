@@ -14,6 +14,9 @@ export class OwnerConnectionService {
   setGrantProfile(grantId: string, profile: SurfaceProfile): void {
     this.store.setGrantProfile(grantId, profile, this.now());
   }
+  setConnectionLabel(grantId: string, label: string): void {
+    this.store.setConnectionLabel(grantId, label, this.now());
+  }
   setClientDefault(clientId: string, profile: SurfaceProfile): void {
     this.store.setClientDefault(clientId, profile);
   }

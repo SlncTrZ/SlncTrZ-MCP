@@ -13,16 +13,25 @@ import {
   type SurfaceProfile
 } from "./connection-profile.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const idSchema = z.string().min(1).max(256);
 const timeSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const profileSchema = z.enum(["full", "gateway-only"]);
+const labelSchema = z.string().min(1).max(64);
+/** Owner-managed display name. Backend identity stays grantId/clientId; label is cosmetic only. */
+export function validateConnectionLabel(value: unknown): string {
+  if (typeof value !== "string") throw new Error("invalid_connection_label");
+  const label = value.trim();
+  if (!labelSchema.safeParse(label).success) throw new Error("invalid_connection_label");
+  return label;
+}
 const grantSchema = z.object({
   grantId: idSchema,
   clientId: idSchema,
   resource: z.string().url().max(2048),
   scopes: z.array(z.string().min(1).max(256)).min(1).max(32),
   surfaceProfile: profileSchema,
+  label: labelSchema,
   createdAt: timeSchema,
   lastSeenAt: timeSchema
 });
@@ -32,6 +41,7 @@ const tokenSchema = z.object({
   expiresAt: timeSchema
 });
 export interface GrantRecord extends AuthenticatedConnection {
+  readonly label: string;
   readonly createdAt: number;
   readonly lastSeenAt: number;
 }
@@ -50,6 +60,8 @@ export interface NewGrant {
   readonly scopes: readonly string[];
   /** Client request is a reduction only, intersected with the owner default. */
   readonly requestedProfile?: SurfaceProfile;
+  /** Optional initial display label; defaults to the next free "Agent N" name. */
+  readonly label?: string;
 }
 export interface OAuthGrantStore {
   issue(grant: NewGrant, tokens: readonly StoredToken[], now: number): void;
@@ -67,6 +79,7 @@ export interface OAuthGrantStore {
     now: number
   ): AuthenticatedConnection;
   listConnections(now: number): readonly GrantRecord[];
+  setConnectionLabel(grantId: string, label: string, now: number): void;
   getClientDefault(clientId: string): SurfaceProfile | undefined;
   setClientDefault(clientId: string, profile: SurfaceProfile): void;
   setGrantProfile(grantId: string, profile: SurfaceProfile, now: number): void;
@@ -135,7 +148,8 @@ export function createSqliteOAuthGrantStore(
   }
   try {
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
-    if (version !== 0 && version !== SCHEMA_VERSION) throw new Error("unsupported_schema");
+    if (version !== 0 && version !== 1 && version !== SCHEMA_VERSION)
+      throw new Error("unsupported_schema");
     db.exec(
       "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"
     );
@@ -156,7 +170,7 @@ export function createSqliteOAuthGrantStore(
         CREATE TABLE grants (
           grantId TEXT PRIMARY KEY, clientId TEXT NOT NULL, resource TEXT NOT NULL,
           scopes TEXT NOT NULL, surfaceProfile TEXT NOT NULL CHECK(surfaceProfile IN ('full','gateway-only')),
-          createdAt INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL
+          label TEXT NOT NULL, createdAt INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL
         ) STRICT;
         CREATE TABLE tokens (
           tokenHash TEXT PRIMARY KEY CHECK(length(tokenHash)=64),
@@ -167,9 +181,21 @@ export function createSqliteOAuthGrantStore(
         CREATE INDEX tokens_expiry ON tokens(expiresAt);
         CREATE INDEX tokens_grant ON tokens(grantId);
         CREATE INDEX grants_client ON grants(clientId);
-        PRAGMA user_version=1;
+        PRAGMA user_version=2;
         COMMIT;
       `);
+    }
+    if (version === 1) {
+      // v1 grants predate display labels. Backfill stable "Agent N" names in creation order.
+      transaction(() => {
+        db.exec("ALTER TABLE grants ADD COLUMN label TEXT NOT NULL DEFAULT ''");
+        const rows = db.prepare("SELECT grantId FROM grants ORDER BY createdAt, grantId").all() as {
+          readonly grantId: string;
+        }[];
+        const rename = db.prepare("UPDATE grants SET label=? WHERE grantId=?");
+        rows.forEach((row, index) => rename.run(`Agent ${index + 1}`, row.grantId));
+        db.exec("PRAGMA user_version=2");
+      });
     }
     if (
       db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok" ||
@@ -179,7 +205,7 @@ export function createSqliteOAuthGrantStore(
     // Verify required tables/columns even for a versioned but malformed file.
     db.prepare("SELECT clientId, surfaceProfile FROM client_defaults LIMIT 0").all();
     db.prepare(
-      "SELECT grantId, clientId, resource, scopes, surfaceProfile, createdAt, lastSeenAt FROM grants LIMIT 0"
+      "SELECT grantId, clientId, resource, scopes, surfaceProfile, label, createdAt, lastSeenAt FROM grants LIMIT 0"
     ).all();
     db.prepare("SELECT tokenHash, kind, grantId, expiresAt FROM tokens LIMIT 0").all();
     if (path !== ":memory:") {
@@ -264,19 +290,33 @@ export function createSqliteOAuthGrantStore(
           defaultProfile === "gateway-only" || requested === "gateway-only"
             ? "gateway-only"
             : "full";
+        const existing = db.prepare("SELECT label FROM grants").all() as {
+          readonly label: string;
+        }[];
+        let maxAgent = 0;
+        for (const row of existing) {
+          const match = /^Agent (\d+)$/.exec(row.label);
+          if (match) maxAgent = Math.max(maxAgent, Number(match[1]));
+        }
+        const label =
+          grant.label === undefined
+            ? `Agent ${maxAgent + 1}`
+            : validateConnectionLabel(grant.label);
         const parsed = grantSchema.safeParse({
           ...grant,
           surfaceProfile,
+          label,
           createdAt: now,
           lastSeenAt: now
         });
         if (!parsed.success) throw new Error("oauth_grant_store_invalid_grant");
-        db.prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?)").run(
+        db.prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?,?)").run(
           grant.grantId,
           grant.clientId,
           grant.resource,
           JSON.stringify(grant.scopes),
           surfaceProfile,
+          label,
           now,
           now
         );
@@ -359,6 +399,17 @@ export function createSqliteOAuthGrantStore(
         if (
           db.prepare("UPDATE grants SET surfaceProfile=? WHERE grantId=?").run(profile, grantId)
             .changes === 0
+        ) {
+          throw new Error("oauth_grant_not_found");
+        }
+      });
+    },
+    setConnectionLabel(grantId, label, now) {
+      const parsed = validateConnectionLabel(label);
+      transaction(() => {
+        prune(now);
+        if (
+          db.prepare("UPDATE grants SET label=? WHERE grantId=?").run(parsed, grantId).changes === 0
         ) {
           throw new Error("oauth_grant_not_found");
         }

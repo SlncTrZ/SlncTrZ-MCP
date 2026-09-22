@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { FixedWindowRateLimiter } from "../auth/fixed-window-rate-limiter.js";
+import { validateConnectionLabel } from "../auth/oauth-grant-store.js";
 import type { OwnerConnectionService } from "../auth/owner-connection-service.js";
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
 import { DebateError, type DebateService } from "../debate/index.js";
@@ -128,6 +129,11 @@ button:active,.button-link:active{transform:translateY(1px) scale(.985)}
 .item{display:flex;align-items:center;gap:.6rem;padding:.6rem 0;border-top:1px solid #eaedf1}
 .item:first-child{border-top:0}
 .item .grow{flex:1;min-width:0}
+.conn-item{align-items:flex-start;flex-wrap:wrap}
+.conn-controls{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center}
+.conn-rename{width:9rem;flex:none}
+.conn-title{font-weight:650}
+.conn-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .commands-grid{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
 #commands-card{display:flex;flex-direction:column;overflow:hidden}
 #commands{flex:1;min-height:0;overflow-y:auto}
@@ -180,7 +186,7 @@ input:focus,textarea:focus,select:focus{border-color:#5b8def;box-shadow:0 0 0 3p
 <div class="col">
 <section class="card"><div class="toolbar"><div class="grow"><h1>Overview</h1></div><div class="row"><a href="/usage" class="btn-deny button-link">Usage</a><a href="/debate" class="btn-deny button-link">Debate</a></div></div><div class="overview-stats"><div class="stat-block"><div class="stat-label">Commands</div><div id="overview-command-count" class="stat-value">—</div><div id="overview-command-note" class="stat-note">Catalog status</div></div><div class="stat-block"><div class="stat-label">MCP servers</div><div id="overview-mcp-count" class="stat-value">—</div><div class="health-list"><div class="health-item"><span class="status-dot working" aria-hidden="true"></span><span id="overview-mcp-working">0 working</span></div><div class="health-item"><span class="status-dot error-dot" aria-hidden="true"></span><span id="overview-mcp-error">0 error</span></div><div id="overview-mcp-attention-row" class="health-item hidden"><span class="status-dot attention" aria-hidden="true"></span><span id="overview-mcp-attention">0 attention</span></div><div id="overview-mcp-disabled-row" class="health-item hidden"><span class="status-dot disabled" aria-hidden="true"></span><span id="overview-mcp-disabled">0 disabled</span></div></div></div></div></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Autonomy</h1></div></div><div class="row"><select id="authority"><option value="restricted">Restricted — selected Paths + approved Commands</option><option value="autonomous">Autonomous — full runtime OS-user authority</option></select><button id="set-authority" class="btn-approve">Apply</button></div><p class="note">Restricted is recommended. Shells/interpreters can still exercise the runtime account's OS permissions.</p></section>
-<section class="card"><div class="toolbar"><div class="grow"><h1>Connections</h1><span class="muted">Tool surface per OAuth grant</span></div></div><div id="connections"></div><p class="note">Full exposes the coding gateway. Gateway-only keeps core.ping, Debate, and enabled MCP provider tools. Agents may restrict themselves, but only the Owner can restore Full.</p></section>
+<section class="card"><div class="toolbar"><div class="grow"><h1>Connections</h1><span class="muted">Tool surface per OAuth grant</span></div></div><div id="connections"></div><p class="note">Full exposes the coding gateway. Gateway-only keeps core.ping, Debate, and enabled MCP provider tools. Agents may restrict themselves, but only the Owner can restore Full. Rename is display-only; backend grant identity never changes.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Paths</h1></div></div><div id="paths"></div><div class="row"><input id="path" placeholder="/absolute/path"><button id="add-path" class="btn-approve">Add Path</button></div><p class="note">Built-in file tools stay inside these Paths in Restricted mode. OS permissions still apply.</p></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>MCP Servers</h1></div><button id="show-add-mcp" class="btn-approve">Add MCP</button></div><div id="mcp"></div><div id="mcp-form" class="hidden panel"><div class="row"><input id="mcp-name" placeholder="Name"><input id="mcp-id" placeholder="provider-id"></div><div class="row"><input id="mcp-desc" placeholder="Description (optional) — what is this MCP server for?"></div><div class="row"><select id="mcp-transport"><option value="streamable-http">Remote URL</option><option value="stdio">Local command</option></select><input id="mcp-target" placeholder="https://service.example.com/mcp"></div><div class="row" id="mcp-args-row"><input id="mcp-args" placeholder="args (space separated, stdio only)"></div><div class="row"><select id="mcp-auth"><option value="none">No auth</option><option value="bearer">Bearer</option><option value="http-header">HTTP header</option></select><input id="mcp-auth-name" placeholder="Header name"><input id="mcp-auth-value" type="password" placeholder="Credential"></div><div class="row"><button id="add-mcp" class="btn-approve">Probe &amp; Add</button><button id="cancel-mcp" class="btn-deny">Cancel</button></div></div></section>
 <section class="card"><div class="toolbar"><div class="grow"><h1>Advanced</h1></div><button id="toggle-advanced" class="btn-deny">Show</button></div><div id="advanced-content" class="hidden"><div class="advanced-grid"><div class="advanced-item"><div class="advanced-key">Version</div><div id="advanced-version" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">Build</div><div id="advanced-build" class="advanced-value mono">—</div></div><div class="advanced-item"><div class="advanced-key">Authority</div><div id="advanced-authority" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">Paths</div><div id="advanced-paths" class="advanced-value">—</div></div><div class="advanced-item"><div class="advanced-key">State root</div><div id="advanced-state" class="advanced-value mono">—</div></div><div class="advanced-item"><div class="advanced-key">Passphrase recovery</div><div id="advanced-recovery" class="advanced-value">—</div></div></div><div class="advanced-actions"><button id="logout" class="btn-deny">Sign out</button></div></div></section>
@@ -195,7 +201,7 @@ function showError(el,msg){el.textContent=msg;el.classList.remove('hidden')}
 function clearError(el){el.classList.add('hidden')}
 function renderOverview(d){const commands=d.commands||[];const commandStatus=d.commandCatalog?.status||'unknown';q('overview-command-count').textContent=String(commands.length);q('overview-command-note').textContent=commandStatus==='ready'?'ready':commandStatus;const s=d.mcpSummary||{total:(d.mcpServers||[]).length,working:0,attention:0,error:0,disabled:0};q('overview-mcp-count').textContent=String(s.total);q('overview-mcp-working').textContent=String(s.working)+' working';q('overview-mcp-error').textContent=String(s.error)+' error';q('overview-mcp-attention').textContent=String(s.attention)+' attention';q('overview-mcp-disabled').textContent=String(s.disabled)+' disabled';q('overview-mcp-attention-row').classList.toggle('hidden',!s.attention);q('overview-mcp-disabled-row').classList.toggle('hidden',!s.disabled)}
 function renderAdvanced(d){const p=d.product||{};q('advanced-version').textContent=p.version||'unknown';q('advanced-build').textContent=p.buildCommit?String(p.buildCommit).slice(0,8):'unknown';q('advanced-authority').textContent=d.authorityMode||'restricted';q('advanced-paths').textContent=String((d.paths||[]).length);q('advanced-state').textContent=p.stateRoot||'unknown';q('advanced-recovery').textContent=p.ownerPassphraseFile?'configured':'unavailable'}
-function renderConnections(list){const el=q('connections');el.replaceChildren();for(const c of list||[]){const row=document.createElement('div');row.className='item';const main=document.createElement('div');main.className='grow';const title=document.createElement('div');title.textContent=String(c.clientId||'OAuth client');const meta=document.createElement('div');meta.className='muted mono';meta.textContent='grant '+String(c.grantId||c.connectionId||'unknown')+' · '+String((c.scopes||[]).join(' '));main.append(title,meta);const select=document.createElement('select');select.setAttribute('aria-label','Tool surface for '+String(c.clientId||'connection'));for(const value of ['full','gateway-only']){const option=document.createElement('option');option.value=value;option.textContent=value==='full'?'Full':'Gateway-only';select.appendChild(option)}select.value=c.surfaceProfile||'full';const apply=btn('Apply','btn-approve',async()=>{await api('/owner/api/connections/profile',{method:'PUT',body:JSON.stringify({grantId:c.grantId,surfaceProfile:select.value})});await refresh()});const makeDefault=btn('Set client default','btn-deny',async()=>{await api('/owner/api/connections/default',{method:'PUT',body:JSON.stringify({clientId:c.clientId,surfaceProfile:select.value})});await refresh()});row.append(main,select,apply,makeDefault);el.appendChild(row)}if(!(list||[]).length){const empty=document.createElement('div');empty.className='empty';empty.textContent='No active OAuth connections.';el.appendChild(empty)}}
+function renderConnections(list){const el=q('connections');el.replaceChildren();for(const c of list||[]){const row=document.createElement('div');row.className='item conn-item';const main=document.createElement('div');main.className='grow';const label=String(c.label||c.clientId||'OAuth client');const title=document.createElement('div');title.className='conn-title';title.textContent=label;const meta=document.createElement('div');meta.className='muted mono conn-meta';meta.title='grant '+String(c.grantId||c.connectionId||'unknown');meta.textContent='grant '+String(c.grantId||c.connectionId||'unknown')+' · '+String(c.clientId||'')+' · '+String((c.scopes||[]).join(' '));main.append(title,meta);const controls=document.createElement('div');controls.className='conn-controls';const select=document.createElement('select');select.setAttribute('aria-label','Tool surface for '+label);for(const value of ['full','gateway-only']){const option=document.createElement('option');option.value=value;option.textContent=value==='full'?'Full':'Gateway-only';select.appendChild(option)}select.value=c.surfaceProfile||'full';const apply=btn('Apply','btn-approve',async()=>{await api('/owner/api/connections/profile',{method:'PUT',body:JSON.stringify({grantId:c.grantId,surfaceProfile:select.value})});await refresh()});const makeDefault=btn('Set client default','btn-deny',async()=>{await api('/owner/api/connections/default',{method:'PUT',body:JSON.stringify({clientId:c.clientId,surfaceProfile:select.value})});await refresh()});const rename=document.createElement('input');rename.className='conn-rename';rename.value=String(c.label||'');rename.maxLength=64;rename.placeholder='Agent name';rename.setAttribute('aria-label','Display name for '+label);const renameBtn=btn('Rename','btn-deny',async()=>{await api('/owner/api/connections/label',{method:'PUT',body:JSON.stringify({grantId:c.grantId,label:rename.value})});await refresh()});controls.append(select,apply,makeDefault,rename,renameBtn);row.append(main,controls);el.appendChild(row)}if(!(list||[]).length){const empty=document.createElement('div');empty.className='empty';empty.textContent='No active OAuth connections.';el.appendChild(empty)}}
 async function refresh(){const d=await api('/owner/api/state');q('authority').value=d.authorityMode||'restricted';renderOverview(d);renderAdvanced(d);renderConnections(d.connections||[]);const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight()}
 function syncCommandHeight(){const card=q('commands-card'),col=document.querySelector('.app-grid > .col');if(card&&col)card.style.maxHeight=(col.offsetHeight)+'px'}
 window.addEventListener('resize',syncCommandHeight);
@@ -263,7 +269,7 @@ export function createOwnerWebConsole(options: {
   readonly mcpOrchestrator?: McpOwnerOrchestrator;
   readonly connections?: Pick<
     OwnerConnectionService,
-    "listConnections" | "setGrantProfile" | "setClientDefault"
+    "listConnections" | "setGrantProfile" | "setClientDefault" | "setConnectionLabel"
   >;
   readonly debates?: Pick<
     DebateService,
@@ -564,6 +570,50 @@ export function createOwnerWebConsole(options: {
           clientId: body.clientId,
           surfaceProfile: body.surfaceProfile
         });
+        return true;
+      }
+      if (method === "PUT" && pathname === "/owner/api/connections/label") {
+        if (!requireCsrf(req, res, session)) return true;
+        if (options.connections === undefined) {
+          sendJson(res, 503, {
+            error: {
+              code: "connections_unavailable",
+              message: "Connection profiles are unavailable"
+            }
+          });
+          return true;
+        }
+        const body = (await readBoundedJson(req, MAX_BODY_BYTES)) as {
+          grantId?: unknown;
+          label?: unknown;
+        };
+        if (typeof body.grantId !== "string" || body.grantId.length === 0) {
+          sendJson(res, 400, {
+            error: { code: "invalid_grant_id", message: "grantId is required" }
+          });
+          return true;
+        }
+        let label: string;
+        try {
+          label = validateConnectionLabel(body.label);
+        } catch {
+          sendJson(res, 400, {
+            error: { code: "invalid_label", message: "Label must be 1-64 characters" }
+          });
+          return true;
+        }
+        try {
+          options.connections.setConnectionLabel(body.grantId, label);
+        } catch (error) {
+          if (error instanceof Error && error.message === "oauth_grant_not_found") {
+            sendJson(res, 404, {
+              error: { code: "unknown_grant", message: "Connection grant no longer exists" }
+            });
+            return true;
+          }
+          throw error;
+        }
+        sendJson(res, 200, { grantId: body.grantId, label });
         return true;
       }
       if (pathname === "/owner/api/debates" && method === "GET") {

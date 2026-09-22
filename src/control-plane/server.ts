@@ -1,6 +1,7 @@
 /** Loopback-only local diagnostics and revocation control plane. */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { validateConnectionLabel } from "../auth/oauth-grant-store.js";
 import type { OwnerConnectionService } from "../auth/owner-connection-service.js";
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
 import type { OAuthService } from "../auth/oauth-service.js";
@@ -22,7 +23,7 @@ export interface ControlPlaneOptions {
   readonly policyStore: Pick<PolicySnapshotStore, "capture" | "reload">;
   readonly connections?: Pick<
     OwnerConnectionService,
-    "listConnections" | "setGrantProfile" | "setClientDefault"
+    "listConnections" | "setGrantProfile" | "setClientDefault" | "setConnectionLabel"
   >;
   readonly auditJournal: AuditJournal;
   readonly metrics?: MetricsRegistry;
@@ -199,6 +200,59 @@ export function createControlPlaneServer(options: ControlPlaneOptions): Server {
             ? { grantId: parsed.id, surfaceProfile: parsed.profile }
             : { clientId: parsed.id, surfaceProfile: parsed.profile }
         );
+        audit("success");
+        return;
+      }
+
+      if (method === "PUT" && pathname === "/connections/label") {
+        if (options.connections === undefined) {
+          sendJson(res, 503, {
+            error: {
+              code: "connections_unavailable",
+              message: "Connection profiles are unavailable"
+            }
+          });
+          audit("error");
+          return;
+        }
+        const body = (await readBoundedJson(req, maxBodyBytes)) as {
+          grantId?: unknown;
+          label?: unknown;
+        };
+        if (
+          typeof body.grantId !== "string" ||
+          body.grantId.length < 1 ||
+          body.grantId.length > 256
+        ) {
+          sendJson(res, 400, {
+            error: { code: "invalid_request", message: "Expected grantId and label" }
+          });
+          audit("error");
+          return;
+        }
+        let label: string;
+        try {
+          label = validateConnectionLabel(body.label);
+        } catch {
+          sendJson(res, 400, {
+            error: { code: "invalid_label", message: "Label must be 1-64 characters" }
+          });
+          audit("error");
+          return;
+        }
+        try {
+          options.connections.setConnectionLabel(body.grantId, label);
+        } catch (error) {
+          if (error instanceof Error && error.message === "oauth_grant_not_found") {
+            sendJson(res, 404, {
+              error: { code: "unknown_grant", message: "Connection grant no longer exists" }
+            });
+            audit("error");
+            return;
+          }
+          throw error;
+        }
+        sendJson(res, 200, { grantId: body.grantId, label });
         audit("success");
         return;
       }

@@ -74,6 +74,7 @@ async function fixture() {
   const revokedTokens: string[] = [];
   const grantProfiles: { grantId: string; profile: "full" | "gateway-only" }[] = [];
   const clientDefaults: { clientId: string; profile: "full" | "gateway-only" }[] = [];
+  const grantLabels: { grantId: string; label: string }[] = [];
   const server = createControlPlaneServer({
     ownerSecretHash: createOwnerSecretHash(secret),
     oauthService: {
@@ -101,6 +102,7 @@ async function fixture() {
           resource: "https://gateway.test/mcp",
           scopes: ["mcp:tools"],
           surfaceProfile: "full" as const,
+          label: "Agent 1",
           createdAt: 1,
           lastSeenAt: 2
         }
@@ -110,6 +112,9 @@ async function fixture() {
       },
       setClientDefault(clientId, profile) {
         clientDefaults.push({ clientId, profile });
+      },
+      setConnectionLabel(grantId, label) {
+        grantLabels.push({ grantId, label });
       }
     },
     auditJournal: createAuditJournal({ capacity: 8 }),
@@ -118,7 +123,7 @@ async function fixture() {
   servers.push(server);
   const address = await listenControlPlane(server, { host: "127.0.0.1", port: 0 });
   const origin = `http://127.0.0.1:${address.port}`;
-  return { origin, revokedClients, revokedTokens, grantProfiles, clientDefaults };
+  return { origin, revokedClients, revokedTokens, grantProfiles, clientDefaults, grantLabels };
 }
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
@@ -183,6 +188,27 @@ describe("control plane server", () => {
     });
     expect(client.status).toBe(200);
     expect(clientDefaults).toEqual([{ clientId: "client-1", profile: "full" }]);
+  });
+
+  it("renames connection labels and rejects invalid labels", async () => {
+    const { origin, grantLabels } = await fixture();
+
+    const renamed = await fetch(`${origin}/connections/label`, {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ grantId: "grant-1", label: " Pi chat " })
+    });
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toEqual({ grantId: "grant-1", label: "Pi chat" });
+    expect(grantLabels).toEqual([{ grantId: "grant-1", label: "Pi chat" }]);
+
+    const empty = await fetch(`${origin}/connections/label`, {
+      method: "PUT",
+      headers: authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ grantId: "grant-1", label: "   " })
+    });
+    expect(empty.status).toBe(400);
+    expect(grantLabels).toHaveLength(1);
   });
 
   it("revokes clients/tokens and rejects malformed bodies", async () => {

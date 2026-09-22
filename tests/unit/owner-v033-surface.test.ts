@@ -31,6 +31,7 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
 
     const profiles: { grantId: string; profile: "full" | "gateway-only" }[] = [];
     const defaults: { clientId: string; profile: "full" | "gateway-only" }[] = [];
+    const labels: { grantId: string; label: string }[] = [];
     const ownerStops: string[] = [];
     const ownerResumes: string[] = [];
     const web = createOwnerWebConsole({
@@ -72,9 +73,9 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
             resource: "https://gateway.test/mcp",
             scopes: ["mcp:tools"],
             surfaceProfile: "full" as const,
+            label: "Agent 1",
             createdAt: 1,
-            lastSeenAt: 2,
-            expiresAt: 99
+            lastSeenAt: 2
           }
         ],
         setGrantProfile(grantId, profile) {
@@ -82,6 +83,9 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
         },
         setClientDefault(clientId, profile) {
           defaults.push({ clientId, profile });
+        },
+        setConnectionLabel(grantId, label) {
+          labels.push({ grantId, label });
         }
       },
       debates: {
@@ -221,6 +225,7 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     expect(ownerPage).toContain('id="connections"');
     expect(ownerPage).toContain("/owner/api/connections/profile");
     expect(ownerPage).toContain("/owner/api/connections/default");
+    expect(ownerPage).toContain("/owner/api/connections/label");
     expect(ownerPage).toContain('href="/debate"');
 
     expect((await fetch(`${origin}/owner/api/connections`)).status).toBe(401);
@@ -260,6 +265,23 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     });
     expect(clientDefault.status).toBe(200);
     expect(defaults).toEqual([{ clientId: "client-1", profile: "full" }]);
+
+    const rename = await fetch(`${origin}/owner/api/connections/label`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ grantId: "grant-1", label: "Web chat" })
+    });
+    expect(rename.status).toBe(200);
+    expect(await rename.json()).toEqual({ grantId: "grant-1", label: "Web chat" });
+    expect(labels).toEqual([{ grantId: "grant-1", label: "Web chat" }]);
+
+    const badRename = await fetch(`${origin}/owner/api/connections/label`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ grantId: "grant-1", label: "" })
+    });
+    expect(badRename.status).toBe(400);
+    expect(labels).toHaveLength(1);
 
     const debates = await fetch(`${origin}/owner/api/debates`, { headers: { cookie } });
     expect(await debates.json()).toEqual({
