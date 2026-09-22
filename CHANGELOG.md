@@ -2,6 +2,28 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.4
+
+Date: 2026-09-22
+
+### Added
+
+- Owner-managed connection display labels: new grants are named Agent 1, Agent 2, and so on, and the Owner can rename any connection from `/owner`, the loopback control plane (`PUT /connections/label`), or `slnctrz-mcp owner rename <grant-id> <label>`.
+- Existing v0.3.3 grant databases migrate automatically, backfilling Agent N names in grant-creation order without touching tokens or profiles.
+
+### Changed
+
+- The Owner Console Connections card now leads with the display label, truncates long grant/client identifiers with ellipsis, and wraps profile, default, and rename controls instead of squeezing them into one row.
+
+### Security
+
+- Labels are cosmetic only: backend authorization still binds to grantId/clientId, rename accepts 1-64 characters, and connection listings continue to expose no token values or hashes.
+
+### Compatibility / known limitation
+
+- No state migration beyond the additive grant-label column; existing Paths, Commands, providers, credentials, Owner Passphrase, audit/usage history, and harness state are preserved across update.
+- Rolling back to v0.3.3 ignores the label column; labels set by v0.3.4 reappear after updating again.
+
 ## 0.3.3
 
 Date: 2026-09-22
