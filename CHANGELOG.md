@@ -2,6 +2,48 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.3
+
+Date: 2026-09-22
+
+### Added
+
+- Per-OAuth-grant Tool Surface Profiles with Full and Gateway-only modes, including agent self-restriction and Owner-controlled promotion/restriction.
+- Durable private SQLite grant/token storage so grants issued by v0.3.3 survive normal gateway restarts without persisting plaintext bearer or refresh tokens.
+- Durable two-participant Debate with exactly six MCP tools, persisted turn/deadline/idempotency state, and connection-bound opaque membership credentials.
+- Owner `/debate` live/history UI and authenticated stop/resume/read APIs.
+- Owner Console, loopback control-plane, and standalone CLI operations for connection profile management.
+- Secret-free provider incident correlation and gateway lifecycle/restart observability.
+
+### Changed
+
+- Gateway-only provider dispatch bypasses only the coding-harness receipt requirement while preserving OAuth, policy, provider, credential, and transport checks.
+- Effective Tool Surface Profile is resolved from durable authenticated grant state on every MCP exchange.
+- Provider audit events can distinguish invalid-session recovery, startup unavailability, transport/auth/protocol/timeout classes, recovery, and quarantine without retaining provider payloads or credentials.
+- Release/update restart paths can persist a short-lived one-shot restart intent so the next startup correlates a known release/control restart.
+
+### Security
+
+- Gateway-only hidden tools are disabled at discovery and fail closed on direct dispatch.
+- Agents may reduce their own grant to Gateway-only but cannot self-promote to Full.
+- Debate authorization binds membership credential and participant identity to the server-derived authenticated connection.
+- OAuth token persistence uses token hashes only; Owner connection views return no token values.
+- Provider/lifecycle observability remains metadata-only and does not retain tool arguments, output, endpoint data, environment values, bearer tokens, refresh tokens, or membership credentials.
+
+### Fixed
+
+- Normal gateway restarts no longer invalidate grants issued by v0.3.3.
+- OAuth grant profile and Debate membership/state now survive an application restart through the same managed state root.
+- SIGTERM/SIGINT shutdown reasons are retained in audit when the gateway can observe them; external SIGKILL/OS termination remains intentionally unattributed.
+- Provider recovery keeps the no-auto-replay invariant for the failed call while retaining one correlation ID across recovery/quarantine state.
+
+### Compatibility / known limitation
+
+- Grants created by v0.3.2 were process-local and cannot be migrated retroactively, so the first upgrade to v0.3.3 may require one reconnect/reauthorization.
+- Debate V1 supports exactly two participants.
+- GPT web and Pi/OpenCode real-client field validation continues after release for this owner-only deployment and is not claimed as completed pre-tag evidence.
+- Windows x64 stable publication remains gated by the native Windows build and clean public Windows User Install job in the release workflow.
+
 ## 0.3.2
 
 Date: 2026-09-12
