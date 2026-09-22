@@ -286,7 +286,7 @@ export function createOwnerWebConsole(options: {
   >;
   readonly debates?: Pick<
     DebateService,
-    "listForOwner" | "readForOwner" | "stopAsOwner" | "resumeAsOwner"
+    "listForOwner" | "readForOwner" | "stopAsOwner" | "resumeAsOwner" | "deleteAsOwner"
   >;
   readonly secureCookies?: boolean;
   readonly usage?: UsageReader;
@@ -701,6 +701,11 @@ export function createOwnerWebConsole(options: {
                 ? options.debates.stopAsOwner(debateId)
                 : options.debates.resumeAsOwner(debateId);
             sendJson(res, 200, snapshot);
+            return true;
+          }
+          if (method === "DELETE" && parts.length === 1) {
+            if (!requireCsrf(req, res, session)) return true;
+            sendJson(res, 200, options.debates.deleteAsOwner(debateId));
             return true;
           }
         } catch (error) {

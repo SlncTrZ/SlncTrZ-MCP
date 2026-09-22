@@ -398,6 +398,15 @@ export function createDebateService(
       return debate;
     },
 
+    deleteAsOwner(debateId: string): { readonly debateId: string } {
+      ensureOpen();
+      const safeDebateId = boundedText(debateId, "debateId", MAX_ID_CHARS);
+      const nowMs = now();
+      const deleted = store.ownerDelete(safeDebateId, nowMs, iso(nowMs));
+      waiters.notify(safeDebateId);
+      return Object.freeze({ debateId: deleted });
+    },
+
     close(): void {
       if (closed) return;
       closed = true;

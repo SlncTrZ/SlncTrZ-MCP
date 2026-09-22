@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
+import { DebateError } from "../../src/debate/index.js";
 import { managedStatePaths } from "../../src/owner/managed-state.js";
 import { createOwnerWebConsole } from "../../src/owner/web-console.js";
 import { compilePolicyDocument } from "../../src/policy/policy-config.js";
@@ -34,6 +35,7 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     const labels: { grantId: string; label: string }[] = [];
     const ownerStops: string[] = [];
     const ownerResumes: string[] = [];
+    const ownerDeletes: string[] = [];
     const web = createOwnerWebConsole({
       ownerSecretHash: createOwnerSecretHash("owner v033 passphrase"),
       policyStore: {
@@ -168,6 +170,12 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
             participants: [],
             messages: []
           };
+        },
+        deleteAsOwner: (debateId) => {
+          if (debateId === "missing") throw new DebateError("debate_not_found", "gone");
+          if (debateId === "live") throw new DebateError("delete_not_allowed", "stop first");
+          ownerDeletes.push(debateId);
+          return { debateId };
         },
         resumeAsOwner: (debateId) => {
           ownerResumes.push(debateId);
@@ -312,5 +320,26 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     });
     expect(resume.status).toBe(200);
     expect(ownerResumes).toEqual(["debate-1"]);
+
+    const deleted = await fetch(`${origin}/owner/api/debates/debate-1`, {
+      method: "DELETE",
+      headers: { cookie, "x-slnctrz-csrf": csrf }
+    });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ debateId: "debate-1" });
+    expect(ownerDeletes).toEqual(["debate-1"]);
+
+    const missing = await fetch(`${origin}/owner/api/debates/missing`, {
+      method: "DELETE",
+      headers: { cookie, "x-slnctrz-csrf": csrf }
+    });
+    expect(missing.status).toBe(404);
+
+    const live = await fetch(`${origin}/owner/api/debates/live`, {
+      method: "DELETE",
+      headers: { cookie, "x-slnctrz-csrf": csrf }
+    });
+    expect(live.status).toBe(409);
+    expect(ownerDeletes).toEqual(["debate-1"]);
   });
 });

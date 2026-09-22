@@ -492,6 +492,21 @@ export class DebateStore {
     });
   }
 
+  ownerDelete(debateId: string, nowMs: number, now: string): string {
+    this.#assertOpen();
+    return this.#transaction(() => {
+      this.#requireDebate(debateId);
+      this.#expireIfDue(debateId, nowMs, now);
+      const debate = this.#requireDebate(debateId);
+      if (debate.status === "active") {
+        throw new DebateError("delete_not_allowed", "Stop the Debate before deleting it");
+      }
+      // Participants and messages cascade from the debate row.
+      this.#database.prepare("DELETE FROM debates WHERE debate_id=?").run(debateId);
+      return debateId;
+    });
+  }
+
   ownerResume(
     debateId: string,
     nowMs: number,

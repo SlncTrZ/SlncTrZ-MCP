@@ -925,4 +925,43 @@ describe("durable Debate service", () => {
 
     service.close();
   });
+
+  it("deletes waiting or stopped debates as Owner but refuses active ones", async () => {
+    const path = await databasePath();
+    const service = createDebateService(path);
+
+    const waiting = service.create({
+      topic: "Abandoned before join",
+      nickname: "Solo",
+      connectionId: "grant-1",
+      maxTurns: 4,
+      finalizerRole: "creator"
+    });
+    expect(service.deleteAsOwner(waiting.debate.debateId)).toEqual({
+      debateId: waiting.debate.debateId
+    });
+    expectDebateError(() => service.readForOwner(waiting.debate.debateId), "debate_not_found");
+    expectDebateError(() => service.deleteAsOwner(waiting.debate.debateId), "debate_not_found");
+
+    const live = service.create({
+      topic: "Live debate",
+      nickname: "Uno",
+      connectionId: "grant-1",
+      maxTurns: 4,
+      finalizerRole: "creator"
+    });
+    service.join({
+      debateId: live.debate.debateId,
+      nickname: "Dos",
+      connectionId: "grant-2"
+    });
+    expectDebateError(() => service.deleteAsOwner(live.debate.debateId), "delete_not_allowed");
+    service.stopAsOwner(live.debate.debateId);
+    expect(service.deleteAsOwner(live.debate.debateId)).toEqual({
+      debateId: live.debate.debateId
+    });
+    expect(service.listForOwner().map((item) => item.debateId)).toEqual([]);
+
+    service.close();
+  });
 });

@@ -12,6 +12,7 @@ export type DebateErrorCode =
   | "turn_not_acknowledged"
   | "idempotency_conflict"
   | "resume_not_allowed"
+  | "delete_not_allowed"
   | "wait_cancelled"
   | "debate_store_closed"
   | "debate_schema_unsupported"

@@ -162,6 +162,7 @@ describe("Debate owner page foundation", () => {
     expect(html).toContain('id="page-error"');
     expect(html).toContain('id="resume-action"');
     expect(html).toContain('id="stop-action"');
+    expect(html).toContain('id="delete-action"');
     expect(html).toContain('id="copy-id-action"');
     expect(html).toContain(".final-summary{");
     expect(html).toContain("message.isFinal?' final-summary':''");

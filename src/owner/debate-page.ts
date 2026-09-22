@@ -39,7 +39,7 @@ button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid col
 <section id="loading-state" class="state-pane" data-state="loading"><div class="skeleton" aria-label="Loading debates"><i></i><i></i><i></i></div></section>
 <section id="empty-state" class="state-pane hidden" data-state="empty"><div class="state-copy"><h2>No debates yet</h2><p>New debates will appear here after they are created through the Debate tools.</p></div></section>
 <section id="conversation" class="conversation hidden" data-state="active">
-<header class="conversation-head"><div class="title-row"><div class="title-copy"><h2 id="topic">Debate</h2><p id="debate-id" class="debate-id"></p></div><div class="actions"><button id="copy-id-action" class="action" type="button">Copy ID</button><button id="resume-action" class="action primary hidden" type="button">Resume</button><button id="stop-action" class="action danger" type="button">Stop</button></div></div>
+<header class="conversation-head"><div class="title-row"><div class="title-copy"><h2 id="topic">Debate</h2><p id="debate-id" class="debate-id"></p></div><div class="actions"><button id="copy-id-action" class="action" type="button">Copy ID</button><button id="resume-action" class="action primary hidden" type="button">Resume</button><button id="stop-action" class="action danger" type="button">Stop</button><button id="delete-action" class="action danger hidden" type="button">Delete</button></div></div>
 <div class="fact-row"><div class="fact"><span class="fact-label">State</span><span id="status" class="fact-value">waiting</span></div><div class="fact"><span class="fact-label">Turns</span><span id="turns" class="fact-value">0 / 0</span></div><div class="fact"><span class="fact-label">Current speaker</span><span id="speaker" class="fact-value">waiting</span></div><div class="fact"><span class="fact-label">Deadline</span><span id="deadline" class="fact-value">waiting</span></div></div></header>
 <ol id="transcript" class="transcript" aria-label="Debate transcript"></ol>
 <div id="turn-note" class="turn-note"><strong>waiting</strong> for debate activity.</div>
@@ -95,6 +95,7 @@ function renderSnapshot(snapshot,resetTranscript){
   q('deadline').textContent=deadlineText(snapshot);
   q('resume-action').classList.toggle('hidden',snapshot.status!=='paused_timeout');
   q('stop-action').disabled=snapshot.status==='stopped'||snapshot.status==='completed';
+  q('delete-action').classList.toggle('hidden',snapshot.status==='active');
   if(resetTranscript)q('transcript').replaceChildren();appendMessages(snapshot,snapshot.messages);
   lastSequence=Math.max(lastSequence,Number(snapshot.sequence||0));
   const note=q('turn-note'),statusText=String(snapshot.status||'waiting');
@@ -131,6 +132,7 @@ q('debate-list').addEventListener('click',async event=>{const b=event.target.clo
 q('copy-id-action').addEventListener('click',async()=>{if(!currentId)return;try{await navigator.clipboard.writeText(currentId);q('copy-id-action').textContent='Copied';setTimeout(()=>{q('copy-id-action').textContent='Copy ID'},1200)}catch(error){showError(error)}});
 q('stop-action').addEventListener('click',async()=>{if(!currentId)return;try{const snapshot=await api(API+'/'+encodeURIComponent(currentId)+'/stop',{method:'POST',body:'{}'});renderSnapshot(snapshot,false);clearError()}catch(error){showError(error)}});
 q('resume-action').addEventListener('click',async()=>{if(!currentId)return;try{const snapshot=await api(API+'/'+encodeURIComponent(currentId)+'/resume',{method:'POST',body:'{}'});renderSnapshot(snapshot,false);clearError()}catch(error){showError(error)}});
+q('delete-action').addEventListener('click',async()=>{if(!currentId)return;if(!confirm('Delete this debate and its transcript? This cannot be undone.'))return;try{await api(API+'/'+encodeURIComponent(currentId),{method:'DELETE'});currentId=null;lastSequence=0;currentSnapshot=null;q('transcript').replaceChildren();await loadList();clearError()}catch(error){showError(error)}});
 async function boot(){
   try{const session=await api('/owner/api/session');csrf=session.csrf||'';q('app').classList.remove('hidden');await loadList();pollTimer=setTimeout(scheduleRefresh,POLL_MS)}
   catch(error){if(error?.status===401){q('auth-required').classList.remove('hidden')}else{q('app').classList.remove('hidden');q('loading-state').classList.add('hidden');showError(error)}}

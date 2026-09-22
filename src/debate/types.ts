@@ -153,5 +153,6 @@ export interface DebateService {
   readForOwner(debateId: string, afterSequence?: number): DebateSnapshot;
   stopAsOwner(debateId: string): DebateSnapshot;
   resumeAsOwner(debateId: string): DebateSnapshot;
+  deleteAsOwner(debateId: string): { readonly debateId: string };
   close(): void;
 }
