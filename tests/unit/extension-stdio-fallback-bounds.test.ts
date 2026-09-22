@@ -194,7 +194,8 @@ describe("stdio startup fallback bounds", () => {
         ].join("\n"),
         "utf8"
       );
-      const startupTimeoutMs = 1_800;
+      // Fixture sleeps ~1_150ms total; Windows CI needs extra headroom for Node spawn + IPC.
+      const startupTimeoutMs = 3_000;
       adapter = createStdioAdapter(
         await compileExtensionManifest(manifestFor(script, "slow-legacy", startupTimeoutMs))
       );
