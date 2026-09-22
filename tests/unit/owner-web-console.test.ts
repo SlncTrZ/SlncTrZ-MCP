@@ -279,7 +279,11 @@ describe("Owner Console product surface", () => {
     expect(ownerPage).toContain('id="overview-command-count"');
     expect(ownerPage).toContain('id="overview-mcp-count"');
     expect(ownerPage).toContain('class="btn-deny button-link"');
-    expect(ownerPage).toContain('id="advanced-content" class="hidden"');
+    expect(ownerPage).toContain('id="advanced-content" class="collapsible collapsed"');
+    expect(ownerPage).toContain('id="toggle-advanced"');
+    expect(ownerPage).toContain('id="paths-body" class="collapsible"');
+    expect(ownerPage).toContain('id="mcp-body" class="collapsible"');
+    expect(ownerPage).toContain('id="commands-body" class="collapsible"');
     expect(ownerPage).not.toContain("q('overview').textContent=['Version '");
 
     commandReloadMode = "activated";
