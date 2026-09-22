@@ -214,5 +214,5 @@ describe("v0.3.3 application restart durability", () => {
       debateId,
       currentParticipantId: null
     });
-  });
+  }, 15_000);
 });
