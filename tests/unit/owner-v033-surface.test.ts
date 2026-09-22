@@ -223,6 +223,10 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
 
     const ownerPage = await (await fetch(`${origin}/owner`)).text();
     expect(ownerPage).toContain('id="connections"');
+    expect(ownerPage).toContain('id="toggle-connections"');
+    expect(ownerPage).toContain('id="toggle-paths"');
+    expect(ownerPage).toContain('id="toggle-mcp"');
+    expect(ownerPage).toContain('id="connections-body" class="collapsible"');
     expect(ownerPage).toContain("/owner/api/connections/profile");
     expect(ownerPage).toContain("/owner/api/connections/default");
     expect(ownerPage).toContain("/owner/api/connections/label");
