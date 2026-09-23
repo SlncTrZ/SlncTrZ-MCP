@@ -1641,13 +1641,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               args.root
             );
             auditedCommandId = authorized.binary;
-            const task = await taskRuntime.start(taskActor, kernelPolicy.version, () =>
-              startRunCommand(authorized.binary, args.args ?? [], authorized.runRoot, {
-                ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
-                ...(args.maxOutputBytes === undefined
-                  ? {}
-                  : { maxOutputBytes: args.maxOutputBytes })
-              })
+            const task = await taskRuntime.start(
+              taskActor,
+              kernelPolicy.version,
+              () =>
+                startRunCommand(authorized.binary, args.args ?? [], authorized.runRoot, {
+                  ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+                  ...(args.maxOutputBytes === undefined
+                    ? {}
+                    : { maxOutputBytes: args.maxOutputBytes })
+                }),
+              { commandId: authorized.binary }
             );
             auditResult = "success";
             return {

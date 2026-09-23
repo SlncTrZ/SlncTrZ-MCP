@@ -334,7 +334,30 @@ export async function bootstrap(
   const harnessRoot = config.harnessRoot ?? join(statePaths.root, "harness");
   await ensureHarnessLayout(harnessRoot);
   const harnessRuntime = new HarnessRuntime(harnessRoot, Date.now, usageObserver);
-  const taskRuntime = createTaskRuntime();
+  const toolAudit = createJournalToolAuditSink(auditJournal, createJsonLineToolAuditSink());
+  const taskRuntime = createTaskRuntime({
+    onRunnerTerminal: (event) =>
+      toolAudit({
+        timestamp: event.completedAt,
+        requestId: `task:${event.taskId}`,
+        clientId: event.clientId,
+        workspaceId: event.workspaceId,
+        toolId: "task.runner.terminal",
+        riskClass: "execute",
+        policyVersion: event.policyVersion,
+        decision: "allow",
+        result:
+          event.state === "completed"
+            ? "success"
+            : event.state === "timed_out"
+              ? "timeout"
+              : event.state === "cancelled"
+                ? "cancelled"
+                : "error",
+        durationMs: event.durationMs,
+        ...(event.commandId === undefined ? {} : { commandId: event.commandId })
+      })
+  });
   const server = createGatewayServer({
     oauthService,
     policyStore,
@@ -353,7 +376,7 @@ export async function bootstrap(
       agentHarness
     },
     ...(ownerWeb === undefined ? {} : { ownerWeb }),
-    toolAudit: createJournalToolAuditSink(auditJournal, createJsonLineToolAuditSink()),
+    toolAudit,
     usageObserver,
     ...(metrics === undefined ? {} : { metrics }),
     mcpEventBus,

@@ -20,6 +20,21 @@ export interface RunnerTaskActor {
   readonly workspaceId: string;
 }
 
+export interface RunnerTaskMetadata {
+  readonly commandId?: string;
+}
+
+export interface RunnerTaskTerminalEvent {
+  readonly taskId: string;
+  readonly workspaceId: string;
+  readonly clientId: string;
+  readonly policyVersion: string;
+  readonly state: Exclude<RunnerTaskState, "running">;
+  readonly completedAt: string;
+  readonly durationMs: number;
+  readonly commandId?: string;
+}
+
 export interface RunnerTaskSnapshot {
   readonly kind: "runner";
   readonly taskId: string;
@@ -90,6 +105,8 @@ interface MutableRunnerTask {
   handle?: ManagedRunCommandHandle;
   settled?: Promise<void>;
   cancelRequested: boolean;
+  terminalEmitted: boolean;
+  readonly commandId?: string;
 }
 
 interface MutableCoordinationTask {
@@ -114,13 +131,15 @@ export interface TaskRuntimeOptions {
   readonly now?: () => Date;
   readonly id?: () => string;
   readonly coordinationId?: () => string;
+  readonly onRunnerTerminal?: (event: RunnerTaskTerminalEvent) => void;
 }
 
 export interface TaskRuntime {
   start(
     actor: RunnerTaskActor,
     policyVersion: string,
-    launch: () => Promise<ManagedRunCommandHandle>
+    launch: () => Promise<ManagedRunCommandHandle>,
+    metadata?: RunnerTaskMetadata
   ): Promise<RunnerTaskSnapshot>;
   get(actor: RunnerTaskActor, taskId: string): TaskSnapshot;
   create(actor: RunnerTaskActor, title: string, instructions: string): CoordinationTaskSnapshot;
@@ -210,6 +229,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
   const now = options.now ?? (() => new Date());
   const id = options.id ?? randomUUID;
   const coordinationId = options.coordinationId ?? randomUUID;
+  const onRunnerTerminal = options.onRunnerTerminal;
   const runnerTasks = new Map<string, MutableRunnerTask>();
   const coordinationTasks = new Map<string, MutableCoordinationTask>();
   let accepting = true;
@@ -224,6 +244,37 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
   const requestRunnerCancel = (task: MutableRunnerTask): void => {
     task.cancelRequested = true;
     task.handle?.cancel();
+  };
+
+  const emitRunnerTerminal = (task: MutableRunnerTask): void => {
+    if (
+      task.terminalEmitted ||
+      task.handle === undefined ||
+      task.state === "running" ||
+      task.completedAt === undefined
+    ) {
+      return;
+    }
+    task.terminalEmitted = true;
+    const createdAtMs = Date.parse(task.createdAt);
+    const completedAtMs = Date.parse(task.completedAt);
+    try {
+      onRunnerTerminal?.({
+        taskId: task.taskId,
+        workspaceId: task.workspaceId,
+        clientId: task.createdByClientId,
+        policyVersion: task.policyVersion,
+        state: task.state,
+        completedAt: task.completedAt,
+        durationMs:
+          Number.isFinite(createdAtMs) && Number.isFinite(completedAtMs)
+            ? Math.max(0, completedAtMs - createdAtMs)
+            : 0,
+        ...(task.commandId === undefined ? {} : { commandId: task.commandId })
+      });
+    } catch {
+      // Terminal observability is passive and never changes managed-task semantics.
+    }
   };
 
   const activeCount = (): number =>
@@ -310,7 +361,7 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
   };
 
   const runtime: TaskRuntime = {
-    async start(actor, policyVersion, launch) {
+    async start(actor, policyVersion, launch, metadata = {}) {
       assertAccepting();
       pruneTerminalTasks();
       if (runnerTasks.size >= maxRetainedTasks || activeCount() >= maxActiveTasks) {
@@ -331,7 +382,9 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
         policyVersion,
         state: "running",
         createdAt: now().toISOString(),
-        cancelRequested: false
+        cancelRequested: false,
+        terminalEmitted: false,
+        ...(metadata.commandId === undefined ? {} : { commandId: metadata.commandId })
       };
       const launchPromise = Promise.resolve()
         .then(launch)
@@ -351,6 +404,8 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
           task.state = "failed";
           task.failureCode = error instanceof ExecError ? error.code : "execution_failed";
           task.completedAt = now().toISOString();
+        } finally {
+          emitRunnerTerminal(task);
         }
       })();
       runnerTasks.set(taskId, task);
