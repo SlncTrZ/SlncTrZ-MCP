@@ -26,7 +26,7 @@ Run a small OAuth authorization server in the gateway process for Phase 1 dogfoo
   scrypt verifier;
 - issue opaque, short-lived access tokens and rotating refresh tokens;
 - verify expiry, resource, client, and scope before MCP dispatch;
-- rate-limit registration, token exchange, and owner authentication by direct peer.
+- rate-limit registration and token exchange by direct peer; Owner-authentication failure budgeting is refined by ADR-013.
 
 Clients, pending grants, authorization codes, and tokens are in memory. A process
 restart invalidates them. Runtime hostname, public URL, and owner verifier remain
@@ -41,8 +41,8 @@ identity-provider integration are explicitly out of scope for this decision.
   while remaining self-contained and default-deny.
 - **Negative / costs:** clients must reconnect after restart; one process owns all
   authorization state; this design is unsuitable for horizontal scaling.
-- **Risks and mitigations:** brute-force and allocation abuse are bounded by direct-peer
-  rate limits, short lifetimes, strict input limits, and opaque credentials. The public
+- **Risks and mitigations:** brute-force and allocation abuse are bounded by the rate-limit
+  model refined in ADR-013, short lifetimes, strict input limits, and opaque credentials. The public
   endpoint must remain behind HTTPS ingress. A later ADR must replace or persist the
   authority before multi-user or high-availability operation.
 

@@ -203,7 +203,7 @@ Provider isolation is process/protocol isolation, not an OS sandbox. An untruste
 - MCP tool dispatch requires valid bearer authorization.
 - PKCE, audience, expiry and scope checks remain enforced where applicable.
 - Refresh rotation and family revocation must invalidate the correct token lineage.
-- Dynamic-client registration and repeated owner-auth attempts are rate limited.
+- Dynamic-client registration is rate limited. Owner-authentication failures use a per-authorization-transaction budget plus a higher direct-peer backstop; successful approvals are not charged, and forwarding headers are not trusted for peer identity.
 - Unsupported MCP protocol versions fail before normal tool use.
 - Malformed JSON, JSON-RPC batches/envelopes, invalid UTF-8 and unsupported media types fail with stable non-secret errors.
 - Public MCP request bodies are bounded at 16 MiB; core UTF-8 read/write/edit payloads are bounded at 8 MiB.

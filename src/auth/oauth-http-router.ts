@@ -16,8 +16,9 @@ const AUTH_BODY_LIMIT_BYTES = 65_536;
 const REGISTRATION_LIMIT_PER_MINUTE = 20;
 const AUTHORIZATION_LIMIT_PER_MINUTE = 60;
 const TOKEN_LIMIT_PER_MINUTE = 60;
-const OWNER_ATTEMPT_LIMIT = 5;
-const OWNER_ATTEMPT_WINDOW_SECONDS = 300;
+const OWNER_TRANSACTION_FAILURE_LIMIT = 5;
+const OWNER_PEER_FAILURE_LIMIT = 25;
+const OWNER_FAILURE_WINDOW_SECONDS = 300;
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
@@ -241,9 +242,13 @@ export class OAuthHttpRouter {
     limit: TOKEN_LIMIT_PER_MINUTE,
     windowSeconds: 60
   });
-  readonly #ownerAttemptLimiter = new FixedWindowRateLimiter({
-    limit: OWNER_ATTEMPT_LIMIT,
-    windowSeconds: OWNER_ATTEMPT_WINDOW_SECONDS
+  readonly #ownerTransactionFailureLimiter = new FixedWindowRateLimiter({
+    limit: OWNER_TRANSACTION_FAILURE_LIMIT,
+    windowSeconds: OWNER_FAILURE_WINDOW_SECONDS
+  });
+  readonly #ownerPeerFailureLimiter = new FixedWindowRateLimiter({
+    limit: OWNER_PEER_FAILURE_LIMIT,
+    windowSeconds: OWNER_FAILURE_WINDOW_SECONDS
   });
 
   constructor(service: OAuthService) {
@@ -332,21 +337,33 @@ export class OAuthHttpRouter {
             }
             return true;
           }
-          const rateLimit = this.#ownerAttemptLimiter.consume(this.#peerKey(req));
-          if (!rateLimit.allowed) {
+          const peerKey = this.#peerKey(req);
+          const transactionLimit = this.#ownerTransactionFailureLimiter.check(transactionId);
+          const peerLimit = this.#ownerPeerFailureLimiter.check(peerKey);
+          if (!transactionLimit.allowed || !peerLimit.allowed) {
             this.#service.recordRateLimit("owner_authentication");
-            sendRateLimit(res, rateLimit.retryAfterSeconds);
+            sendRateLimit(
+              res,
+              Math.max(transactionLimit.retryAfterSeconds, peerLimit.retryAfterSeconds)
+            );
             return true;
           }
+
           const ownerSecret = form.get("owner_secret") ?? "";
-          this.#redirect(res, this.#service.approveAuthorization(transactionId, ownerSecret));
-        } catch (error) {
-          if (error instanceof OAuthError && error.code === OAuthErrorCode.AccessDenied) {
-            const pending = this.#service.authorizationDetails(transactionId);
-            sendHtml(res, 401, authorizationPage(pending, true), pending.redirectOrigin);
-          } else {
-            sendOAuthError(res, error);
+          try {
+            this.#redirect(res, this.#service.approveAuthorization(transactionId, ownerSecret));
+          } catch (error) {
+            if (error instanceof OAuthError && error.code === OAuthErrorCode.AccessDenied) {
+              this.#ownerTransactionFailureLimiter.consume(transactionId);
+              this.#ownerPeerFailureLimiter.consume(peerKey);
+              const pending = this.#service.authorizationDetails(transactionId);
+              sendHtml(res, 200, authorizationPage(pending, true), pending.redirectOrigin);
+            } else {
+              throw error;
+            }
           }
+        } catch (error) {
+          sendOAuthError(res, error);
         }
         return true;
       }
