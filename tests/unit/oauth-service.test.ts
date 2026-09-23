@@ -574,8 +574,9 @@ describe("OAuthService", () => {
     ).toThrow("Unknown client");
   });
 
-  it("keeps DCR available in memory but audits a durable-store write failure", () => {
+  it("fails DCR closed when durable persistence fails before the client becomes visible", () => {
     const events: AuthAuditEvent[] = [];
+    let attempted: readonly DynamicClientRecord[] = [];
     const service = new OAuthService({
       issuer: new URL("https://mcp.example.com"),
       resource: RESOURCE,
@@ -583,12 +584,16 @@ describe("OAuthService", () => {
       audit: (event) => events.push(event),
       dynamicClientStore: {
         load: () => [],
-        save: () => {
+        save: (clients) => {
+          attempted = clients;
           throw new Error("disk unavailable");
         }
       }
     });
-    const clientId = registerTestClient(service);
+
+    expect(() => registerTestClient(service)).toThrow("disk unavailable");
+    expect(attempted).toHaveLength(1);
+    const clientId = attempted[0]?.clientId;
     expect(clientId).toMatch(/^client_/u);
     expect(events).toContainEqual(
       expect.objectContaining({ type: "client.persistence_failed", outcome: "failure" })
@@ -596,14 +601,14 @@ describe("OAuthService", () => {
     expect(() =>
       service.beginAuthorization({
         response_type: "code",
-        client_id: clientId,
+        client_id: clientId ?? "",
         redirect_uri: "https://client.example.com/oauth/callback",
         code_challenge: service.pkceChallenge("v".repeat(43)),
         code_challenge_method: "S256",
         resource: RESOURCE.href,
         scope: "mcp:tools"
       })
-    ).not.toThrow();
+    ).toThrow("Unknown client");
   });
 
   it("persists dynamic client registrations across service reconstruction", () => {

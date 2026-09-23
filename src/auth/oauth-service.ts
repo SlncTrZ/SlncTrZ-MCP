@@ -442,7 +442,7 @@ export class OAuthService implements OAuthTokenVerifier {
     }
 
     const normalizedRedirects = [...new Set(redirectUris.map(validateRedirectUri))];
-    this.#ensureDynamicClientCapacity();
+    const evictedClientId = this.#dynamicClientEvictionCandidate();
     const clientId = randomIdentifier("client");
     const issuedAt = this.#now();
     const clientName = optionalString(metadata.client_name)?.slice(0, 128);
@@ -452,9 +452,15 @@ export class OAuthService implements OAuthTokenVerifier {
       issuedAt,
       ...(clientName === undefined ? {} : { clientName })
     };
+    const candidateRecords = this.#dynamicClientRecords(evictedClientId, client);
+    this.#persistDynamicClientRecords(candidateRecords, true);
+    if (evictedClientId !== undefined) {
+      this.#dynamicClientIds.delete(evictedClientId);
+      this.#clients.delete(evictedClientId);
+      this.#emit("client.evicted", "success", evictedClientId);
+    }
     this.#clients.set(clientId, client);
     this.#dynamicClientIds.add(clientId);
-    this.#persistDynamicClients();
     this.#emit("client.registered", "success", clientId);
 
     return {
@@ -1060,11 +1066,13 @@ export class OAuthService implements OAuthTokenVerifier {
     };
   }
 
-  #persistDynamicClients(): void {
-    const store = this.#dynamicClientStore;
-    if (store === undefined) return;
+  #dynamicClientRecords(
+    excludedClientId?: string,
+    additionalClient?: RegisteredClient
+  ): DynamicClientRecord[] {
     const records: DynamicClientRecord[] = [];
     for (const clientId of this.#dynamicClientIds) {
+      if (clientId === excludedClientId) continue;
       const client = this.#clients.get(clientId);
       if (client === undefined) continue;
       records.push({
@@ -1074,23 +1082,39 @@ export class OAuthService implements OAuthTokenVerifier {
         issuedAt: client.issuedAt
       });
     }
+    if (additionalClient !== undefined) {
+      records.push({
+        clientId: additionalClient.clientId,
+        ...(additionalClient.clientName === undefined
+          ? {}
+          : { clientName: additionalClient.clientName }),
+        redirectUris: [...additionalClient.redirectUris],
+        issuedAt: additionalClient.issuedAt
+      });
+    }
+    return records;
+  }
+
+  #persistDynamicClientRecords(records: readonly DynamicClientRecord[], failClosed = false): void {
+    const store = this.#dynamicClientStore;
+    if (store === undefined) return;
     try {
       store.save(records);
-    } catch {
+    } catch (error) {
       this.#emit("client.persistence_failed", "failure");
+      if (failClosed) throw error;
     }
   }
 
-  #ensureDynamicClientCapacity(): void {
-    if (this.#dynamicClientIds.size < this.#maxDynamicClients) return;
+  #persistDynamicClients(): void {
+    this.#persistDynamicClientRecords(this.#dynamicClientRecords());
+  }
+
+  #dynamicClientEvictionCandidate(): string | undefined {
+    if (this.#dynamicClientIds.size < this.#maxDynamicClients) return undefined;
 
     for (const clientId of this.#dynamicClientIds) {
-      if (this.#clientHasActiveState(clientId)) continue;
-      this.#dynamicClientIds.delete(clientId);
-      this.#clients.delete(clientId);
-      this.#persistDynamicClients();
-      this.#emit("client.evicted", "success", clientId);
-      return;
+      if (!this.#clientHasActiveState(clientId)) return clientId;
     }
 
     throw new OAuthError(
