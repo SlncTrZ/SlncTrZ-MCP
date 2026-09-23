@@ -379,9 +379,10 @@ export class OAuthHttpRouter {
         sendRateLimit(res, rateLimit.retryAfterSeconds);
         return true;
       }
+      let parameters: Record<string, string | undefined> | undefined;
       try {
         const form = await readBoundedForm(req, AUTH_BODY_LIMIT_BYTES);
-        const parameters = uniqueParameters(form);
+        parameters = uniqueParameters(form);
         this.#applyBasicClientCredentials(req, parameters);
         const response =
           parameters.grant_type === "refresh_token"
@@ -389,6 +390,7 @@ export class OAuthHttpRouter {
             : this.#service.exchangeAuthorizationCode(parameters);
         sendJson(res, 200, response);
       } catch (error) {
+        this.#service.recordTokenExchangeFailure(error, parameters?.client_id);
         sendOAuthError(res, error);
       }
       return true;

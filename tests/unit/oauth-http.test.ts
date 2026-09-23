@@ -481,6 +481,129 @@ describe("OAuth HTTP flow", () => {
     expect(token.status).toBe(200);
   });
 
+  it("audits token-exchange rejection with a finite secret-free reason", async () => {
+    const events: AuthAuditEvent[] = [];
+    const { origin, service } = await startOAuthServer(undefined, (event) => events.push(event));
+    const redirectUri = "https://client.example.com/oauth/callback";
+    const verifier = "q".repeat(43);
+    const registered = service.registerClient({
+      redirect_uris: [redirectUri],
+      token_endpoint_auth_method: "none"
+    });
+    const authorizeUrl = new URL("/authorize", origin);
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: registered.client_id,
+      redirect_uri: redirectUri,
+      code_challenge: service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE,
+      scope: "mcp:tools"
+    }).toString();
+    const page = await fetch(authorizeUrl);
+    const transactionId = transactionFromHtml(await page.text());
+    const approval = await fetch(`${origin}/authorize`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: transactionId,
+        owner_secret: OWNER_SECRET,
+        decision: "approve"
+      }),
+      redirect: "manual"
+    });
+    const callback = new URL(approval.headers.get("location") ?? "");
+
+    const response = await fetch(`${origin}/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: callback.searchParams.get("code") ?? "",
+        client_id: registered.client_id,
+        redirect_uri: redirectUri,
+        code_verifier: "w".repeat(43),
+        resource: RESOURCE
+      })
+    });
+
+    expect(response.status).toBe(400);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "token.exchange_rejected",
+        outcome: "failure",
+        clientId: registered.client_id,
+        reason: "pkce_mismatch",
+        operation: "token_exchange"
+      })
+    );
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(verifier);
+    expect(serialized).not.toContain("w".repeat(43));
+    expect(serialized).not.toContain(callback.searchParams.get("code") ?? "");
+  });
+
+  it("does not persist an untrusted token client_id in rejection audit", async () => {
+    const events: AuthAuditEvent[] = [];
+    const { origin, service } = await startOAuthServer(undefined, (event) => events.push(event));
+    const redirectUri = "https://client.example.com/oauth/callback";
+    const verifier = "v".repeat(43);
+    const registered = service.registerClient({
+      redirect_uris: [redirectUri],
+      token_endpoint_auth_method: "none"
+    });
+    const authorizeUrl = new URL("/authorize", origin);
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: registered.client_id,
+      redirect_uri: redirectUri,
+      code_challenge: service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE,
+      scope: "mcp:tools"
+    }).toString();
+    const page = await fetch(authorizeUrl);
+    const transactionId = transactionFromHtml(await page.text());
+    const approval = await fetch(`${origin}/authorize`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: transactionId,
+        owner_secret: OWNER_SECRET,
+        decision: "approve"
+      }),
+      redirect: "manual"
+    });
+    const callback = new URL(approval.headers.get("location") ?? "");
+    const untrustedClientId = `unknown-${"x".repeat(512)}`;
+
+    const response = await fetch(`${origin}/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: callback.searchParams.get("code") ?? "",
+        client_id: untrustedClientId,
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+        resource: RESOURCE
+      })
+    });
+
+    expect(response.status).toBe(401);
+    const rejected = [...events]
+      .reverse()
+      .find((event: AuthAuditEvent) => event.type === "token.exchange_rejected");
+    expect(rejected).toMatchObject({
+      type: "token.exchange_rejected",
+      outcome: "failure",
+      reason: "invalid_client",
+      operation: "token_exchange"
+    });
+    expect(rejected).not.toHaveProperty("clientId");
+    expect(JSON.stringify(events)).not.toContain(untrustedClientId);
+  });
+
   it("rate-limits and audits registration and authorization allocation abuse", async () => {
     const events: AuthAuditEvent[] = [];
     const { origin, service } = await startOAuthServer(undefined, (event) => events.push(event));

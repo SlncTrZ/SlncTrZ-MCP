@@ -14,7 +14,7 @@ import {
   type AuthInfo,
   type OAuthTokenVerifier
 } from "@modelcontextprotocol/server";
-import { type AuthAuditSink } from "../observability/auth-audit.js";
+import { type AuthAuditReason, type AuthAuditSink } from "../observability/auth-audit.js";
 import { validateOwnerSecretHash, verifyOwnerSecret } from "./owner-verifier.js";
 import {
   createSqliteOAuthGrantStore,
@@ -282,6 +282,7 @@ export class OAuthService implements OAuthTokenVerifier {
   readonly #onAuthorized: ((clientId: string) => Promise<void>) | undefined;
   readonly #pending = new Map<string, PendingAuthorization>();
   readonly #codes = new Map<string, AuthorizationCodeRecord>();
+  readonly #tokenExchangeFailureReasons = new WeakMap<object, AuthAuditReason>();
   readonly #grants: OAuthGrantStore;
   readonly #ownsGrantStore: boolean;
 
@@ -663,61 +664,195 @@ export class OAuthService implements OAuthTokenVerifier {
   exchangeAuthorizationCode(parameters: StringRecord): OAuthTokenResponse {
     this.#purgeExpired();
     if (parameters.grant_type !== "authorization_code") {
-      throw new OAuthError(OAuthErrorCode.UnsupportedGrantType, "Unsupported grant_type");
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.UnsupportedGrantType, "Unsupported grant_type"),
+        "unsupported_grant_type"
+      );
     }
 
-    const code = requiredString(parameters.code, "code");
+    let code: string;
+    try {
+      code = requiredString(parameters.code, "code");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
     const record = this.#codes.get(code);
-    if (record === undefined) throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid code");
+    if (record === undefined) {
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid code"),
+        "invalid_code"
+      );
+    }
 
-    const clientId = requiredString(parameters.client_id, "client_id");
-    this.#verifyClientSecret(clientId, parameters.client_secret);
-    const redirectUri = validateRedirectUri(
-      requiredString(parameters.redirect_uri, "redirect_uri")
-    );
-    const resource = exactResource(requiredString(parameters.resource, "resource"), this.#resource);
-    const verifier = requiredString(parameters.code_verifier, "code_verifier");
+    let clientId: string;
+    try {
+      clientId = requiredString(parameters.client_id, "client_id");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
+    try {
+      this.#verifyClientSecret(clientId, parameters.client_secret);
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_client");
+    }
 
-    if (
-      record.clientId !== clientId ||
-      record.redirectUri !== redirectUri ||
-      record.resource !== resource ||
-      this.pkceChallenge(verifier) !== record.codeChallenge
-    ) {
-      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Authorization code binding failed");
+    let redirectInput: string;
+    try {
+      redirectInput = requiredString(parameters.redirect_uri, "redirect_uri");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
+    let redirectUri: string;
+    try {
+      redirectUri = validateRedirectUri(redirectInput);
+    } catch (error) {
+      return this.#failTokenExchange(error, "redirect_mismatch");
+    }
+    let resourceInput: string;
+    try {
+      resourceInput = requiredString(parameters.resource, "resource");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
+    let resource: string;
+    try {
+      resource = exactResource(resourceInput, this.#resource);
+    } catch (error) {
+      return this.#failTokenExchange(error, "resource_mismatch");
+    }
+    let verifier: string;
+    try {
+      verifier = requiredString(parameters.code_verifier, "code_verifier");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
+
+    if (record.clientId !== clientId) {
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Authorization code binding failed"),
+        "client_mismatch"
+      );
+    }
+    if (record.redirectUri !== redirectUri) {
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Authorization code binding failed"),
+        "redirect_mismatch"
+      );
+    }
+    if (record.resource !== resource) {
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Authorization code binding failed"),
+        "resource_mismatch"
+      );
+    }
+    let verifierChallenge: string;
+    try {
+      verifierChallenge = this.pkceChallenge(verifier);
+    } catch (error) {
+      return this.#failTokenExchange(error, "pkce_mismatch");
+    }
+    if (verifierChallenge !== record.codeChallenge) {
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Authorization code binding failed"),
+        "pkce_mismatch"
+      );
     }
 
     this.#codes.delete(code);
-    return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.issued");
+    try {
+      return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.issued");
+    } catch (error) {
+      return this.#failTokenExchange(error, "grant_store_failure");
+    }
   }
 
   exchangeRefreshToken(parameters: StringRecord): OAuthTokenResponse {
     this.#purgeExpired();
     if (parameters.grant_type !== "refresh_token") {
-      throw new OAuthError(OAuthErrorCode.UnsupportedGrantType, "Unsupported grant_type");
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.UnsupportedGrantType, "Unsupported grant_type"),
+        "unsupported_grant_type"
+      );
     }
 
-    const token = requiredString(parameters.refresh_token, "refresh_token");
+    let token: string;
+    try {
+      token = requiredString(parameters.refresh_token, "refresh_token");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
     const record = this.#grants.findToken(hashToken(token), "refresh", this.#now());
     if (record === undefined) {
-      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token"),
+        "invalid_refresh_token"
+      );
     }
 
-    const clientId = requiredString(parameters.client_id, "client_id");
-    this.#verifyClientSecret(clientId, parameters.client_secret);
-    const resource = exactResource(requiredString(parameters.resource, "resource"), this.#resource);
-    if (record.clientId !== clientId || record.resource !== resource) {
-      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Refresh token binding failed");
+    let clientId: string;
+    try {
+      clientId = requiredString(parameters.client_id, "client_id");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
+    try {
+      this.#verifyClientSecret(clientId, parameters.client_secret);
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_client");
+    }
+    let resourceInput: string;
+    try {
+      resourceInput = requiredString(parameters.resource, "resource");
+    } catch (error) {
+      return this.#failTokenExchange(error, "invalid_request");
+    }
+    let resource: string;
+    try {
+      resource = exactResource(resourceInput, this.#resource);
+    } catch (error) {
+      return this.#failTokenExchange(error, "resource_mismatch");
+    }
+    if (record.clientId !== clientId) {
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Refresh token binding failed"),
+        "client_mismatch"
+      );
+    }
+    if (record.resource !== resource) {
+      return this.#failTokenExchange(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "Refresh token binding failed"),
+        "resource_mismatch"
+      );
     }
 
-    return this.#issueTokens(
-      record.clientId,
-      record.resource,
-      record.scopes,
-      "token.refreshed",
-      record.grantId,
-      hashToken(token)
-    );
+    try {
+      return this.#issueTokens(
+        record.clientId,
+        record.resource,
+        record.scopes,
+        "token.refreshed",
+        record.grantId,
+        hashToken(token)
+      );
+    } catch (error) {
+      return this.#failTokenExchange(
+        error,
+        error instanceof OAuthError && error.code === OAuthErrorCode.InvalidGrant
+          ? "refresh_rotation_failed"
+          : "grant_store_failure"
+      );
+    }
+  }
+
+  recordTokenExchangeFailure(error: unknown, clientId?: string): void {
+    const marked =
+      typeof error === "object" && error !== null
+        ? this.#tokenExchangeFailureReasons.get(error)
+        : undefined;
+    const reason = marked ?? this.#genericTokenExchangeFailureReason(error);
+    const safeClientId =
+      clientId !== undefined && this.#clients.has(clientId) ? clientId : undefined;
+    this.#emit("token.exchange_rejected", "failure", safeClientId, reason, "token_exchange");
   }
 
   revokeToken(parameters: StringRecord): void {
@@ -967,6 +1102,23 @@ export class OAuthService implements OAuthTokenVerifier {
       [...this.#codes.values()].some((record) => record.clientId === clientId) ||
       this.#grants.hasClient(clientId, this.#now())
     );
+  }
+
+  #failTokenExchange(error: unknown, reason: AuthAuditReason): never {
+    if (typeof error === "object" && error !== null) {
+      this.#tokenExchangeFailureReasons.set(error, reason);
+    }
+    throw error;
+  }
+
+  #genericTokenExchangeFailureReason(error: unknown): AuthAuditReason {
+    if (!(error instanceof OAuthError)) return "server_error";
+    if (error.code === OAuthErrorCode.InvalidClient) return "invalid_client";
+    if (error.code === OAuthErrorCode.UnsupportedGrantType) return "unsupported_grant_type";
+    if (error.code === OAuthErrorCode.InvalidTarget) return "resource_mismatch";
+    if (error.code === OAuthErrorCode.InvalidGrant) return "invalid_code";
+    if (error.code === OAuthErrorCode.InvalidRequest) return "invalid_request";
+    return "server_error";
   }
 
   #emit(

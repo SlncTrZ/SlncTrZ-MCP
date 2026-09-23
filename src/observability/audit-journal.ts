@@ -7,6 +7,26 @@
 
 export type AuditCategory = "auth" | "policy" | "tool" | "control" | "lifecycle";
 
+export type AuditAuthReason =
+  | "invalid_owner"
+  | "invalid_token"
+  | "client_mismatch"
+  | "owner_approved"
+  | "invalid_request"
+  | "unsupported_grant_type"
+  | "invalid_client"
+  | "invalid_code"
+  | "redirect_mismatch"
+  | "resource_mismatch"
+  | "pkce_mismatch"
+  | "invalid_refresh_token"
+  | "refresh_rotation_failed"
+  | "grant_store_failure"
+  | "server_error";
+
+export type AuditAuthOperation =
+  "registration" | "authorization" | "token" | "token_exchange" | "owner_authentication";
+
 export interface ExportableAuditEvent {
   readonly timestamp: string;
   readonly category: AuditCategory;
@@ -20,6 +40,8 @@ export interface ExportableAuditEvent {
   readonly providerFailureClass?: string;
   readonly recoveryState?: string;
   readonly lifecycleReason?: string;
+  readonly authReason?: AuditAuthReason;
+  readonly authOperation?: AuditAuthOperation;
   readonly policyVersion?: string;
   readonly result: "success" | "error" | "cancelled" | "timeout" | "denied";
   readonly durationMs?: number;
@@ -57,6 +79,8 @@ export function createAuditJournal(options: {
           : { providerFailureClass: event.providerFailureClass }),
         ...(event.recoveryState === undefined ? {} : { recoveryState: event.recoveryState }),
         ...(event.lifecycleReason === undefined ? {} : { lifecycleReason: event.lifecycleReason }),
+        ...(event.authReason === undefined ? {} : { authReason: event.authReason }),
+        ...(event.authOperation === undefined ? {} : { authOperation: event.authOperation }),
         ...(event.policyVersion === undefined ? {} : { policyVersion: event.policyVersion }),
         result: event.result,
         ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs })

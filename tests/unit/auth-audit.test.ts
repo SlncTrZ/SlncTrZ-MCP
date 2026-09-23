@@ -50,12 +50,12 @@ describe("authentication audit", () => {
         category: "auth",
         clientId: "client_public",
         capabilityId: "authorization.failed",
+        authReason: "invalid_owner",
+        authOperation: "owner_authentication",
         result: "error"
       }
     ]);
     expect(metrics.snapshot().authFailuresTotal).toBe(1);
-    expect(JSON.stringify(journal.export())).not.toMatch(
-      /invalid_owner|owner_authentication|token_value|client_secret|passphrase/iu
-    );
+    expect(JSON.stringify(journal.export())).not.toMatch(/token_value|client_secret|passphrase/iu);
   });
 });
