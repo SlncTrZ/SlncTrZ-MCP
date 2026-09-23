@@ -250,6 +250,84 @@ describe("extension supervisor: state machine (fake-first)", () => {
     });
   });
 
+  it("quarantines recurrent invalid-session flapping within a rolling window without replay", async () => {
+    const adapter = new FakeAdapter();
+    const metrics = createMetricsRegistry();
+    let now = 1_000;
+    adapter.callBehavior = "session_invalid";
+    const supervisor = createExtensionSupervisor({
+      adapter,
+      metrics,
+      maxRestarts: 2,
+      maxSessionRecoveryIncidents: 2,
+      sessionRecoveryWindowMs: 1_000,
+      backoffBaseMs: 1,
+      backoffJitterMs: 0,
+      now: () => now
+    });
+    await supervisor.start();
+
+    for (let incident = 0; incident < 2; incident += 1) {
+      const failed = await supervisor.invoke("p.writeOne", { incident });
+      expect(failed).toMatchObject({
+        isError: true,
+        text: "provider_unavailable",
+        diagnostic: { failureClass: "session_invalid", recoveryState: "recovering" }
+      });
+      await waitForState(supervisor, "ready");
+      expect(supervisor.state).toBe("ready");
+      now += 100;
+    }
+
+    const third = await supervisor.invoke("p.writeOne", { incident: 2 });
+    expect(third).toMatchObject({ isError: true, text: "provider_unavailable" });
+    await waitForState(supervisor, "quarantined");
+    expect(supervisor.state).toBe("quarantined");
+    expect(adapter.startCalls).toBe(3); // initial + two allowed recoveries; third is quarantined
+    expect(adapter.callTools).toEqual(["p.writeOne", "p.writeOne", "p.writeOne"]);
+    await expect(supervisor.invoke("p.writeOne", { incident: 3 })).rejects.toMatchObject({
+      code: "provider_unavailable"
+    });
+    expect(adapter.callTools).toHaveLength(3); // no automatic or post-quarantine replay
+    expect(supervisor.diagnostic()).toMatchObject({
+      failureClass: "session_invalid",
+      recoveryState: "quarantined"
+    });
+    expect(metrics.snapshot()).toMatchObject({
+      extensionSessionInvalidTotal: 3,
+      extensionSessionRecoverySuccessTotal: 2,
+      extensionSessionRecoveryFailureTotal: 1,
+      extensionQuarantinesTotal: 1
+    });
+  });
+
+  it("expires old invalid-session incidents from the rolling recovery budget", async () => {
+    const adapter = new FakeAdapter();
+    let now = 1_000;
+    adapter.callBehavior = "session_invalid";
+    const supervisor = createExtensionSupervisor({
+      adapter,
+      maxRestarts: 2,
+      maxSessionRecoveryIncidents: 2,
+      sessionRecoveryWindowMs: 100,
+      backoffBaseMs: 1,
+      backoffJitterMs: 0,
+      now: () => now
+    });
+    await supervisor.start();
+
+    for (let incident = 0; incident < 3; incident += 1) {
+      const failed = await supervisor.invoke("p.findOne", { incident });
+      expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
+      await waitForState(supervisor, "ready");
+      expect(supervisor.state).toBe("ready");
+      now += 200;
+    }
+
+    expect(adapter.startCalls).toBe(4);
+    expect(adapter.callTools).toHaveLength(3);
+  });
+
   it("records failed invalid-session recovery when the bounded restart budget is exhausted", async () => {
     const adapter = new FakeAdapter();
     const metrics = createMetricsRegistry();
