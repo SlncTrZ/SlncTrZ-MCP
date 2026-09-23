@@ -7,6 +7,10 @@ import {
   type DynamicClientRecord
 } from "../../src/auth/oauth-service.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
+import {
+  createSqliteOAuthGrantStore,
+  type OAuthGrantStore
+} from "../../src/auth/oauth-grant-store.js";
 
 const OWNER_SECRET = "correct horse battery staple";
 const RESOURCE = new URL("https://mcp.example.com/mcp");
@@ -235,6 +239,59 @@ describe("OAuthService", () => {
         resource: RESOURCE.href
       })
     ).toThrowError(OAuthError);
+  });
+
+  it("keeps an authorization code retryable until durable grant issuance commits", () => {
+    const backing = createSqliteOAuthGrantStore();
+    let failIssue = true;
+    const grantStore: OAuthGrantStore = {
+      ...backing,
+      issue(...args) {
+        if (failIssue) {
+          failIssue = false;
+          throw new Error("injected grant persistence failure");
+        }
+        backing.issue(...args);
+      }
+    };
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      grantStore
+    });
+    const clientId = registerTestClient(service);
+    const verifier = "f".repeat(43);
+    const pending = service.beginAuthorization({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_challenge: service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+    const redirect = service.approveAuthorization(pending.transactionId, OWNER_SECRET);
+    const parameters = {
+      grant_type: "authorization_code",
+      code: redirect.searchParams.get("code") ?? "",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_verifier: verifier,
+      resource: RESOURCE.href
+    };
+
+    try {
+      expect(() => service.exchangeAuthorizationCode(parameters)).toThrowError(
+        "injected grant persistence failure"
+      );
+
+      const issued = service.exchangeAuthorizationCode(parameters);
+      expect(issued.token_type).toBe("Bearer");
+      expect(() => service.exchangeAuthorizationCode(parameters)).toThrowError("Invalid code");
+    } finally {
+      backing.close();
+    }
   });
 
   it("rejects a wrong owner secret and a wrong PKCE verifier", () => {

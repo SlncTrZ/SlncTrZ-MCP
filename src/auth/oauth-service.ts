@@ -758,9 +758,12 @@ export class OAuthService implements OAuthTokenVerifier {
       );
     }
 
-    this.#codes.delete(code);
     try {
-      return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.issued");
+      return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.issued", {
+        onCommitted: () => {
+          this.#codes.delete(code);
+        }
+      });
     } catch (error) {
       return this.#failTokenExchange(error, "grant_store_failure");
     }
@@ -826,14 +829,10 @@ export class OAuthService implements OAuthTokenVerifier {
     }
 
     try {
-      return this.#issueTokens(
-        record.clientId,
-        record.resource,
-        record.scopes,
-        "token.refreshed",
-        record.grantId,
-        hashToken(token)
-      );
+      return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.refreshed", {
+        existingGrantId: record.grantId,
+        refreshHash: hashToken(token)
+      });
     } catch (error) {
       return this.#failTokenExchange(
         error,
@@ -1019,13 +1018,16 @@ export class OAuthService implements OAuthTokenVerifier {
     resource: string,
     scopes: readonly string[],
     auditType: "token.issued" | "token.refreshed",
-    existingGrantId?: string,
-    refreshHash?: string
+    options: {
+      readonly existingGrantId?: string;
+      readonly refreshHash?: string;
+      readonly onCommitted?: () => void;
+    } = {}
   ): OAuthTokenResponse {
     const now = this.#now();
     const accessToken = randomIdentifier("at");
     const refreshToken = randomIdentifier("rt");
-    const grantId = existingGrantId ?? randomIdentifier("grant");
+    const grantId = options.existingGrantId ?? randomIdentifier("grant");
     const tokens = [
       {
         tokenHash: hashToken(accessToken),
@@ -1038,11 +1040,12 @@ export class OAuthService implements OAuthTokenVerifier {
         expiresAt: now + REFRESH_TOKEN_TTL_SECONDS
       }
     ];
-    if (refreshHash === undefined) {
+    if (options.refreshHash === undefined) {
       this.#grants.issue({ grantId, clientId, resource, scopes }, tokens, now);
-    } else if (!this.#grants.rotate(refreshHash, clientId, resource, tokens, now)) {
+    } else if (!this.#grants.rotate(options.refreshHash, clientId, resource, tokens, now)) {
       throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
     }
+    options.onCommitted?.();
     this.#emit(auditType, "success", clientId);
     // Fire-and-forget: an authenticated client is auto-bound into a workspace (idempotent).
     void this.#onAuthorized?.(clientId).catch(() => undefined);
