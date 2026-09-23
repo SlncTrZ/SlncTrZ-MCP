@@ -44,7 +44,8 @@ async function startTestServer(
   activePolicyFactory?: (clientId: string) => Promise<ActivePolicySnapshot>,
   policyStoreFactory?: (clientId: string) => Promise<PolicySnapshotStore>,
   readRoots?: readonly string[],
-  usageObserver?: UsageObserver
+  usageObserver?: UsageObserver,
+  onError?: (error: Error) => void
 ): Promise<{
   readonly origin: string;
   readonly accessToken: string;
@@ -105,7 +106,8 @@ async function startTestServer(
         : { activePolicy }),
     toolAudit: (event) => auditEvents.push(event),
     metrics,
-    ...(usageObserver === undefined ? {} : { usageObserver })
+    ...(usageObserver === undefined ? {} : { usageObserver }),
+    ...(onError === undefined ? {} : { onError })
   });
   servers.push(server);
   const address = await listenGateway(server, {
@@ -159,6 +161,69 @@ async function requestWithHost(origin: string, host: string): Promise<number> {
 }
 
 describe("gateway HTTP surface", () => {
+  it("classifies an authenticated peer-aborted request without exposing raw ingress data", async () => {
+    let reportError!: (error: Error) => void;
+    const reported = new Promise<Error>((resolve) => {
+      reportError = resolve;
+    });
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      reportError
+    );
+    const url = new URL("/mcp", origin);
+    const partialBody =
+      '{"jsonrpc":"2.0","id":91,"method":"tools/call","params":{"name":"core.read"';
+
+    await new Promise<void>((resolve) => {
+      const outgoing = request({
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "content-length": String(Buffer.byteLength(partialBody) + 1024),
+          "mcp-protocol-version": "2025-06-18"
+        }
+      });
+      outgoing.on("error", () => resolve());
+      outgoing.flushHeaders();
+      outgoing.write(partialBody);
+      setTimeout(() => {
+        outgoing.destroy();
+        resolve();
+      }, 20);
+    });
+
+    const error = await Promise.race([
+      reported,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("expected peer-abort report")), 2_000)
+      )
+    ]);
+    const diagnostic = error as Error & {
+      readonly failureClass?: string;
+      readonly correlationId?: string;
+    };
+    expect(diagnostic.name).toBe("GatewayIngressError");
+    expect(diagnostic.failureClass).toBe("peer_aborted");
+    expect(diagnostic.correlationId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(diagnostic.message).toBe(
+      `gateway_request_error class=peer_aborted correlation_id=${diagnostic.correlationId}`
+    );
+    expect(diagnostic.message).not.toContain(accessToken);
+    expect(diagnostic.message).not.toContain(partialBody);
+  });
+
   it("reports liveness and readiness without exposing internals", async () => {
     const { origin } = await startTestServer();
 

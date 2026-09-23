@@ -8,6 +8,7 @@
 import type { HarnessRuntime } from "../context/runtime.js";
 import type { DebateService } from "../debate/index.js";
 
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -60,6 +61,61 @@ class InvalidMcpRequestError extends Error {
   constructor() {
     super("Invalid MCP request");
   }
+}
+
+type GatewayIngressFailureClass =
+  | "peer_aborted"
+  | "payload_too_large"
+  | "invalid_json"
+  | "unsupported_media_type"
+  | "protocol_error"
+  | "server_error";
+
+class GatewayIngressError extends Error {
+  constructor(
+    readonly failureClass: GatewayIngressFailureClass,
+    readonly correlationId: string
+  ) {
+    super(`gateway_request_error class=${failureClass} correlation_id=${correlationId}`);
+    this.name = "GatewayIngressError";
+  }
+}
+
+function gatewayIngressFailureClass(
+  req: IncomingMessage,
+  error: unknown
+): GatewayIngressFailureClass {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  if (
+    req.aborted ||
+    code === "ECONNRESET" ||
+    code === "ERR_STREAM_PREMATURE_CLOSE" ||
+    (error instanceof Error && (error.name === "AbortError" || error.message === "aborted"))
+  ) {
+    return "peer_aborted";
+  }
+  if (error instanceof PayloadTooLargeError) return "payload_too_large";
+  if (error instanceof UnsupportedMediaTypeError) return "unsupported_media_type";
+  if (error instanceof SyntaxError) return "invalid_json";
+  if (
+    error instanceof UnsupportedMcpProtocolVersionError ||
+    error instanceof InvalidMcpRequestError
+  ) {
+    return "protocol_error";
+  }
+  return "server_error";
+}
+
+function safeIngressError(
+  req: IncomingMessage,
+  error: unknown,
+  correlationId: string
+): GatewayIngressError {
+  if (error instanceof GatewayIngressError && error.correlationId === correlationId) return error;
+  return new GatewayIngressError(gatewayIngressFailureClass(req, error), correlationId);
 }
 
 export interface GatewayServerOptions {
@@ -294,11 +350,14 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
   const validateHost = hostHeaderValidation(allowedHostnames);
   const validateOrigin = originValidation(allowedOriginHostnames);
   const oauthRouter = new OAuthHttpRouter(options.oauthService);
-  const errorOptions = options.onError === undefined ? {} : { onError: options.onError };
 
   const server = createServer(
     { maxHeaderSize: 16_384, requestTimeout: 30_000, headersTimeout: 10_000 },
     async (req, res) => {
+      const correlationId = randomUUID();
+      const reportError = (error: unknown): void => {
+        options.onError?.(safeIngressError(req, error, correlationId));
+      };
       try {
         normalizeRequest(req);
         applyCors(res);
@@ -395,7 +454,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
         }
         releaseRuntime ??= resolution.snapshot.extensionRuntime?.acquire();
         const requestHandler = createGatewayMcpHandler({
-          ...errorOptions,
+          ...(options.onError === undefined ? {} : { onError: reportError }),
           kernelPolicy: resolution.snapshot,
           ...(options.ownerConsoleUrl === undefined
             ? {}
@@ -415,7 +474,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
         });
         const requestHandleMcp = toNodeHandler(
           requestHandler,
-          options.onError === undefined ? {} : { onerror: options.onError }
+          options.onError === undefined ? {} : { onerror: reportError }
         );
         try {
           const parsed =
@@ -454,7 +513,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           releaseRuntime?.();
         }
       } catch (error) {
-        options.onError?.(error instanceof Error ? error : new Error("Unknown error"));
+        reportError(error);
 
         if (res.headersSent) {
           res.end();
