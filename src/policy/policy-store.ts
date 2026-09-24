@@ -21,7 +21,7 @@ export interface ReloadResult {
 export interface PolicySnapshotStore {
   capture(): ActivePolicySnapshot;
   captureLease(): { readonly snapshot: ActivePolicySnapshot; release(): void };
-  reload(_options?: { readonly ownerApproved?: boolean }): Promise<ReloadResult>;
+  reload(): Promise<ReloadResult>;
 }
 
 export interface PolicySnapshotStoreOptions {

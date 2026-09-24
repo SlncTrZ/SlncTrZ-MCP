@@ -211,7 +211,7 @@ function validateRedirectUri(value: string): string {
 
   const loopback =
     url.protocol === "http:" &&
-    (url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "localhost");
+    (url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "localhost");
   const secure = url.protocol === "https:";
 
   if (

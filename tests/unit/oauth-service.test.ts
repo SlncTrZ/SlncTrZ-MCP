@@ -67,6 +67,17 @@ describe("OAuthService", () => {
     expect(registered.client_id).toMatch(/^client_/);
     expect(registered.client_secret).toBeUndefined();
 
+    const ipv4 = service.registerClient({
+      redirect_uris: ["http://127.0.0.1:3210/callback"],
+      token_endpoint_auth_method: "none"
+    });
+    const ipv6 = service.registerClient({
+      redirect_uris: ["http://[::1]:3210/callback"],
+      token_endpoint_auth_method: "none"
+    });
+    expect(ipv4.redirect_uris).toEqual(["http://127.0.0.1:3210/callback"]);
+    expect(ipv6.redirect_uris).toEqual(["http://[::1]:3210/callback"]);
+
     expect(() =>
       service.registerClient({
         redirect_uris: ["http://attacker.example/callback"],

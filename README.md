@@ -174,14 +174,27 @@ Usage:        http://127.0.0.1:3100/usage
 
 Open `/owner`, sign in, and review:
 
-| Control         | What it means                                                        |
-| --------------- | -------------------------------------------------------------------- |
-| **Autonomy**    | Restricted or Autonomous runtime authority                           |
-| **Paths**       | Filesystem roots available to built-in file tools in Restricted mode |
-| **Commands**    | Executables `core.exec` may start in Restricted mode                 |
-| **MCP Servers** | Extra local or remote MCP providers exposed through the gateway      |
+| Control         | What it means                                                          |
+| --------------- | ---------------------------------------------------------------------- |
+| **Autonomy**    | Restricted or Autonomous runtime authority                             |
+| **Connections** | Existing OAuth grants and their Full/Gateway-only tool-surface profile |
+| **Paths**       | Filesystem roots available to built-in file tools in Restricted mode   |
+| **Commands**    | Executables `core.exec` may start in Restricted mode                   |
+| **MCP Servers** | Extra local or remote MCP providers exposed through the gateway        |
 
 Restricted is the recommended starting point.
+
+The normal Connections UI changes the profile of an existing grant. A separate advanced
+compatibility command remains available for clients that need a default for **future**
+grants:
+
+```bash
+slnctrz-mcp owner client-default <client-id> <full|gateway-only>
+```
+
+That client default is persisted, snapshots into newly issued grants, and does not mutate
+the profile of existing grants. It is intentionally not exposed as the normal row-level
+Connections action.
 
 > Restricted mode is not a full OS sandbox. If you approve Bash, Python, Node, PowerShell, Docker, `sudo`, or another general-purpose tool, that child process can exercise the OS permissions of the account running the gateway.
 
