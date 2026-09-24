@@ -113,6 +113,13 @@ describe("Owner Console product surface", () => {
           disclosedEstimatedTokens: 250,
           avoidedEstimatedTokens: 250,
           reductionPercent: 50
+        }),
+        health: () => ({
+          available: true,
+          degraded: true,
+          droppedEvents: 2,
+          pendingEvents: 0,
+          lastFailureClass: "persistence_failure"
         })
       },
       productInfo: {
@@ -176,6 +183,17 @@ describe("Owner Console product surface", () => {
       range: "7d",
       calls: 3,
       estimatedTotalTokens: 110
+    });
+    const usageHealth = await fetch(`${origin}/owner/api/usage/health`, {
+      headers: { cookie }
+    });
+    expect(usageHealth.status).toBe(200);
+    expect(await usageHealth.json()).toEqual({
+      available: true,
+      degraded: true,
+      droppedEvents: 2,
+      pendingEvents: 0,
+      lastFailureClass: "persistence_failure"
     });
     const invalidUsageRange = await fetch(`${origin}/owner/api/usage/summary?range=year`, {
       headers: { cookie }

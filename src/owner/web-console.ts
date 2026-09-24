@@ -732,6 +732,10 @@ export function createOwnerWebConsole(options: {
           });
           return true;
         }
+        if (pathname === "/owner/api/usage/health") {
+          sendJson(res, 200, options.usage.health());
+          return true;
+        }
         let range;
         try {
           const url = new URL(req.url ?? pathname, "http://localhost");
