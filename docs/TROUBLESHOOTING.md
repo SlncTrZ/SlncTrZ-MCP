@@ -232,11 +232,11 @@ This workaround is specific to the observed Gemini Spark flow. ChatGPT, Claude, 
 complete the redirect automatically after one approval. It does not require a callback wildcard,
 manual `client.env` edits, or a gateway restart.
 
-## OAuth reconnect after restart
+## OAuth behavior after restart
 
-Dynamic client registrations are durable, but authorization-in-progress state, access tokens, and refresh tokens are intentionally process-memory state. After restart/update/rollback, a client may need to reconnect or complete OAuth authorization again.
+Dynamic client registrations and acknowledged OAuth grant/token-family state are durable. Access/refresh credentials are persisted only as cryptographic hashes/metadata in the protected OAuth SQLite store, so an existing valid grant can continue to refresh after a normal gateway restart without storing plaintext bearer or refresh tokens.
 
-This is expected behavior unless a future release explicitly changes the token persistence contract. If a client cannot reconnect, verify public URL/Host/Origin configuration and then repeat owner approval.
+Pending authorization transactions and authorization codes remain bounded process-memory state. If the gateway restarts while a browser authorization flow is in progress, restart that authorization flow rather than reusing the old code/state URL. A reconnect may also be required for revoked/expired grants or for legacy pre-durable grants created before the durable OAuth contract shipped.
 
 ## Managed tasks after restart
 
@@ -249,12 +249,15 @@ If `task.get` returns not found after a restart, create/start the work again rat
 Update is fail-closed around:
 
 - HTTPS download/redirect validation;
+- after the signing-enabled trust bootstrap, Ed25519 verification of the exact `manifest.json` bytes before parsing;
 - declared artifact size;
 - SHA-256;
 - immutable version conflicts;
 - activation metadata.
 
-A failed artifact verification does not replace the active release.
+A failed manifest/signature/artifact verification does not replace the active release. Missing, malformed, unknown-key, or tampered `manifest.json.sig` failures should be treated as a release trust failure, not worked around by disabling signature verification.
+
+For official release CI, the signing job must run only for a `v*` tag on `main` history and must reference the protected GitHub `release-signing` Environment. If signing is unexpectedly skipped or cannot access its key, verify the Environment/tag/reviewer/secret configuration in `RELEASE.md` and `docs/RELEASE_ACCEPTANCE.md` rather than copying a private key into repository variables or source.
 
 For System Install, service restart/health failure is surfaced. Inspect service logs before retrying.
 

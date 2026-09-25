@@ -6,28 +6,46 @@ User-visible product changes are recorded here. Internal commit history is not a
 
 Date: 2026-09-22
 
+Audit hardening update: 2026-09-25
+
 ### Added
 
 - Owner-only Debate delete on `/debate`: finished, timed-out, or abandoned debates can be removed with their transcripts after confirmation. Active debates must be stopped first, and the six-tool Debate MCP surface is unchanged.
 - Smooth collapsible Owner Console cards: Connections, Paths, MCP Servers, Commands, and Advanced now expand and collapse with animation (disabled under `prefers-reduced-motion`).
+- Owner-visible degraded Usage health reports bounded dropped/pending telemetry state without turning Usage persistence into an authority or availability dependency.
+- Ed25519 publisher authentication for canonical release manifests, with `manifest.json.sig` shipped alongside the existing size/SHA-256 artifact checks.
 
 ### Changed
 
-- The Connections card leads with the display label plus a Full/Gateway-only badge, drops raw grant/client identifiers from the row, and renames inline through a pencil control (Enter applies, Escape cancels) instead of a separate form row.
+- The Connections card leads with the display label plus a Full/Gateway-only badge, drops raw grant/client identifiers from the row, and renames inline through a pencil control (Enter applies, Escape cancels) instead of a separate form row. The confusing row-level Client Default action is removed; the backend compatibility primitive remains available only for future-grant defaults.
+- Recurrent stale provider sessions now use a rolling incident budget: individual recoveries may succeed, but repeated flapping inside the window quarantines the provider without replaying the failed tool call.
 
 ### Fixed
 
-- Long grant and client identifiers no longer stretch or break the Connections layout; profile, default, and rename actions are visually grouped per connection.
+- Long grant and client identifiers no longer stretch or break the Connections layout; profile and rename actions are visually grouped per connection.
+- Wrong Owner Passphrase during browser OAuth keeps the live authorization transaction retryable without returning terminal HTTP-401 browser semantics.
+- Failed `/token` exchanges now emit bounded secret-free reason/operation telemetry, and durable audit preserves that classification.
+- Authorization-code redemption is failure-safe: a code is consumed only after durable grant issuance commits.
+- Dynamic client registration is durable-before-visible and fails closed on persistence errors.
+- IPv6 loopback redirects such as `http://[::1]:port/...` are accepted while insecure non-loopback HTTP remains rejected.
+- HTTP peer aborts receive bounded correlation/classification; `core.read` now propagates cancellation and read/search audit distinguishes cancel/timeout/error outcomes.
+- Managed Runner tasks emit exactly one metadata-only durable terminal audit event after completion/failure/timeout/cancellation.
+- Owner Console successful logins no longer consume the failed-authentication budget; repeated failed passphrase attempts remain bounded and return 429 after exhaustion.
 
 ### Security
 
-- Debate deletion requires an authenticated Owner session plus CSRF, returns not-found/conflict codes without leaking state, and never/auto-replays or disturbs active model sessions.
+- Debate deletion requires an authenticated Owner session plus CSRF, returns not-found/conflict codes without leaking state, and never auto-replays or disturbs active model sessions.
 - Connection listings continue to expose no token values or hashes.
+- Release signing is tag-only in the workflow, requires the release tag commit to be on `main` history, and references a protected `release-signing` GitHub Environment for private-key custody. Production acceptance still must verify that the external Environment has tag restrictions, required reviewer/self-review/bypass protections, and no repository-level duplicate private-key secret.
+- Signing-enabled updater/setup verifies the Ed25519 signature over exact manifest bytes before parsing; artifact size and SHA-256 remain required after manifest authentication.
+- OAuth durable state stores token hashes/metadata rather than plaintext bearer or refresh credentials; pending authorization transactions/codes remain process-local.
 
 ### Compatibility / known limitation
 
-- No state migration in this release; all v0.3.4 managed state remains valid.
-- Rolling back to v0.3.4 hides the delete control and the collapsible animation while preserving all data.
+- Existing v0.3.4 managed state remains valid. `audit.sqlite3` receives an additive migration for safe auth operation/reason fields; no destructive state rewrite is required.
+- This release is the signed-update trust bootstrap: older binaries may acquire it under the historical HTTPS + SHA-256 bootstrap path, while later updates from a signing-enabled binary require a valid publisher signature.
+- Pending OAuth authorization transactions/codes and managed Task Runtime state remain process-memory state and do not survive restart; acknowledged OAuth grants/token families do.
+- Rolling back to v0.3.4 hides the delete control, collapsible animation and v0.3.5-only diagnostics while preserving compatible durable data. A future incompatible migration must define rollback semantics explicitly.
 
 ## 0.3.4
 

@@ -119,6 +119,8 @@ Gemini Spark currently needs one extra browser step in the flow we have tested:
 
 Do not share, re-submit, or repeatedly reopen that one-time URL. It contains OAuth state/code material. ChatGPT, Claude, and Grok have completed the tested flow without this manual new-tab step.
 
+Normal gateway restarts preserve acknowledged OAuth grants/token families, with access/refresh credentials stored only as hashes/metadata. A browser authorization flow already in progress is different: pending authorization transactions and codes are process-local, so restart that flow after a gateway restart instead of reusing an old callback/code URL.
+
 ## Core file tools you will see
 
 The built-in file surface uses the current names `core.read`, `core.search`, `core.write`, and `core.edit`. They all remain subject to the active authority/policy boundary; their presence does not grant access outside configured authority.
@@ -262,12 +264,12 @@ slnctrz-mcp repair
 slnctrz-mcp owner rotate-passphrase
 ```
 
-- **Update** installs and verifies a new immutable release before activation.
+- **Update** installs and verifies a new immutable release before activation. After the signing-enabled trust bootstrap, it authenticates `manifest.json` with the embedded Ed25519 public key before parsing and then verifies artifact size/SHA-256.
 - **Rollback** activates a previously verified release.
 - **Repair** restores only safe generated state; it does not silently reset owner credentials or customer policy.
 - **Rotate passphrase** is an explicit owner action and requires a gateway restart afterward.
 
-Task runtime state is intentionally in memory and does not survive restart. Audit and usage history are persistent SQLite state.
+Task runtime state is intentionally in memory and does not survive restart. Audit and usage history are persistent SQLite state, and acknowledged OAuth grants/token families are durable; pending OAuth authorization transactions/codes remain in memory.
 
 ## 11. If something is wrong
 

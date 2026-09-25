@@ -16,7 +16,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-005 | Policy Engine is the single source of authorization truth           | Accepted                                                         |
 | ADR-006 | Isolated modern MCP with stateless legacy compatibility             | Accepted                                                         |
 | ADR-007 | Tool registry uses canonical names independent of runtime topology  | Accepted                                                         |
-| ADR-008 | Standalone packaging is separated from runtime architecture         | Accepted                                                         |
+| ADR-008 | Standalone packaging is separated from runtime architecture         | Partially superseded by v0.3.5 signed release pipeline           |
 | ADR-009 | Project instructions are explicit context, not a security mechanism | Superseded by ADR-027                                            |
 | ADR-010 | No home-directory access by default                                 | Accepted                                                         |
 | ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood                       | Accepted                                                         |
@@ -28,7 +28,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-017 | Policy-bound direct process execution                               | Superseded by ADR-024                                            |
 | ADR-018 | Versioned immutable policy snapshots and atomic activation          | Accepted                                                         |
 | ADR-019 | Scoped developer access and sandbox escalation criteria             | Accepted                                                         |
-| ADR-020 | Bounded isolated MCP extension transports                           | Accepted                                                         |
+| ADR-020 | Bounded isolated MCP extension transports                           | Partially superseded by schema-v2/provider recovery contract     |
 | ADR-021 | Separate loopback owner control plane and bounded telemetry         | Accepted                                                         |
 | ADR-022 | Owner managed state write path under systemd hardening              | Partially superseded                                             |
 | ADR-023 | Optional Owner Web Console                                          | Accepted                                                         |

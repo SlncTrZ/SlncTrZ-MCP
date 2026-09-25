@@ -157,13 +157,19 @@ Native target builds:
 GitHub Actions configuration for an official release:
 
 - repository variable `SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64`: canonical base64 DER/SPKI Ed25519 public key;
-- Actions secret `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64`: canonical base64 DER/PKCS8 matching private key.
+- protected GitHub Environment `release-signing` configured **before** the release run;
+- Environment secret `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64`: canonical base64 DER/PKCS8 matching private key;
+- `release-signing` deployment policy restricted to selected tags matching `v*`;
+- at least one required reviewer, with self-review prevented and administrator bypass disabled for the release environment;
+- no repository-level or organization-level duplicate of `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64` that would bypass the Environment custody boundary.
 
-The private key is CI-only and must never be committed, uploaded as an artifact, copied into a runtime install, or written into release notes/logs. The signing script verifies that the configured public/private keys are a matching Ed25519 pair before writing `manifest.json.sig`.
+The workflow itself additionally gates `aggregate-release` to a `v*` tag and checks that the tagged commit is on `origin/main` history before the signing step. A non-tag `workflow_dispatch` may exercise quality/build jobs but must not aggregate, sign, or publish a candidate.
+
+The private key is CI-only and must never be committed, uploaded as an artifact, copied into a runtime install, exposed to an unreviewed workflow ref, or written into release notes/logs. The signing script verifies that the configured public/private keys are a matching Ed25519 pair before writing `manifest.json.sig`. GitHub Environment protection is external repository configuration: the workflow name alone is not proof that reviewer/tag restrictions are actually enabled.
 
 ### Candidate publication
 
-On a tag only, the workflow creates a **prerelease candidate** containing the verified assets.
+On a reviewed `v*` tag only, after the `release-signing` Environment gate and main-history check pass, the workflow creates a **prerelease candidate** containing the verified assets.
 The canonical GitHub Release body is `docs/releases/<tag>.md`; candidate publication fails if the
 tag-specific notes file is missing. Existing candidates are refreshed with the same notes file, so
 generated GitHub notes never replace support, migration, limitation, or rollback statements.
@@ -269,7 +275,7 @@ The signing-enabled updater pins one Ed25519 public key into each standalone bin
 
 Planned key rotation is explicit and review-driven. The current schema pins one active key per build; therefore changing the release key is a release-boundary event, not a runtime setting. Before rotating a production key, ship a reviewed transition design that preserves upgrade continuity (for example a multi-key trust set or dual-signature envelope) and test skipped-version clients. Until that transition mechanism ships, **do not rotate the production key casually**.
 
-If the private key is suspected compromised, stop publishing with it. Existing binaries must not be taught to trust an unreviewed replacement key through unsigned metadata. Recovery requires a separately trusted bootstrap/reinstall or a previously shipped rotation mechanism. Revoked private keys are removed from CI secrets; public verification keys may remain documented for forensic verification.
+If the private key is suspected compromised, stop publishing with it. Existing binaries must not be taught to trust an unreviewed replacement key through unsigned metadata. Recovery requires a separately trusted bootstrap/reinstall or a previously shipped rotation mechanism. Revoked private keys are removed from the `release-signing` Environment secret immediately; any accidental repository/organization duplicate is also removed. Public verification keys may remain documented for forensic verification.
 
 ## Update/rollback acceptance
 

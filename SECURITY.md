@@ -64,12 +64,15 @@ The following invariants apply to the current schema-v2 product model:
 15. Graceful gateway shutdown owns managed child/process/provider cleanup; SIGKILL/forced termination that prevents handlers from running is not claimed to provide graceful cleanup.
 16. Owner administration is not exposed as model-facing `owner.*` MCP tools.
 17. The local control plane is separately authenticated and must not be reachable as a public MCP route.
-18. Release artifacts must be checksum-verified before activation and should be attributable to an exact version/build provenance.
+18. After the signing-enabled trust bootstrap, release manifests must pass Ed25519 publisher verification before parsing; artifact size + SHA-256 and exact build provenance remain required before activation.
 19. OAuth redirect URIs remain exact-match values. A previously unseen Gemini custom-MCP callback may be persisted only for the configured static Client ID, only after successful Owner authentication, and only when it passes the bounded Google callback classifier; wildcard matching and DCR-client mutation are forbidden.
+20. Owner-secret abuse budgets count failed authentication attempts, not successful Owner logins/approvals; once a failure budget is exhausted, subsequent attempts fail closed until its bounded window resets.
 
 ## Secrets
 
 Never commit real tokens, passphrases, private keys or provider credentials. Runtime secrets belong in owner-managed secret state or environment files with restrictive permissions and are referenced by opaque identifiers where applicable.
+
+The production Ed25519 release-signing private key is a release-pipeline secret, not runtime state. It must exist only as the `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64` secret of the protected GitHub `release-signing` Environment; do not keep a repository-level duplicate with the same name. The public verification key may be a repository/environment variable and is embedded in signing-enabled standalone binaries.
 
 Tracked examples and tests may contain clearly synthetic placeholder secrets only.
 
@@ -83,7 +86,7 @@ If durable audit storage is enabled, the same privacy boundary applies to persis
 
 The v0.3.1 `/usage` feature is passive observability, not policy. It stores its own bounded metadata in `<stateRoot>/usage.sqlite3`; `audit.sqlite3` remains the security/attribution journal.
 
-The usage schema excludes prompts, MCP request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, bearer tokens, and context receipts. It stores numeric byte/token estimates plus coarse request/tool classification. Usage persistence is fail-open: losing telemetry may make `/usage` incomplete or unavailable, but it must not authorize, deny, replay, or fail ordinary MCP work.
+The usage schema excludes prompts, MCP request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, bearer tokens, and context receipts. It stores numeric byte/token estimates plus coarse request/tool classification. Usage persistence is fail-open: losing telemetry may make `/usage` incomplete, but it must not authorize, deny, replay, or fail ordinary MCP work. The authenticated Owner usage API exposes bounded degraded/drop health so telemetry loss is visible without becoming an authority dependency.
 
 Token and dollar figures are estimates. They are not provider billing records. See [ADR-028](docs/adr/adr-028-passive-usage-telemetry.md) and [Threat Model](docs/THREAT_MODEL.md).
 
@@ -97,7 +100,7 @@ System Install uses root/sudo only for privileged setup operations and runs the 
 
 Public deployment must use HTTPS for non-loopback MCP/OAuth identity. The separately authenticated control plane remains loopback-only and must not be reverse-proxied publicly.
 
-Release/bootstrap downloads are HTTPS-only, redirects are bounded/validated, and artifact activation requires declared size + SHA-256 verification. Destructive uninstall requires matching independent installation identity markers.
+Fresh bootstrap acquisition remains an external trust boundary: downloads are HTTPS-only and redirects are bounded/validated, but the first signing-enabled binary must itself be obtained through a trusted bootstrap path. Once that trust root is active, setup/update fetches `manifest.json` plus `manifest.json.sig`, verifies the Ed25519 publisher signature before parsing the manifest, and only then accepts artifacts whose declared size + SHA-256 match. Destructive uninstall requires matching independent installation identity markers.
 
 The live gateway reports semantic version and exact build/commit provenance; `status`/`doctor` compare authenticated running identity with the active verified installed release when available.
 

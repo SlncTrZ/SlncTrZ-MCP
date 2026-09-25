@@ -200,11 +200,19 @@ jobs:
 
   aggregate-release:
     name: aggregate multi-target release
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: [verify-linux-x64, verify-win32-x64]
     runs-on: ubuntu-latest
+    environment:
+      name: release-signing
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify release tag is on main history
+        run: git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v7

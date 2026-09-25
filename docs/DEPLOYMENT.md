@@ -123,6 +123,12 @@ OAuth metadata/authorization routes
 
 The control plane is separate and loopback-only.
 
+## Release/update trust boundary
+
+Fresh installation starts with a bootstrap trust problem: the installer/bootstrap binary must itself be obtained through a trusted HTTPS/release path. Once a signing-enabled standalone binary is active, setup/update requires `manifest.json` plus `manifest.json.sig`, verifies the Ed25519 publisher signature over the exact manifest bytes before parsing, and only then accepts artifacts whose declared size and SHA-256 match.
+
+The release-signing private key is **not** deployed to the gateway host. Official CI references the protected GitHub `release-signing` Environment; production acceptance must verify that this Environment was pre-created, restricted to `v*` tags, requires review with self-review/bypass protections, and owns the only `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64` secret. Runtime config/state must never contain that private key.
+
 ## Initial Path
 
 Setup requires an existing readable Path.

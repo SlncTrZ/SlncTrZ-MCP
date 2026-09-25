@@ -94,7 +94,7 @@ The engineering is ahead of the community.
 
 We consider the core safety model, architecture, release model, and extension path mature enough to put in front of more real users. The weak point today is adoption: SlncTrZ-MCP is still a small project with very limited stars, forks, third-party integrations, independent review, and community testing.
 
-We are not going to hide that behind marketing language. v0.3.2 focuses on provider recovery and Owner Console reliability while retaining the usage visibility and clearer product surface introduced in v0.3.1.
+We are not going to hide that behind marketing language. v0.3.5 focuses on closing the Master Audit hardening work: safer OAuth failure handling, bounded provider flapping, durable diagnostics, passive-telemetry health, clearer current contracts, and publisher-authenticated update manifests.
 
 If the idea is useful to you, the most valuable contributions right now are straightforward: **try it, break it, report what is confusing, open issues, review the security model, and tell us which clients or workflows need better support.**
 
@@ -237,6 +237,8 @@ context.bootstrap
 - **Claude:** configure the static Client ID/Secret and complete OAuth before Owner approval.
 - **Gemini Spark:** the current compatibility flow may require opening the `oauth-redirect.googleusercontent.com/r/...` network request in a new tab after one Owner approval. See [User Guide](docs/USER_GUIDE.md) for the exact safe procedure.
 
+Acknowledged OAuth grants/token families are durable across a normal gateway restart; pending browser authorization transactions and authorization codes are not. Access/refresh credentials are persisted only as hashes/metadata, never plaintext bearer/refresh tokens.
+
 Real-client compatibility claims are release-evidence based. We do not mark a client as verified for a release only because the protocol looks compatible on paper.
 
 ---
@@ -315,7 +317,7 @@ Usage history is stored separately in:
 <stateRoot>/usage.sqlite3
 ```
 
-It stores numeric/classification metadata, not prompts, arguments, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. Telemetry is fail-open: if usage persistence fails, normal MCP work continues.
+It stores numeric/classification metadata, not prompts, arguments, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. Telemetry is fail-open: if usage persistence fails, normal MCP work continues, while the authenticated Usage surface exposes bounded degraded/drop health so undercounting is visible.
 
 ---
 
@@ -380,7 +382,7 @@ slnctrz-mcp repair
 slnctrz-mcp owner rotate-passphrase
 ```
 
-`doctor` is read-only. `repair` is intentionally bounded and does not silently replace owner credentials or customer policy. Updates activate verified immutable releases; rollback returns to an already verified prior release.
+`doctor` is read-only. `repair` is intentionally bounded and does not silently replace owner credentials or customer policy. After the signing-enabled trust bootstrap, updates authenticate the exact release manifest with the embedded Ed25519 trust root before parsing it, then verify artifact size/SHA-256 before immutable activation; rollback returns to an already verified prior release.
 
 Default uninstall preserves customer state:
 
