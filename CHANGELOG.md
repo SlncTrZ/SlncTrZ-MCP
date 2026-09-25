@@ -30,7 +30,8 @@ Audit hardening update: 2026-09-25
 - IPv6 loopback redirects such as `http://[::1]:port/...` are accepted while insecure non-loopback HTTP remains rejected.
 - HTTP peer aborts receive bounded correlation/classification; `core.read` now propagates cancellation and read/search audit distinguishes cancel/timeout/error outcomes.
 - Managed Runner tasks emit exactly one metadata-only durable terminal audit event after completion/failure/timeout/cancellation.
-- Owner Console successful logins no longer consume the failed-authentication budget; repeated failed passphrase attempts remain bounded and return 429 after exhaustion.
+- Owner Console successful logins do not consume the failed-authentication budget; repeated failed passphrase attempts remain bounded, and an exhausted direct-peer budget intentionally fails closed until its window resets.
+- Host/Origin validation now runs before Owner Console and OAuth dispatch as well as MCP dispatch, matching the documented public-ingress contract.
 
 ### Security
 

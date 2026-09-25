@@ -389,6 +389,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           }
           return;
         }
+        if (!validateOrigin(req, res)) return;
         if (options.ownerWeb !== undefined && (await options.ownerWeb.handle(req, res, pathname)))
           return;
         if (await oauthRouter.handle(req, res)) return;
@@ -405,8 +406,6 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           });
           return;
         }
-
-        if (!validateOrigin(req, res)) return;
 
         try {
           req.auth = await verifyBearerToken(req.headers.authorization, {

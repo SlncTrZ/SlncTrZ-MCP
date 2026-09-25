@@ -108,9 +108,9 @@ Product/project instructions, coordination-task instructions/results, prompts, p
 | Credential rotation rollback     | New secret overwrites/deletes active prior secret before activation     | Stage opaque new ref, probe/activate new generation, then cleanup only unreferenced old refs.                                                                                 |
 | Provider exhaustion              | Hung/crashing provider                                                  | Bounded timeout/message/output/restart and supervisor state.                                                                                                                  |
 | Hybrid generation                | New policy uses old/partial provider state                              | Build complete candidate then atomically swap active generation.                                                                                                              |
-| Owner impersonation              | Local process calls control API                                         | Owner verifier on every route plus failed-auth rate limiting; successful Owner authentication does not consume the failure budget.                                            |
+| Owner impersonation              | Local process calls control API                                         | Owner verifier on every route plus failed-auth rate limiting; success does not consume the budget, while an exhausted direct-peer budget intentionally fails closed pre-KDF.  |
 | Public admin exposure            | `/owner`/control action accidentally becomes MCP tool                   | No model-facing `owner.*`; control routes are separately handled/authenticated.                                                                                               |
-| Host/origin abuse                | Hostile Host/Origin headers                                             | Explicit hostname/origin validation before dispatch.                                                                                                                          |
+| Host/origin abuse                | Hostile Host/Origin headers                                             | Explicit hostname/origin validation before Owner Console, OAuth, and MCP application dispatch.                                                                                |
 | JSON-RPC/body abuse              | Bad envelope, oversized body, invalid UTF-8                             | Strict bounded HTTP parsing and protocol validation.                                                                                                                          |
 | Audit disclosure                 | Args/content/credentials persisted                                      | Fixed metadata-only schemas; no raw payloads by default.                                                                                                                      |
 | Audit exhaustion                 | Unbounded journal                                                       | Fixed-capacity in-memory journal and bounded persistent sink if enabled.                                                                                                      |
@@ -211,7 +211,7 @@ Provider isolation is process/protocol isolation, not an OS sandbox. An untruste
 - Malformed JSON, JSON-RPC batches/envelopes, invalid UTF-8 and unsupported media types fail with stable non-secret errors.
 - Public MCP request bodies are bounded at 16 MiB; core UTF-8 read/write/edit payloads are bounded at 8 MiB.
 - Provider request/response messages default to 8 MiB and remain hard-bounded at 16 MiB.
-- Host/origin validation occurs before public dispatch.
+- Host/origin validation occurs before Owner Console, OAuth, and MCP application dispatch; `/healthz` and `/readyz` remain intentionally outside the Origin gate.
 - Credentials must never be reflected in OAuth/owner failure responses.
 
 ## 10. Owner/control-plane requirements

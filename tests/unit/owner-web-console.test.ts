@@ -194,6 +194,14 @@ describe("Owner Console product surface", () => {
     expect(rateLimitedLogin.status).toBe(429);
     expect(rateLimitedLogin.headers.get("retry-after")).toBeTruthy();
 
+    const saturatedPeerLogin = await fetch(`${origin}/owner/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: "owner passphrase test value" })
+    });
+    expect(saturatedPeerLogin.status).toBe(429);
+    expect(saturatedPeerLogin.headers.get("retry-after")).toBeTruthy();
+
     const usagePage = await fetch(`${origin}/usage`);
     expect(usagePage.status).toBe(200);
     expect(await usagePage.text()).toContain("Usage &amp; context efficiency");

@@ -826,6 +826,37 @@ describe("gateway HTTP surface", () => {
     });
   });
 
+  it("rejects disallowed origins before Owner Console dispatch", async () => {
+    const oauthService = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: new URL(TEST_RESOURCE),
+      ownerSecretHash: createOwnerSecretHash(TEST_OWNER_SECRET)
+    });
+    const server = createGatewayServer({
+      oauthService,
+      kernelPolicy: createKernelPolicySnapshot({ workspaceId: "test-workspace" }),
+      allowedHostnames: ["127.0.0.1"],
+      allowedOriginHostnames: ["trusted.example"],
+      ownerWeb: {
+        async handle(_req, res, pathname) {
+          if (pathname !== "/owner") return false;
+          res.writeHead(200);
+          res.end("owner");
+          return true;
+        }
+      }
+    });
+    servers.push(server);
+    const address = await listenGateway(server, { host: "127.0.0.1", port: 0 });
+    const origin = `http://127.0.0.1:${address.port}`;
+
+    const response = await fetch(`${origin}/owner`, {
+      headers: { origin: "https://attacker.example" }
+    });
+
+    expect(response.status).toBe(403);
+  });
+
   it("rejects hostile Host headers before MCP dispatch", async () => {
     const { origin } = await startTestServer();
     const status = await requestWithHost(origin, "attacker.example");

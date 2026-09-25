@@ -66,7 +66,8 @@ The following invariants apply to the current schema-v2 product model:
 17. The local control plane is separately authenticated and must not be reachable as a public MCP route.
 18. After the signing-enabled trust bootstrap, release manifests must pass Ed25519 publisher verification before parsing; artifact size + SHA-256 and exact build provenance remain required before activation.
 19. OAuth redirect URIs remain exact-match values. A previously unseen Gemini custom-MCP callback may be persisted only for the configured static Client ID, only after successful Owner authentication, and only when it passes the bounded Google callback classifier; wildcard matching and DCR-client mutation are forbidden.
-20. Owner-secret abuse budgets count failed authentication attempts, not successful Owner logins/approvals; once a failure budget is exhausted, subsequent attempts fail closed until its bounded window resets.
+20. Owner-secret abuse budgets count failed authentication attempts, not successful Owner logins/approvals; once a direct-peer failure budget is exhausted, subsequent authentication attempts from that peer fail closed until its bounded window resets. This preserves the pre-KDF CPU-abuse cutoff and can create a bounded shared-peer lockout behind one ingress; forwarding headers are not trusted implicitly.
+21. Host and Origin allowlists are enforced before Owner Console, OAuth, and MCP application dispatch; liveness/readiness endpoints remain intentionally outside the Origin gate.
 
 ## Secrets
 
