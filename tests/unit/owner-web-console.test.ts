@@ -168,6 +168,32 @@ describe("Owner Console product surface", () => {
     expect(cookie).not.toContain("Secure;");
     const { csrf } = (await login.json()) as { csrf: string };
 
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const successfulLogin = await fetch(`${origin}/owner/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ secret: "owner passphrase test value" })
+      });
+      expect(successfulLogin.status).toBe(200);
+    }
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const failedLogin = await fetch(`${origin}/owner/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ secret: "wrong owner passphrase" })
+      });
+      expect(failedLogin.status).toBe(401);
+    }
+
+    const rateLimitedLogin = await fetch(`${origin}/owner/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: "wrong owner passphrase" })
+    });
+    expect(rateLimitedLogin.status).toBe(429);
+    expect(rateLimitedLogin.headers.get("retry-after")).toBeTruthy();
+
     const usagePage = await fetch(`${origin}/usage`);
     expect(usagePage.status).toBe(200);
     expect(await usagePage.text()).toContain("Usage &amp; context efficiency");

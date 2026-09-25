@@ -299,7 +299,7 @@ export function createOwnerWebConsole(options: {
   };
 }): OwnerWebConsole {
   const sessions = new Map<string, SessionRecord>();
-  const limiter = new FixedWindowRateLimiter({ limit: 10, windowSeconds: 60 });
+  const ownerFailureLimiter = new FixedWindowRateLimiter({ limit: 10, windowSeconds: 60 });
   const now = options.now ?? Date.now;
   const cookie = (token: string, expiresAt: number, at: number): string =>
     `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/owner; HttpOnly; ${options.secureCookies === false ? "" : "Secure; "}SameSite=Strict; Max-Age=${Math.max(0, Math.floor((expiresAt - at) / 1000))}`;
@@ -481,9 +481,9 @@ export function createOwnerWebConsole(options: {
       }
       if (method === "POST" && pathname === "/owner/api/login") {
         const peer = req.socket.remoteAddress ?? "unknown";
-        const rate = limiter.consume(peer);
-        if (!rate.allowed) {
-          res.setHeader("retry-after", String(rate.retryAfterSeconds));
+        const currentRate = ownerFailureLimiter.check(peer);
+        if (!currentRate.allowed) {
+          res.setHeader("retry-after", String(currentRate.retryAfterSeconds));
           sendJson(res, 429, { error: { code: "rate_limited", message: "Rate limit exceeded" } });
           return true;
         }
@@ -492,6 +492,14 @@ export function createOwnerWebConsole(options: {
           typeof body.secret !== "string" ||
           !verifyOwnerSecret(body.secret, options.ownerSecretHash)
         ) {
+          const failureRate = ownerFailureLimiter.consume(peer);
+          if (!failureRate.allowed) {
+            res.setHeader("retry-after", String(failureRate.retryAfterSeconds));
+            sendJson(res, 429, {
+              error: { code: "rate_limited", message: "Rate limit exceeded" }
+            });
+            return true;
+          }
           sendJson(res, 401, {
             error: { code: "unauthorized", message: "Owner authentication failed" }
           });
