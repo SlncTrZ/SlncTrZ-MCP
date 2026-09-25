@@ -54,9 +54,10 @@ if (directInventoryStart < 0 || directInventoryEnd <= directInventoryStart) {
   throw new Error("docs_contract_failed: PROVENANCE direct dependency inventory section missing");
 }
 const directInventory = provenance.slice(directInventoryStart, directInventoryEnd);
-const [userGuide, adrIndex] = await Promise.all([
+const [userGuide, adrIndex, standaloneWorkflow] = await Promise.all([
   readFile(join(root, "docs", "USER_GUIDE.md"), "utf8"),
-  readFile(join(root, "docs", "adr", "README.md"), "utf8")
+  readFile(join(root, "docs", "adr", "README.md"), "utf8"),
+  readFile(join(root, ".github", "workflows", "standalone.yml"), "utf8")
 ]);
 
 function requireText(haystack, needle, label) {
@@ -133,6 +134,20 @@ for (const value of [
 ]) {
   requireText(currentReleaseNotes, value, "current release notes");
 }
+
+for (const value of [
+  "manifest.json.sig",
+  "SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64",
+  "SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64",
+  "scripts/sign-release-file.mjs"
+]) {
+  requireText(standaloneWorkflow, value, "standalone release workflow");
+}
+requireText(release, "manifest.json.sig", "RELEASE");
+requireText(release, "Ed25519", "RELEASE");
+requireText(readme, "Ed25519 trust root", "README");
+requireText(threatModel, "Ed25519 publisher signature", "THREAT_MODEL");
+requireText(currentReleaseNotes, "publisher signature", "current release notes");
 
 // Drift guard: the public docs must not reference a different release line (X.Y.x).
 function assertCurrentLineOnly(text, label) {

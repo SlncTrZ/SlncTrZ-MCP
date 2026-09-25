@@ -31,6 +31,7 @@ import {
   readRuntimeConfig
 } from "../app/config.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
+import type { ReleaseTrustKey } from "./release-signature.js";
 import { currentReleaseTarget } from "./release-manifest.js";
 import {
   installStandaloneRelease,
@@ -102,6 +103,7 @@ export interface ProductSetupDependencies {
     identity: RuntimeIdentity,
     binary: string
   ) => boolean | Promise<boolean>;
+  readonly releaseTrustKeys?: readonly ReleaseTrustKey[];
 }
 
 function userDefaults(home: string): {
@@ -333,7 +335,10 @@ export async function prepareProductSetup(
   const manifest = await fetchReleaseManifest(
     request.manifestUrl ?? OFFICIAL_RELEASE_MANIFEST_URL,
     {
-      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch })
+      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+      ...(dependencies.releaseTrustKeys === undefined
+        ? {}
+        : { trustedKeys: dependencies.releaseTrustKeys })
     }
   );
   const activation = await installStandaloneRelease({

@@ -114,12 +114,14 @@ Product/project instructions, coordination-task instructions/results, prompts, p
 | JSON-RPC/body abuse              | Bad envelope, oversized body, invalid UTF-8                         | Strict bounded HTTP parsing and protocol validation.                                                                                        |
 | Audit disclosure                 | Args/content/credentials persisted                                  | Fixed metadata-only schemas; no raw payloads by default.                                                                                    |
 | Audit exhaustion                 | Unbounded journal                                                   | Fixed-capacity in-memory journal and bounded persistent sink if enabled.                                                                    |
-| Release substitution             | Modified binary under valid version label                           | Manifest size + SHA-256 verification before activation.                                                                                     |
+| Release substitution             | Modified binary under valid version label                           | Signed manifest trust check before artifact size + SHA-256 verification and activation.                                                     |
 | Redirect downgrade/substitution  | Release URL redirects to unsafe scheme/origin chain                 | HTTPS-only bounded redirects with explicit validation before accepting bytes.                                                               |
 | Mixed deployment                 | Live directory contains files from multiple generations             | Immutable versioned release directories and atomic activation pointer.                                                                      |
 | Destructive-root confusion       | Tampered state points uninstall at an unrelated directory           | Independent install-root + state installation IDs must match before deletion.                                                               |
 | Version drift                    | `package.json` and runtime identities disagree                      | One canonical build-info source plus consistency/release gate tests.                                                                        |
 | Provenance loss                  | Runtime cannot identify source commit                               | Inject exact build commit in CI/deployment; surface it in binary/runtime diagnostics.                                                       |
+
+Release-signing note: after the signing-enabled trust bootstrap, an Ed25519 publisher signature over the exact manifest bytes is verified against the embedded trust root before manifest parsing. Fresh bootstrap still depends on trusted acquisition of the installer/bootstrap binary.
 
 ## 6. Filesystem requirements
 

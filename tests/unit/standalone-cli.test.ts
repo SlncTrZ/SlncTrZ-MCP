@@ -7,6 +7,7 @@ import { loadPolicyDocument } from "../../src/policy/policy-config.js";
 import { runApplication } from "../../src/app/application-runner.js";
 import { runStandaloneCli, STANDALONE_VERSION } from "../../src/app/standalone-cli.js";
 import { currentReleaseTarget } from "../../src/standalone/release-manifest.js";
+import { TEST_RELEASE_TRUST_KEYS, signedManifestResponse } from "../helpers/release-signing.js";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -34,10 +35,7 @@ function releaseFetch(bytes: Buffer): typeof fetch {
       }
     ]
   });
-  return (async (input) =>
-    new Response(String(input).includes("manifest") ? manifest : bytes, {
-      status: 200
-    })) as typeof fetch;
+  return (async (input) => signedManifestResponse(input, manifest, bytes)) as typeof fetch;
 }
 
 describe("standalone CLI", () => {
@@ -111,7 +109,8 @@ describe("standalone CLI", () => {
           output: captured,
           fetch: releaseFetch(Buffer.from("standalone-bytes")),
           environment: {},
-          checkPort: async () => undefined
+          checkPort: async () => undefined,
+          releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
         }
       )
     ).resolves.toBe(true);

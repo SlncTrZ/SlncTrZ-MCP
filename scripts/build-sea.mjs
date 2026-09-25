@@ -3,7 +3,7 @@
  * Supported public build targets are produced on their native runners.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +41,22 @@ const postjectCli = join(root, "node_modules", "postject", "dist", "cli.js");
 const fuse = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 const buildCommit =
   process.env.SLNCTRZ_BUILD_COMMIT?.trim() || process.env.GITHUB_SHA?.trim() || "unknown";
+const releaseSigningPublicKeyB64 = process.env.SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64?.trim();
+if (releaseSigningPublicKeyB64 === undefined || releaseSigningPublicKeyB64.length === 0) {
+  throw new Error("SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 is required for standalone release builds");
+}
+const releaseSigningPublicKey = Buffer.from(releaseSigningPublicKeyB64, "base64");
+if (releaseSigningPublicKey.length === 0 || releaseSigningPublicKey.toString("base64") !== releaseSigningPublicKeyB64) {
+  throw new Error("SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 must be canonical base64 SPKI");
+}
+const parsedReleaseSigningPublicKey = createPublicKey({
+  key: releaseSigningPublicKey,
+  format: "der",
+  type: "spki"
+});
+if (parsedReleaseSigningPublicKey.asymmetricKeyType !== "ed25519") {
+  throw new Error("Release signing public key must be Ed25519");
+}
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, encoding: "utf8", shell: false });
@@ -72,7 +88,8 @@ await build({
   platform: "node",
   target: "node22",
   define: {
-    "process.env.SLNCTRZ_BUILD_COMMIT": JSON.stringify(buildCommit)
+    "process.env.SLNCTRZ_BUILD_COMMIT": JSON.stringify(buildCommit),
+    __SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64__: JSON.stringify(releaseSigningPublicKeyB64)
   },
   legalComments: "none"
 });

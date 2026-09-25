@@ -5,6 +5,7 @@
 import { isAbsolute, join } from "node:path";
 import { fetchReleaseManifest } from "../standalone/manifest-fetch.js";
 import { currentReleaseTarget } from "../standalone/release-manifest.js";
+import type { ReleaseTrustKey } from "../standalone/release-signature.js";
 import { installStandaloneRelease, rollbackStandaloneRelease } from "../standalone/installer.js";
 import { initializeDefaultWorkspace, managedStatePaths } from "../owner/managed-state.js";
 import { APP_VERSION, BUILD_COMMIT } from "../shared/build-info.js";
@@ -140,6 +141,7 @@ export async function runStandaloneCli(
     readonly checkPort?: (host: string, port: number) => Promise<void>;
     readonly activateSystemService?: typeof activateSystemService;
     readonly management?: ManagementDependencies;
+    readonly releaseTrustKeys?: readonly ReleaseTrustKey[];
   } = {}
 ): Promise<boolean> {
   const output = options.output ?? { write: (message: string) => console.log(message) };
@@ -227,7 +229,10 @@ export async function runStandaloneCli(
       },
       {
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-        ...(options.checkPort === undefined ? {} : { checkPort: options.checkPort })
+        ...(options.checkPort === undefined ? {} : { checkPort: options.checkPort }),
+        ...(options.releaseTrustKeys === undefined
+          ? {}
+          : { releaseTrustKeys: options.releaseTrustKeys })
       }
     );
     const systemService =
@@ -376,7 +381,8 @@ export async function runStandaloneCli(
     const values = args.slice(1);
     only(values, ["--manifest", "--root"]);
     const manifest = await fetchReleaseManifest(option(values, "--manifest"), {
-      ...(options.fetch === undefined ? {} : { fetch: options.fetch })
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+      ...(options.releaseTrustKeys === undefined ? {} : { trustedKeys: options.releaseTrustKeys })
     });
     const activation = await installStandaloneRelease({
       installRoot: absolute(option(values, "--root")),

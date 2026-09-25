@@ -9,6 +9,7 @@ import {
   activateSystemService,
   type SystemCommandRunner
 } from "../../src/standalone/service-setup.js";
+import { TEST_RELEASE_TRUST_KEYS, signedManifestResponse } from "../helpers/release-signing.js";
 
 const cleanup: string[] = [];
 const runtimeIdentity = Object.freeze({
@@ -45,17 +46,15 @@ function releaseFetch(bytes: Buffer, buildCommit?: string): typeof fetch {
       }
     ]
   });
-  return (async (input) =>
-    new Response(String(input).includes("manifest") ? manifest : bytes, {
-      status: 200
-    })) as typeof fetch;
+  return (async (input) => signedManifestResponse(input, manifest, bytes)) as typeof fetch;
 }
 
 const setupDependencies = (bytes: Buffer) => ({
   fetch: releaseFetch(bytes),
   checkPort: async () => undefined,
   resolveRuntimeIdentity: () => runtimeIdentity,
-  verifyRuntimeBinary: () => true
+  verifyRuntimeBinary: () => true,
+  releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
 });
 
 describe("system service setup", () => {

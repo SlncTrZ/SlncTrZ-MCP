@@ -407,7 +407,7 @@ The most important properties are:
 - context receipts are workflow state, never authorization;
 - audit is metadata-only by schema;
 - usage telemetry is separate, metadata-only, bounded, and fail-open;
-- release artifacts are immutable and verified by declared size/SHA-256 before activation;
+- after the signing-enabled trust bootstrap, updater/setup manifests are publisher-authenticated with an embedded Ed25519 trust root before parsing, then artifacts are verified by declared size/SHA-256 before activation;
 - policy/provider generations activate atomically rather than partially mutating the live runtime.
 
 No software of this kind should be described as risk-free. SlncTrZ-MCP can intentionally launch powerful commands when the owner allows them, and Autonomous mode can be as powerful as the OS account running it. Our goal is to make those boundaries explicit, inspectable, and difficult to bypass accidentally.
