@@ -76,7 +76,13 @@ jobs:
         env:
           SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
           SLNCTRZ_RELEASE_BASE_URL: https://example.invalid/slnctrz-ci/
-        run: npm run build:sea:win32-x64
+        shell: pwsh
+        run: |
+          # CI artifacts use a disposable verification key and are never published.
+          # Only the public key is exported; no private key is persisted.
+          $env:SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 = node --input-type=module -e "import { generateKeyPairSync } from 'node:crypto'; const { publicKey } = generateKeyPairSync('ed25519'); process.stdout.write(publicKey.export({ type: 'spki', format: 'der' }).toString('base64'));"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:sea:win32-x64
 
       - name: Smoke Windows x64 SEA
         run: npm run smoke:sea:win32-x64
