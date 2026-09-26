@@ -1,8 +1,10 @@
 # ADR-020: Bounded isolated MCP extension transports
 
-> Status: Accepted
+> Status: Partially superseded by schema-v2 authority and v0.3.5 recovery policy
 > Date: 2026-08-27
 > Owners: SlncTrZ
+
+> Current-contract note (2026-09-25): the transport/isolation decisions remain active. The historical workspace/profile authorization language is superseded by schema-v2 Paths + `authorityMode`: provider manifests never grant authority, provider exposure requires configured/enabled/accepted/ready state, and the product no longer has a per-provider workspace/profile/tool-subset grant layer. v0.3.5 also adds a rolling `provider_session_invalid` incident budget so successful individual recoveries cannot permit unbounded recurrent flapping.
 
 ## Context
 
@@ -31,12 +33,14 @@ described by PLAN Phase 5 and ARCHITECTURE §4.11.
   stable non-sensitive adapter errors, and release pending work on stop or transport
   failure.
 - A supervisor serializes one provider's calls behind a bounded queue, propagates
-  cancellation, hard-bounds requests, uses a finite restart budget and quarantines a
-  provider once exhausted. Every start/restart must attest the provider's exact declared
+  cancellation, hard-bounds requests, uses a finite per-recovery restart budget, and also
+  tracks a rolling invalid-session incident budget. Exhausting either applicable budget
+  quarantines the provider. Every start/restart must attest the provider's exact declared
   canonical tool set; malformed discovery or drift leaves it unavailable.
-- Manifests are capability/transport declarations, never authorization grants. The
-  operator-owned policy document is the single workspace/profile authorization source.
-  Authenticated discovery exposes only `authorized ∩ ready` tools.
+- Manifests are capability/transport declarations, never authorization grants. In the current
+  schema-v2 product, provider exposure is the intersection of authenticated gateway/tool-surface
+  rules with configured + enabled + accepted + ready provider state; policy does not add a separate
+  per-provider workspace/profile/tool-subset grant layer.
 - Each MCP exchange captures one immutable policy/runtime generation. Dispatch remains
   bound to that snapshot's canonical authorization, rechecks readiness, and never falls
   back by name. An activated reload retires

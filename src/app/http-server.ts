@@ -8,6 +8,7 @@
 import type { HarnessRuntime } from "../context/runtime.js";
 import type { DebateService } from "../debate/index.js";
 
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -41,6 +42,7 @@ import {
 
 const DEFAULT_ALLOWED_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"] as const;
 const DEFAULT_MAX_BODY_BYTES = 16 * 1_048_576;
+const MAX_USAGE_TOOL_ID_CHARS = 256;
 const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set([
   "2026-07-28",
   "2025-11-25",
@@ -60,6 +62,61 @@ class InvalidMcpRequestError extends Error {
   constructor() {
     super("Invalid MCP request");
   }
+}
+
+type GatewayIngressFailureClass =
+  | "peer_aborted"
+  | "payload_too_large"
+  | "invalid_json"
+  | "unsupported_media_type"
+  | "protocol_error"
+  | "server_error";
+
+class GatewayIngressError extends Error {
+  constructor(
+    readonly failureClass: GatewayIngressFailureClass,
+    readonly correlationId: string
+  ) {
+    super(`gateway_request_error class=${failureClass} correlation_id=${correlationId}`);
+    this.name = "GatewayIngressError";
+  }
+}
+
+function gatewayIngressFailureClass(
+  req: IncomingMessage,
+  error: unknown
+): GatewayIngressFailureClass {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  if (
+    req.aborted ||
+    code === "ECONNRESET" ||
+    code === "ERR_STREAM_PREMATURE_CLOSE" ||
+    (error instanceof Error && (error.name === "AbortError" || error.message === "aborted"))
+  ) {
+    return "peer_aborted";
+  }
+  if (error instanceof PayloadTooLargeError) return "payload_too_large";
+  if (error instanceof UnsupportedMediaTypeError) return "unsupported_media_type";
+  if (error instanceof SyntaxError) return "invalid_json";
+  if (
+    error instanceof UnsupportedMcpProtocolVersionError ||
+    error instanceof InvalidMcpRequestError
+  ) {
+    return "protocol_error";
+  }
+  return "server_error";
+}
+
+function safeIngressError(
+  req: IncomingMessage,
+  error: unknown,
+  correlationId: string
+): GatewayIngressError {
+  if (error instanceof GatewayIngressError && error.correlationId === correlationId) return error;
+  return new GatewayIngressError(gatewayIngressFailureClass(req, error), correlationId);
 }
 
 export interface GatewayServerOptions {
@@ -152,7 +209,7 @@ function classifyUsageRequest(body: unknown): {
       typeof params === "object" && params !== null && !Array.isArray(params)
         ? (params as { name?: unknown }).name
         : undefined;
-    return typeof toolId === "string"
+    return typeof toolId === "string" && toolId.length <= MAX_USAGE_TOOL_ID_CHARS
       ? { requestKind: "tools_call", toolId }
       : { requestKind: "tools_call" };
   }
@@ -294,11 +351,14 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
   const validateHost = hostHeaderValidation(allowedHostnames);
   const validateOrigin = originValidation(allowedOriginHostnames);
   const oauthRouter = new OAuthHttpRouter(options.oauthService);
-  const errorOptions = options.onError === undefined ? {} : { onError: options.onError };
 
   const server = createServer(
     { maxHeaderSize: 16_384, requestTimeout: 30_000, headersTimeout: 10_000 },
     async (req, res) => {
+      const correlationId = randomUUID();
+      const reportError = (error: unknown): void => {
+        options.onError?.(safeIngressError(req, error, correlationId));
+      };
       try {
         normalizeRequest(req);
         applyCors(res);
@@ -330,6 +390,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           }
           return;
         }
+        if (!validateOrigin(req, res)) return;
         if (options.ownerWeb !== undefined && (await options.ownerWeb.handle(req, res, pathname)))
           return;
         if (await oauthRouter.handle(req, res)) return;
@@ -346,8 +407,6 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           });
           return;
         }
-
-        if (!validateOrigin(req, res)) return;
 
         try {
           req.auth = await verifyBearerToken(req.headers.authorization, {
@@ -393,29 +452,37 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           });
           return;
         }
-        releaseRuntime ??= resolution.snapshot.extensionRuntime?.acquire();
-        const requestHandler = createGatewayMcpHandler({
-          ...errorOptions,
-          kernelPolicy: resolution.snapshot,
-          ...(options.ownerConsoleUrl === undefined
-            ? {}
-            : { ownerConsoleUrl: options.ownerConsoleUrl }),
-          ...(options.gatewayInfo === undefined ? {} : { gatewayInfo: options.gatewayInfo }),
-          ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
-          ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
-          ...(options.mcpEventBus === undefined ? {} : { eventBus: options.mcpEventBus }),
-          ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
-          ...(options.harnessRuntime === undefined
-            ? {}
-            : { harnessRuntime: options.harnessRuntime }),
-          authenticatedConnection,
-          ...(options.debateService === undefined ? {} : { debateService: options.debateService }),
-          restrictSurfaceProfile: (profile) =>
-            options.oauthService.restrictConnection(accessToken, profile)
-        });
+        let requestHandler: ReturnType<typeof createGatewayMcpHandler>;
+        try {
+          requestHandler = createGatewayMcpHandler({
+            ...(options.onError === undefined ? {} : { onError: reportError }),
+            kernelPolicy: resolution.snapshot,
+            ...(options.ownerConsoleUrl === undefined
+              ? {}
+              : { ownerConsoleUrl: options.ownerConsoleUrl }),
+            ...(options.gatewayInfo === undefined ? {} : { gatewayInfo: options.gatewayInfo }),
+            ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
+            ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
+            ...(options.mcpEventBus === undefined ? {} : { eventBus: options.mcpEventBus }),
+            ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
+            ...(options.harnessRuntime === undefined
+              ? {}
+              : { harnessRuntime: options.harnessRuntime }),
+            authenticatedConnection,
+            ...(options.debateService === undefined
+              ? {}
+              : { debateService: options.debateService }),
+            restrictSurfaceProfile: (profile) =>
+              options.oauthService.restrictConnection(accessToken, profile)
+          });
+          releaseRuntime ??= resolution.snapshot.extensionRuntime?.acquire();
+        } catch (error) {
+          releaseRuntime?.();
+          throw error;
+        }
         const requestHandleMcp = toNodeHandler(
           requestHandler,
-          options.onError === undefined ? {} : { onerror: options.onError }
+          options.onError === undefined ? {} : { onerror: reportError }
         );
         try {
           const parsed =
@@ -454,7 +521,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           releaseRuntime?.();
         }
       } catch (error) {
-        options.onError?.(error instanceof Error ? error : new Error("Unknown error"));
+        reportError(error);
 
         if (res.headersSent) {
           res.end();

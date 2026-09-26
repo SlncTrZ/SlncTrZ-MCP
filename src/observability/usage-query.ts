@@ -48,11 +48,22 @@ export interface UsageSavings {
   readonly reductionPercent: number;
 }
 
+export type UsageFailureClass = "queue_overflow" | "persistence_failure" | "maintenance_failure";
+
+export interface UsageHealth {
+  readonly available: true;
+  readonly degraded: boolean;
+  readonly droppedEvents: number;
+  readonly pendingEvents: number;
+  readonly lastFailureClass?: UsageFailureClass;
+}
+
 export interface UsageReader {
   summary(range: UsageRange): UsageSummary;
   timeseries(range: UsageRange): readonly UsageTimeseriesPoint[];
   tools(range: UsageRange): readonly UsageToolBreakdown[];
   savings(range: UsageRange): UsageSavings;
+  health(): UsageHealth;
 }
 
 export function emptyUsageSavings(range: UsageRange): UsageSavings {

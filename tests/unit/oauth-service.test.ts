@@ -7,6 +7,10 @@ import {
   type DynamicClientRecord
 } from "../../src/auth/oauth-service.js";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
+import {
+  createSqliteOAuthGrantStore,
+  type OAuthGrantStore
+} from "../../src/auth/oauth-grant-store.js";
 
 const OWNER_SECRET = "correct horse battery staple";
 const RESOURCE = new URL("https://mcp.example.com/mcp");
@@ -62,6 +66,17 @@ describe("OAuthService", () => {
 
     expect(registered.client_id).toMatch(/^client_/);
     expect(registered.client_secret).toBeUndefined();
+
+    const ipv4 = service.registerClient({
+      redirect_uris: ["http://127.0.0.1:3210/callback"],
+      token_endpoint_auth_method: "none"
+    });
+    const ipv6 = service.registerClient({
+      redirect_uris: ["http://[::1]:3210/callback"],
+      token_endpoint_auth_method: "none"
+    });
+    expect(ipv4.redirect_uris).toEqual(["http://127.0.0.1:3210/callback"]);
+    expect(ipv6.redirect_uris).toEqual(["http://[::1]:3210/callback"]);
 
     expect(() =>
       service.registerClient({
@@ -235,6 +250,59 @@ describe("OAuthService", () => {
         resource: RESOURCE.href
       })
     ).toThrowError(OAuthError);
+  });
+
+  it("keeps an authorization code retryable until durable grant issuance commits", () => {
+    const backing = createSqliteOAuthGrantStore();
+    let failIssue = true;
+    const grantStore: OAuthGrantStore = {
+      ...backing,
+      issue(...args) {
+        if (failIssue) {
+          failIssue = false;
+          throw new Error("injected grant persistence failure");
+        }
+        backing.issue(...args);
+      }
+    };
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      grantStore
+    });
+    const clientId = registerTestClient(service);
+    const verifier = "f".repeat(43);
+    const pending = service.beginAuthorization({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_challenge: service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+    const redirect = service.approveAuthorization(pending.transactionId, OWNER_SECRET);
+    const parameters = {
+      grant_type: "authorization_code",
+      code: redirect.searchParams.get("code") ?? "",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_verifier: verifier,
+      resource: RESOURCE.href
+    };
+
+    try {
+      expect(() => service.exchangeAuthorizationCode(parameters)).toThrowError(
+        "injected grant persistence failure"
+      );
+
+      const issued = service.exchangeAuthorizationCode(parameters);
+      expect(issued.token_type).toBe("Bearer");
+      expect(() => service.exchangeAuthorizationCode(parameters)).toThrowError("Invalid code");
+    } finally {
+      backing.close();
+    }
   });
 
   it("rejects a wrong owner secret and a wrong PKCE verifier", () => {
@@ -517,8 +585,9 @@ describe("OAuthService", () => {
     ).toThrow("Unknown client");
   });
 
-  it("keeps DCR available in memory but audits a durable-store write failure", () => {
+  it("fails DCR closed when durable persistence fails before the client becomes visible", () => {
     const events: AuthAuditEvent[] = [];
+    let attempted: readonly DynamicClientRecord[] = [];
     const service = new OAuthService({
       issuer: new URL("https://mcp.example.com"),
       resource: RESOURCE,
@@ -526,12 +595,16 @@ describe("OAuthService", () => {
       audit: (event) => events.push(event),
       dynamicClientStore: {
         load: () => [],
-        save: () => {
+        save: (clients) => {
+          attempted = clients;
           throw new Error("disk unavailable");
         }
       }
     });
-    const clientId = registerTestClient(service);
+
+    expect(() => registerTestClient(service)).toThrow("disk unavailable");
+    expect(attempted).toHaveLength(1);
+    const clientId = attempted[0]?.clientId;
     expect(clientId).toMatch(/^client_/u);
     expect(events).toContainEqual(
       expect.objectContaining({ type: "client.persistence_failed", outcome: "failure" })
@@ -539,9 +612,77 @@ describe("OAuthService", () => {
     expect(() =>
       service.beginAuthorization({
         response_type: "code",
-        client_id: clientId,
+        client_id: clientId ?? "",
         redirect_uri: "https://client.example.com/oauth/callback",
         code_challenge: service.pkceChallenge("v".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      })
+    ).toThrow("Unknown client");
+  });
+
+  it("fails owner DCR revocation closed when durable persistence fails", () => {
+    const saved: DynamicClientRecord[] = [];
+    let failWrites = false;
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      dynamicClientStore: {
+        load: () => saved,
+        save: (clients) => {
+          if (failWrites) throw new Error("disk unavailable");
+          saved.splice(0, saved.length, ...clients);
+        }
+      }
+    });
+    const clientId = registerTestClient(service);
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+
+    failWrites = true;
+    expect(() => service.revokeClientByOwner(clientId)).toThrow("disk unavailable");
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+    expect(() =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: "https://client.example.com/oauth/callback",
+        code_challenge: service.pkceChallenge("w".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      })
+    ).not.toThrow();
+  });
+
+  it("fails owner revoke-all closed when dynamic-client persistence fails", () => {
+    const saved: DynamicClientRecord[] = [];
+    let failWrites = false;
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      dynamicClientStore: {
+        load: () => saved,
+        save: (clients) => {
+          if (failWrites) throw new Error("disk unavailable");
+          saved.splice(0, saved.length, ...clients);
+        }
+      }
+    });
+    const clientId = registerTestClient(service);
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+
+    failWrites = true;
+    expect(() => service.revokeAllByOwner()).toThrow("disk unavailable");
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+    expect(() =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: "https://client.example.com/oauth/callback",
+        code_challenge: service.pkceChallenge("q".repeat(43)),
         code_challenge_method: "S256",
         resource: RESOURCE.href,
         scope: "mcp:tools"

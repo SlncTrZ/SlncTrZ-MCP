@@ -37,16 +37,19 @@ export interface ExtensionSupervisorOptions {
   readonly requestTimeoutMs?: number;
   readonly maxQueue?: number;
   readonly maxRestarts?: number;
+  readonly maxSessionRecoveryIncidents?: number;
+  readonly sessionRecoveryWindowMs?: number;
   readonly backoffBaseMs?: number;
   readonly backoffJitterMs?: number;
+  readonly now?: () => number;
   readonly metrics?: MetricsRegistry;
 }
 
 const VALID_TRANSITIONS: Readonly<Record<SupervisorState, readonly SupervisorState[]>> = {
   declared: ["starting", "stopped"],
   starting: ["ready", "failed", "restarting", "stopped"],
-  ready: ["degraded", "restarting", "stopped"],
-  degraded: ["ready", "restarting", "stopped"],
+  ready: ["degraded", "restarting", "quarantined", "stopped"],
+  degraded: ["ready", "restarting", "quarantined", "stopped"],
   restarting: ["starting", "quarantined", "stopped"],
   quarantined: ["stopped"],
   stopped: [],
@@ -95,8 +98,17 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
   const maxQueue = options.maxQueue ?? 16;
   const maxRestarts = options.maxRestarts ?? 3;
+  const maxSessionRecoveryIncidents = options.maxSessionRecoveryIncidents ?? 3;
+  const sessionRecoveryWindowMs = options.sessionRecoveryWindowMs ?? 5 * 60_000;
   const backoffBaseMs = options.backoffBaseMs ?? 100;
   const backoffJitterMs = options.backoffJitterMs ?? 100;
+  const now = options.now ?? Date.now;
+  if (!Number.isSafeInteger(maxSessionRecoveryIncidents) || maxSessionRecoveryIncidents < 1) {
+    throw new RangeError("maxSessionRecoveryIncidents must be a positive safe integer");
+  }
+  if (!Number.isSafeInteger(sessionRecoveryWindowMs) || sessionRecoveryWindowMs < 1) {
+    throw new RangeError("sessionRecoveryWindowMs must be a positive safe integer");
+  }
 
   let state: SupervisorState = "declared";
   let restarting: Promise<void> | undefined;
@@ -105,6 +117,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   let activeCall: QueueEntry | undefined;
   let abortActive: (() => void) | undefined;
   let incident: ProviderDiagnostic | undefined;
+  const sessionRecoveryIncidents: number[] = [];
   const queue: QueueEntry[] = [];
 
   const snapshotIncident = (): ProviderDiagnostic | undefined =>
@@ -209,7 +222,25 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     beginIncident(failureClass);
     if (restarting !== undefined) return restarting;
     const sessionRecovery = reason === "provider_session_invalid";
-    if (sessionRecovery) options.metrics?.extensionSessionInvalid();
+    if (sessionRecovery) {
+      options.metrics?.extensionSessionInvalid();
+      const timestamp = now();
+      const cutoff = timestamp - sessionRecoveryWindowMs;
+      while (
+        sessionRecoveryIncidents.length > 0 &&
+        (sessionRecoveryIncidents[0] ?? timestamp) <= cutoff
+      ) {
+        sessionRecoveryIncidents.shift();
+      }
+      if (sessionRecoveryIncidents.length >= maxSessionRecoveryIncidents) {
+        transition("quarantined");
+        markIncident("quarantined");
+        options.metrics?.extensionSessionRecoveryFinished(false);
+        rejectQueued("provider_unavailable");
+        return Promise.resolve();
+      }
+      sessionRecoveryIncidents.push(timestamp);
+    }
     restarting = (async () => {
       transition("restarting");
       let restartAttempts = 0;

@@ -88,6 +88,7 @@ jobs:
         env:
           SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
           SLNCTRZ_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+          SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64: ${{ vars.SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 }}
         run: npm run build:sea:linux-x64
 
       - name: Smoke-test Linux SEA
@@ -126,6 +127,7 @@ jobs:
         env:
           SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
           SLNCTRZ_RELEASE_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+          SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64: ${{ vars.SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 }}
         run: npm run build:sea:win32-x64
 
       - name: Smoke-test Windows SEA
@@ -198,11 +200,19 @@ jobs:
 
   aggregate-release:
     name: aggregate multi-target release
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: [verify-linux-x64, verify-win32-x64]
     runs-on: ubuntu-latest
+    environment:
+      name: release-signing
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify release tag is on main history
+        run: git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v7
@@ -230,6 +240,12 @@ jobs:
           sha256sum --check SHA256SUMS
           node -e 'const m=require("./manifest.json"); const t=m.artifacts.map(x=>x.target).sort().join(","); if(t!=="linux-x64,win32-x64") throw new Error("release targets incomplete")'
 
+      - name: Sign canonical release manifest
+        env:
+          SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64 }}
+          SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64: ${{ vars.SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 }}
+        run: node scripts/sign-release-file.mjs artifact/release/manifest.json artifact/release/manifest.json.sig
+
       - name: Upload canonical release bundle
         uses: actions/upload-artifact@v7
         with:
@@ -238,6 +254,7 @@ jobs:
             artifact/release/slnctrz-mcp
             artifact/release/slnctrz-mcp.exe
             artifact/release/manifest.json
+            artifact/release/manifest.json.sig
             artifact/release/SHA256SUMS
             artifact/release/install.sh
           if-no-files-found: error
@@ -268,6 +285,7 @@ jobs:
             artifact/slnctrz-mcp
             artifact/slnctrz-mcp.exe
             artifact/manifest.json
+            artifact/manifest.json.sig
             artifact/SHA256SUMS
             artifact/install.sh
           )

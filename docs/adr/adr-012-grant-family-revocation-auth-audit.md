@@ -4,13 +4,15 @@
 > Date: 2026-08-26  
 > Owners: SlncTrZ
 
+> Current-contract note (2026-09-24): the revocation/audit decisions remain active, but the historical in-memory token durability statements are superseded. v0.3.5 stores grant families and token hashes in the OS-protected OAuth SQLite store; dynamic clients are durable managed state; pending authorization transactions and authorization codes remain in memory. The store persists hashes/metadata, not plaintext bearer/refresh credentials. Durable auth audit also persists privacy-reviewed operation/reason enums.
+
 ## Context
 
 PLAN Phase 2 requires an explicit token revocation lifecycle, immediate revocation,
 abuse controls, auditable authentication events, and operating-system-protected secret
-storage. ADR-011 deliberately keeps OAuth grants and bearer tokens in memory for the
-single-owner deployment; persisting bearer credentials would expand the at-rest attack
-surface and introduce key-management requirements that Phase 2 does not otherwise need.
+storage. Historical context: ADR-011 originally kept OAuth grants and bearer tokens in memory for
+the single-owner deployment. Current v0.3.5 instead persists grant-family metadata and
+token hashes in SQLite while never storing plaintext bearer/refresh credentials.
 
 RFC 7009 defines a token revocation endpoint and requires a successful response for
 unknown tokens so the endpoint does not become a token oracle.
@@ -29,17 +31,19 @@ unknown tokens so the endpoint does not become a token oracle.
   passphrases, client secrets, raw authorization headers, or request bodies.
 - The production entry point writes audit events as JSON Lines to the process error stream,
   where the service manager owns access control, retention, and rotation.
-- Continue to keep pending grants, codes, access tokens, and refresh tokens in memory under
-  ADR-011. Owner verifiers and optional confidential-client credentials remain in
-  owner-only runtime files. Persistent or horizontally shared OAuth state requires a
-  separate decision with explicit encryption and key management.
+- Keep pending authorization transactions and authorization codes bounded in memory.
+- Persist grant-family metadata plus access/refresh token hashes in the OAuth SQLite
+  store; never persist plaintext bearer/refresh credentials.
+- Owner verifiers and optional confidential-client credentials remain in owner-only
+  runtime files. Horizontally shared OAuth state still requires a separate decision.
 
 ## Consequences
 
 - **Positive:** clients can disconnect cleanly, compromised grants can be invalidated
   without restart, and security events become machine-readable without exposing secrets.
 - **Negative / costs:** revoking one family member also signs out all sessions derived from
-  that grant; restart still invalidates all OAuth state.
+  that grant; restart drops unfinished authorization transactions/codes but preserves
+  durable clients and acknowledged grant/token-family state.
 - **Risks and mitigations:** a token-scanning caller receives the same success response for
   unknown and foreign tokens. Client authentication and existing token-endpoint rate limits
   protect the revocation endpoint.
@@ -49,8 +53,9 @@ unknown tokens so the endpoint does not become a token oracle.
 Revoke only the submitted token. This leaves its sibling access or refresh credential
 usable and was rejected in favor of complete grant invalidation.
 
-Persist bearer tokens in a mode-0600 JSON file. This would survive restart but creates a
-new credential-at-rest target without an encryption-key lifecycle, so it is deferred.
+Persist plaintext bearer tokens in a mode-0600 JSON file. This remains rejected. Current
+durability stores cryptographic token hashes and grant metadata in the protected SQLite
+store instead of plaintext bearer/refresh credentials.
 
 Make audit logging best-effort inside each HTTP route. This risks inconsistent schemas and
 missing service-level events, so an injected authority-level sink was selected.

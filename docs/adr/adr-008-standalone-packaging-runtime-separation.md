@@ -1,8 +1,10 @@
 # ADR-008: Standalone packaging is separated from runtime architecture
 
-> Status: Accepted
+> Status: Partially superseded by the v0.3.5 signed release pipeline
 > Date: 2026-08-28
 > Owners: SlncTrZ
+
+> Current-contract note (2026-09-25): packaging/runtime separation, immutable versions and atomic activation remain active. The historical publication boundary below is superseded: the current release workflow may create/update a GitHub prerelease candidate, signs the exact canonical `manifest.json` with Ed25519, and publishes `manifest.json.sig`. Production private-key access is gated by the protected `release-signing` GitHub Environment; signing is tag-only and the tag commit must be on `main` history. Fresh bootstrap still depends on trusted acquisition of the bootstrap installer/binary.
 
 ## Context
 
@@ -32,8 +34,9 @@ activate.
   activation metadata and does not rely on symlinks.
 - Existing versions are immutable: same-version/same-artifact installation is idempotent,
   while artifact substitution fails closed.
-- Release publication remains outside CI. CI may build, upload, re-download, checksum, and
-  smoke-test artifacts, but it does not create a GitHub Release.
+- Historical publication boundary (superseded by v0.3.5): release publication remained outside
+  CI. The current workflow may create/update a prerelease candidate only after the tag/signing gates
+  complete; stable promotion still waits for public acceptance.
 - Per-target signing/notarization and clean-machine runtime evidence are release gates, not
   properties inferred from source code.
 
@@ -47,9 +50,10 @@ activate.
 - **Negative / costs:** SEA artifacts include the Node runtime and are large.
 - **Negative / costs:** Each OS/architecture target needs a native build runner and separate
   signing/runtime evidence.
-- **Risks and mitigations:** SHA-256 does not replace publisher authenticity. HTTPS, release
-  access control, checksums, platform signing, and an approval-gated publication process
-  remain cumulative controls.
+- **Risks and mitigations:** SHA-256 does not replace publisher authenticity. After the
+  signing-enabled trust bootstrap, Ed25519 manifest authentication, HTTPS, bounded redirects,
+  release-signing Environment protection, checksums, optional platform signing, and
+  approval-gated publication remain cumulative controls.
 
 ## Alternatives considered
 
@@ -60,8 +64,9 @@ activate.
   embedder executed it as CommonJS.
 - **Symlink-only activation:** rejected because Windows portability and metadata validation
   would depend on filesystem-specific link behavior.
-- **Automatic release publication:** rejected until target, checksum, signing, and
-  verification records are complete.
+- **Automatic release publication:** historically rejected until target, checksum, signing, and
+  verification records were complete. v0.3.5 permits prerelease publication from the gated release
+  workflow; stable promotion remains acceptance-gated.
 
 ## Verification
 

@@ -44,7 +44,8 @@ async function startTestServer(
   activePolicyFactory?: (clientId: string) => Promise<ActivePolicySnapshot>,
   policyStoreFactory?: (clientId: string) => Promise<PolicySnapshotStore>,
   readRoots?: readonly string[],
-  usageObserver?: UsageObserver
+  usageObserver?: UsageObserver,
+  onError?: (error: Error) => void
 ): Promise<{
   readonly origin: string;
   readonly accessToken: string;
@@ -105,7 +106,8 @@ async function startTestServer(
         : { activePolicy }),
     toolAudit: (event) => auditEvents.push(event),
     metrics,
-    ...(usageObserver === undefined ? {} : { usageObserver })
+    ...(usageObserver === undefined ? {} : { usageObserver }),
+    ...(onError === undefined ? {} : { onError })
   });
   servers.push(server);
   const address = await listenGateway(server, {
@@ -159,6 +161,69 @@ async function requestWithHost(origin: string, host: string): Promise<number> {
 }
 
 describe("gateway HTTP surface", () => {
+  it("classifies an authenticated peer-aborted request without exposing raw ingress data", async () => {
+    let reportError!: (error: Error) => void;
+    const reported = new Promise<Error>((resolve) => {
+      reportError = resolve;
+    });
+    const { origin, accessToken } = await startTestServer(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      reportError
+    );
+    const url = new URL("/mcp", origin);
+    const partialBody =
+      '{"jsonrpc":"2.0","id":91,"method":"tools/call","params":{"name":"core.read"';
+
+    await new Promise<void>((resolve) => {
+      const outgoing = request({
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "content-length": String(Buffer.byteLength(partialBody) + 1024),
+          "mcp-protocol-version": "2025-06-18"
+        }
+      });
+      outgoing.on("error", () => resolve());
+      outgoing.flushHeaders();
+      outgoing.write(partialBody);
+      setTimeout(() => {
+        outgoing.destroy();
+        resolve();
+      }, 20);
+    });
+
+    const error = await Promise.race([
+      reported,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("expected peer-abort report")), 2_000)
+      )
+    ]);
+    const diagnostic = error as Error & {
+      readonly failureClass?: string;
+      readonly correlationId?: string;
+    };
+    expect(diagnostic.name).toBe("GatewayIngressError");
+    expect(diagnostic.failureClass).toBe("peer_aborted");
+    expect(diagnostic.correlationId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(diagnostic.message).toBe(
+      `gateway_request_error class=peer_aborted correlation_id=${diagnostic.correlationId}`
+    );
+    expect(diagnostic.message).not.toContain(accessToken);
+    expect(diagnostic.message).not.toContain(partialBody);
+  });
+
   it("reports liveness and readiness without exposing internals", async () => {
     const { origin } = await startTestServer();
 
@@ -316,6 +381,29 @@ describe("gateway HTTP surface", () => {
     });
     expect(events[0]?.outputBytes).toBeGreaterThan(0);
     expect(JSON.stringify(events[0])).not.toContain(secretPayload);
+
+    const oversizedToolId = "x".repeat(4_096);
+    const oversizedBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 301,
+      method: "tools/call",
+      params: { name: oversizedToolId, arguments: {} }
+    });
+    const oversized = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18"
+      },
+      body: oversizedBody
+    });
+    expect(oversized.status).toBe(200);
+    await oversized.text();
+    expect(events).toHaveLength(2);
+    expect(events[1]?.requestKind).toBe("tools_call");
+    expect(events[1]?.toolId).toBeUndefined();
 
     const throwingObserver: UsageObserver = {
       traffic() {
@@ -759,6 +847,37 @@ describe("gateway HTTP surface", () => {
         message: "Request body too large"
       }
     });
+  });
+
+  it("rejects disallowed origins before Owner Console dispatch", async () => {
+    const oauthService = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: new URL(TEST_RESOURCE),
+      ownerSecretHash: createOwnerSecretHash(TEST_OWNER_SECRET)
+    });
+    const server = createGatewayServer({
+      oauthService,
+      kernelPolicy: createKernelPolicySnapshot({ workspaceId: "test-workspace" }),
+      allowedHostnames: ["127.0.0.1"],
+      allowedOriginHostnames: ["trusted.example"],
+      ownerWeb: {
+        async handle(_req, res, pathname) {
+          if (pathname !== "/owner") return false;
+          res.writeHead(200);
+          res.end("owner");
+          return true;
+        }
+      }
+    });
+    servers.push(server);
+    const address = await listenGateway(server, { host: "127.0.0.1", port: 0 });
+    const origin = `http://127.0.0.1:${address.port}`;
+
+    const response = await fetch(`${origin}/owner`, {
+      headers: { origin: "https://attacker.example" }
+    });
+
+    expect(response.status).toBe(403);
   });
 
   it("rejects hostile Host headers before MCP dispatch", async () => {

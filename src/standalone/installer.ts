@@ -253,6 +253,28 @@ async function readInstalledVersion(
   return parseInstalledRelease(await readJson(metadata));
 }
 
+async function verifyInstalledReleaseBytes(
+  installRoot: string,
+  installed: InstalledRelease
+): Promise<{ readonly executable: string; readonly sizeBytes: number; readonly sha256: string }> {
+  const versionDirectory = versionPath(installRoot, installed.version);
+  await assertPlainDirectoryOrMissing(versionDirectory, "Standalone version directory");
+  const executable = join(versionDirectory, installed.fileName);
+  const linkInfo = await lstat(executable);
+  if (linkInfo.isSymbolicLink() || !linkInfo.isFile()) {
+    throw new Error("Standalone installed artifact is invalid");
+  }
+  const bytes = await readFile(executable);
+  const actualSha256 = createHash("sha256").update(bytes).digest("hex");
+  if (bytes.byteLength !== installed.sizeBytes) {
+    throw new Error("Standalone installed artifact size does not match release metadata");
+  }
+  if (actualSha256 !== installed.sha256) {
+    throw new Error("Standalone installed artifact SHA-256 does not match release metadata");
+  }
+  return { executable, sizeBytes: bytes.byteLength, sha256: actualSha256 };
+}
+
 function sameRelease(left: InstalledRelease, right: InstalledRelease): boolean {
   return (
     left.version === right.version &&
@@ -434,6 +456,7 @@ export async function rollbackStandaloneRelease(options: {
   }
   const previous = await readInstalledVersion(options.installRoot, current.previousVersion);
   if (previous === undefined) throw new Error("Standalone rollback target is unavailable");
+  await verifyInstalledReleaseBytes(options.installRoot, previous);
   const activated: ActivationRecord = { ...previous };
   await writeActivation(options.installRoot, activated, mutations);
   return activated;
@@ -466,21 +489,13 @@ export interface InstalledIntegrityResult {
 export async function verifyCurrentStandaloneIntegrity(
   installRoot: string
 ): Promise<InstalledIntegrityResult> {
-  const executable = await resolveCurrentStandaloneExecutable(installRoot);
   const activation = await readActivation(installRoot);
   if (activation === undefined) throw new Error("Standalone activation is unavailable");
-  const bytes = await readFile(executable);
-  const actualSha256 = createHash("sha256").update(bytes).digest("hex");
-  if (bytes.byteLength !== activation.sizeBytes) {
-    throw new Error("Standalone installed artifact size does not match activation metadata");
-  }
-  if (actualSha256 !== activation.sha256) {
-    throw new Error("Standalone installed artifact SHA-256 does not match activation metadata");
-  }
+  const verified = await verifyInstalledReleaseBytes(installRoot, activation);
   return {
     activation,
-    executable,
-    sizeBytes: bytes.byteLength,
-    sha256: actualSha256
+    executable: verified.executable,
+    sizeBytes: verified.sizeBytes,
+    sha256: verified.sha256
   };
 }

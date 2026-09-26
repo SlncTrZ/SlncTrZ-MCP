@@ -54,9 +54,16 @@ if (directInventoryStart < 0 || directInventoryEnd <= directInventoryStart) {
   throw new Error("docs_contract_failed: PROVENANCE direct dependency inventory section missing");
 }
 const directInventory = provenance.slice(directInventoryStart, directInventoryEnd);
-const [userGuide, adrIndex] = await Promise.all([
+const [userGuide, adrIndex, standaloneWorkflow, changelog, adr008, adr020] = await Promise.all([
   readFile(join(root, "docs", "USER_GUIDE.md"), "utf8"),
-  readFile(join(root, "docs", "adr", "README.md"), "utf8")
+  readFile(join(root, "docs", "adr", "README.md"), "utf8"),
+  readFile(join(root, ".github", "workflows", "standalone.yml"), "utf8"),
+  readFile(join(root, "CHANGELOG.md"), "utf8"),
+  readFile(join(root, "docs", "adr", "adr-008-standalone-packaging-runtime-separation.md"), "utf8"),
+  readFile(
+    join(root, "docs", "adr", "adr-020-bounded-isolated-mcp-extension-transports.md"),
+    "utf8"
+  )
 ]);
 
 function requireText(haystack, needle, label) {
@@ -133,6 +140,84 @@ for (const value of [
 ]) {
   requireText(currentReleaseNotes, value, "current release notes");
 }
+
+for (const value of [
+  "manifest.json.sig",
+  "SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64",
+  "SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64",
+  "scripts/sign-release-file.mjs"
+]) {
+  requireText(standaloneWorkflow, value, "standalone release workflow");
+}
+
+const aggregateReleaseStart = standaloneWorkflow.indexOf("\n  aggregate-release:");
+const publishCandidateStart = standaloneWorkflow.indexOf("\n  publish-candidate:");
+if (aggregateReleaseStart < 0 || publishCandidateStart <= aggregateReleaseStart) {
+  throw new Error("docs_contract_failed: aggregate-release workflow block missing");
+}
+const aggregateReleaseWorkflow = standaloneWorkflow.slice(
+  aggregateReleaseStart,
+  publishCandidateStart
+);
+for (const value of [
+  "if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')",
+  "environment:\n      name: release-signing",
+  "fetch-depth: 0",
+  'git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"',
+  "SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64"
+]) {
+  requireText(aggregateReleaseWorkflow, value, "aggregate-release signing boundary");
+}
+
+requireText(release, "manifest.json.sig", "RELEASE");
+requireText(release, "protected GitHub Environment `release-signing`", "RELEASE");
+requireText(release, "no repository-level or organization-level duplicate", "RELEASE");
+requireText(readme, "Ed25519 trust root", "README");
+requireText(readme, "v0.3.5 focuses on closing the Master Audit hardening work", "README");
+requireText(threatModel, "Ed25519 publisher signature", "THREAT_MODEL");
+requireText(threatModel, "Release signing-key misuse", "THREAT_MODEL");
+requireText(
+  security,
+  "Owner-secret abuse budgets count failed authentication attempts, not successful Owner logins/approvals",
+  "SECURITY"
+);
+requireText(
+  troubleshooting,
+  "acknowledged OAuth grant/token-family state are durable",
+  "TROUBLESHOOTING"
+);
+forbidText(
+  troubleshooting,
+  "access tokens, and refresh tokens are intentionally process-memory state",
+  "TROUBLESHOOTING"
+);
+requireText(
+  releaseAcceptance,
+  "the `release-signing` Environment exists **before** the workflow run",
+  "RELEASE_ACCEPTANCE"
+);
+forbidText(
+  releaseAcceptance,
+  "a successful recovery resets the incident restart budget",
+  "RELEASE_ACCEPTANCE"
+);
+requireText(
+  architecture,
+  "recurrent `session_invalid` incidents are additionally bounded by a rolling incident budget",
+  "ARCHITECTURE"
+);
+requireText(adrIndex, "Partially superseded by v0.3.5 signed release pipeline", "ADR index");
+requireText(adrIndex, "Partially superseded by schema-v2/provider recovery contract", "ADR index");
+requireText(adr008, "Current-contract note (2026-09-25)", "ADR-008");
+requireText(adr008, "protected `release-signing` GitHub Environment", "ADR-008");
+requireText(adr020, "rolling `provider_session_invalid` incident budget", "ADR-020");
+requireText(changelog, "Audit hardening update: 2026-09-25", "CHANGELOG");
+requireText(
+  currentReleaseNotes,
+  "`audit.sqlite3` receives an additive migration",
+  "current release notes"
+);
+requireText(currentReleaseNotes, "publisher signature", "current release notes");
 
 // Drift guard: the public docs must not reference a different release line (X.Y.x).
 function assertCurrentLineOnly(text, label) {

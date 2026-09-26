@@ -42,6 +42,8 @@ The public MCP gateway owns:
 
 A principal is used for authentication and audit attribution only. It does not select workspace, profile, binding, or grant state.
 
+OAuth durability is split deliberately: dynamic client registrations and acknowledged grant/token-family state are durable; access/refresh credentials are represented by cryptographic hashes/metadata rather than plaintext secrets. Pending authorization transactions and authorization codes remain bounded in-memory state and are lost on restart. Owner-secret abuse budgets charge failed authentication, not successful Owner logins/approvals.
+
 ## Product policy
 
 Managed policy schema v2 is deliberately small:
@@ -122,7 +124,7 @@ provider record
   credential refs
 ```
 
-Credentials live in a separate secret store. Credential rotation stages a new opaque ref, probes and activates a generation that uses it, then removes an old ref only after it is no longer referenced; a failed candidate keeps the prior usable credential/runtime state or reports recovery failure explicitly. Add/update/remove/enable/disable/sync operations atomically refresh the active runtime. Enabled providers expose all accepted tools; there is no workspace/profile/tool-subset grant layer in the simple product.
+Credentials live in a separate secret store. Credential rotation stages a new opaque ref, probes and activates a generation that uses it, then removes an old ref only after it is no longer referenced; a failed candidate keeps the prior usable credential/runtime state or reports recovery failure explicitly. Add/update/remove/enable/disable/sync operations atomically refresh the active runtime. Enabled providers expose all accepted tools; there is no workspace/profile/tool-subset grant layer in the simple product. Provider fault recovery never silently replays the tool call that observed the failure; recurrent `session_invalid` incidents are additionally bounded by a rolling incident budget that can quarantine a flapping provider.
 
 Runtime internals may retain supervisor state, health, generations and tool-drift information, but those are implementation details rather than user authorization concepts.
 
@@ -140,7 +142,7 @@ MCP Servers
 
 Routes are typed intents such as Add/Remove Path, replace Commands, Add/Enable/Disable/Test/Sync/Remove MCP. The browser does not construct generic owner command strings.
 
-The autonomy control should clearly explain the difference between restricted policy boundaries and autonomous user-authority operation. A small Advanced area may expose status, audit or lifecycle diagnostics without introducing a second policy model.
+The autonomy control should clearly explain the difference between restricted policy boundaries and autonomous user-authority operation. A small Advanced area may expose status, audit or lifecycle diagnostics without introducing a second policy model. Owner Console passphrase abuse control is failure-counted: successful logins do not consume the brute-force failure budget, while an exhausted failure window blocks subsequent attempts until reset.
 
 ## Control plane
 
@@ -181,7 +183,7 @@ owner rotate-passphrase
 uninstall
 ```
 
-`doctor` is read-only. `repair` is intentionally bounded to safe non-secret generated state. Update/rollback use verified immutable release metadata; System Install restarts and health-checks the service.
+`doctor` is read-only. `repair` is intentionally bounded to safe non-secret generated state. After the signing-enabled trust bootstrap, update/setup verifies the Ed25519 signature over exact canonical manifest bytes before parsing, then checks artifact size/SHA-256 and immutable release metadata before activation. System Install restarts and health-checks the service.
 
 The Linux System Install service resolves the active standalone SEA through the generated launcher. It does not depend on a repository `dist/` tree or system Node.js. Source/developer execution remains a separate Node `>=22.13.0 <25` model.
 
@@ -207,7 +209,7 @@ authenticated MCP exchange
         └── bounded UsageObserver ──► usage.sqlite3
 ```
 
-`<stateRoot>/usage.sqlite3` stores numeric/classification metadata only. It does not persist request bodies, tool arguments, model prompts, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. A bounded in-memory queue decouples persistence from the response path; observer/store failure is logged and dropped rather than changing the MCP result.
+`<stateRoot>/usage.sqlite3` stores numeric/classification metadata only. It does not persist request bodies, tool arguments, model prompts, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. A bounded in-memory queue decouples persistence from the response path; observer/store failure is logged and dropped rather than changing the MCP result. The Owner API exposes bounded health (`degraded`, dropped/pending counts and safe failure class) so telemetry loss is observable without becoming authority.
 
 `HarnessRuntime` also emits a privacy-minimal progressive-disclosure measurement. For each bootstrap it records the compact bootstrap context plus all active `SKILL.md` bodies as the hypothetical eager-load baseline. First activation of a skill adds that skill body to the disclosed amount. Referenced resources remain ordinary measured gateway traffic and are not assumed to be part of the eager baseline.
 
@@ -240,6 +242,8 @@ A failed candidate never partially mutates the active generation.
 8. The canonical Product Agent Harness is product working guidance, not authority; project instruction files remain separate contextual data and cannot override Kernel/Auth/Policy.
 9. `task.start` reuses `core.exec` authority, while coordination tasks never grant execution/filesystem/network capability.
 10. When the coding harness is enabled, ordinary core/image/task/provider dispatch requires a current client/workspace/policy/revision-bound context receipt before effects; that receipt is not authorization.
+11. Signing-enabled update/setup authenticates the canonical release manifest before parsing and still requires artifact size/SHA-256 verification before activation.
+12. Successful Owner authentication does not consume failed-auth abuse budgets; exhausted failure budgets fail closed for their bounded window.
 
 ## Coding context, Agent Skills, and usage telemetry (v0.3.1)
 

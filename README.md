@@ -94,7 +94,7 @@ The engineering is ahead of the community.
 
 We consider the core safety model, architecture, release model, and extension path mature enough to put in front of more real users. The weak point today is adoption: SlncTrZ-MCP is still a small project with very limited stars, forks, third-party integrations, independent review, and community testing.
 
-We are not going to hide that behind marketing language. v0.3.2 focuses on provider recovery and Owner Console reliability while retaining the usage visibility and clearer product surface introduced in v0.3.1.
+We are not going to hide that behind marketing language. v0.3.5 focuses on closing the Master Audit hardening work: safer OAuth failure handling, bounded provider flapping, durable diagnostics, passive-telemetry health, clearer current contracts, and publisher-authenticated update manifests.
 
 If the idea is useful to you, the most valuable contributions right now are straightforward: **try it, break it, report what is confusing, open issues, review the security model, and tell us which clients or workflows need better support.**
 
@@ -174,14 +174,27 @@ Usage:        http://127.0.0.1:3100/usage
 
 Open `/owner`, sign in, and review:
 
-| Control         | What it means                                                        |
-| --------------- | -------------------------------------------------------------------- |
-| **Autonomy**    | Restricted or Autonomous runtime authority                           |
-| **Paths**       | Filesystem roots available to built-in file tools in Restricted mode |
-| **Commands**    | Executables `core.exec` may start in Restricted mode                 |
-| **MCP Servers** | Extra local or remote MCP providers exposed through the gateway      |
+| Control         | What it means                                                          |
+| --------------- | ---------------------------------------------------------------------- |
+| **Autonomy**    | Restricted or Autonomous runtime authority                             |
+| **Connections** | Existing OAuth grants and their Full/Gateway-only tool-surface profile |
+| **Paths**       | Filesystem roots available to built-in file tools in Restricted mode   |
+| **Commands**    | Executables `core.exec` may start in Restricted mode                   |
+| **MCP Servers** | Extra local or remote MCP providers exposed through the gateway        |
 
 Restricted is the recommended starting point.
+
+The normal Connections UI changes the profile of an existing grant. A separate advanced
+compatibility command remains available for clients that need a default for **future**
+grants:
+
+```bash
+slnctrz-mcp owner client-default <client-id> <full|gateway-only>
+```
+
+That client default is persisted, snapshots into newly issued grants, and does not mutate
+the profile of existing grants. It is intentionally not exposed as the normal row-level
+Connections action.
 
 > Restricted mode is not a full OS sandbox. If you approve Bash, Python, Node, PowerShell, Docker, `sudo`, or another general-purpose tool, that child process can exercise the OS permissions of the account running the gateway.
 
@@ -223,6 +236,8 @@ context.bootstrap
 - **ChatGPT / Grok:** dynamic registration + PKCE; no static Client Secret is normally required.
 - **Claude:** configure the static Client ID/Secret and complete OAuth before Owner approval.
 - **Gemini Spark:** the current compatibility flow may require opening the `oauth-redirect.googleusercontent.com/r/...` network request in a new tab after one Owner approval. See [User Guide](docs/USER_GUIDE.md) for the exact safe procedure.
+
+Acknowledged OAuth grants/token families are durable across a normal gateway restart; pending browser authorization transactions and authorization codes are not. Access/refresh credentials are persisted only as hashes/metadata, never plaintext bearer/refresh tokens.
 
 Real-client compatibility claims are release-evidence based. We do not mark a client as verified for a release only because the protocol looks compatible on paper.
 
@@ -302,7 +317,7 @@ Usage history is stored separately in:
 <stateRoot>/usage.sqlite3
 ```
 
-It stores numeric/classification metadata, not prompts, arguments, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. Telemetry is fail-open: if usage persistence fails, normal MCP work continues.
+It stores numeric/classification metadata, not prompts, arguments, file contents, command output, provider payloads, credentials, bearer tokens, or context receipts. Telemetry is fail-open: if usage persistence fails, normal MCP work continues, while the authenticated Usage surface exposes bounded degraded/drop health so undercounting is visible.
 
 ---
 
@@ -367,7 +382,7 @@ slnctrz-mcp repair
 slnctrz-mcp owner rotate-passphrase
 ```
 
-`doctor` is read-only. `repair` is intentionally bounded and does not silently replace owner credentials or customer policy. Updates activate verified immutable releases; rollback returns to an already verified prior release.
+`doctor` is read-only. `repair` is intentionally bounded and does not silently replace owner credentials or customer policy. After the signing-enabled trust bootstrap, updates authenticate the exact release manifest with the embedded Ed25519 trust root before parsing it, then verify artifact size/SHA-256 before immutable activation; rollback returns to an already verified prior release.
 
 Default uninstall preserves customer state:
 
@@ -394,7 +409,7 @@ The most important properties are:
 - context receipts are workflow state, never authorization;
 - audit is metadata-only by schema;
 - usage telemetry is separate, metadata-only, bounded, and fail-open;
-- release artifacts are immutable and verified by declared size/SHA-256 before activation;
+- after the signing-enabled trust bootstrap, updater/setup manifests are publisher-authenticated with an embedded Ed25519 trust root before parsing, then artifacts are verified by declared size/SHA-256 before activation;
 - policy/provider generations activate atomically rather than partially mutating the live runtime.
 
 No software of this kind should be described as risk-free. SlncTrZ-MCP can intentionally launch powerful commands when the owner allows them, and Autonomous mode can be as powerful as the OS account running it. Our goal is to make those boundaries explicit, inspectable, and difficult to bypass accidentally.

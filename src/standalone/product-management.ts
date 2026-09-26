@@ -40,6 +40,7 @@ import {
 } from "../observability/sqlite-usage.js";
 import { readStandaloneTextAsset } from "./assets.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
+import type { ReleaseTrustKey } from "./release-signature.js";
 import {
   installStandaloneRelease,
   readCurrentStandaloneActivation,
@@ -119,6 +120,7 @@ export interface ManagementDependencies {
   readonly sleep?: (ms: number) => Promise<void>;
   readonly serviceUnitRoot?: string;
   readonly isRoot?: () => boolean;
+  readonly releaseTrustKeys?: readonly ReleaseTrustKey[];
 }
 
 async function defaultRun(
@@ -966,7 +968,10 @@ export async function updateProduct(
   const manifest = await fetchReleaseManifest(
     options.manifestUrl ?? OFFICIAL_RELEASE_MANIFEST_URL,
     {
-      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch })
+      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+      ...(dependencies.releaseTrustKeys === undefined
+        ? {}
+        : { trustedKeys: dependencies.releaseTrustKeys })
     }
   );
   const rollbackActivation = await readCurrentStandaloneActivation(

@@ -34,7 +34,36 @@ describe("FixedWindowRateLimiter", () => {
     });
   });
 
-  it("keeps independent counters per trusted peer key", () => {
+  it("checks a budget without consuming it", () => {
+    let now = 2_000;
+    const limiter = new FixedWindowRateLimiter({
+      limit: 1,
+      windowSeconds: 60,
+      now: () => now
+    });
+
+    expect(limiter.check("transaction")).toEqual({
+      allowed: true,
+      retryAfterSeconds: 0
+    });
+    expect(limiter.check("transaction")).toEqual({
+      allowed: true,
+      retryAfterSeconds: 0
+    });
+    expect(limiter.consume("transaction").allowed).toBe(true);
+    expect(limiter.check("transaction")).toEqual({
+      allowed: false,
+      retryAfterSeconds: 60
+    });
+
+    now += 60;
+    expect(limiter.check("transaction")).toEqual({
+      allowed: true,
+      retryAfterSeconds: 0
+    });
+  });
+
+  it("keeps independent counters per caller-selected key", () => {
     const limiter = new FixedWindowRateLimiter({
       limit: 1,
       windowSeconds: 60

@@ -21,7 +21,10 @@ A fixed client expiry would silently invalidate otherwise valid public clients.
 - If every dynamic client has live authorization state, reject registration with HTTP 429
   instead of invalidating an active grant.
 - Rate-limit authorization initiation independently from registration, token exchange,
-  revocation, and owner-passphrase attempts.
+  revocation, and owner-passphrase failures.
+- Bound owner-passphrase failures primarily per authorization transaction, with a higher
+  direct-peer backstop across transactions. Successful Owner approvals do not consume the
+  failure budget, and forwarding headers are not trusted for peer identity.
 - Audit capacity evictions and rate-limit decisions without recording request bodies,
   redirect parameters, credentials, or tokens.
 
@@ -30,8 +33,12 @@ A fixed client expiry would silently invalidate otherwise valid public clients.
 - **Positive:** OAuth state has a hard client-cardinality bound without arbitrary client
   expiry, and authorization floods cannot grow pending state at an unbounded rate.
 - **Negative / costs:** an inactive client may need to register again after eviction.
-- **Risks and mitigations:** direct-peer rate limiting can be coarse behind one ingress
-  process. The global dynamic-client bound remains effective independently of peer identity.
+- **Risks and mitigations:** direct-peer rate limiting is coarse behind one ingress, so
+  Owner brute-force protection uses a transaction-scoped failure budget plus a higher
+  direct-peer backstop. This prevents successful approvals or one failed consent flow from
+  exhausting the ordinary budget for unrelated flows, while retaining a spoof-resistant
+  backstop that ignores forwarding headers. The global dynamic-client bound remains effective
+  independently of peer identity.
 
 ## Alternatives considered
 
@@ -45,6 +52,8 @@ sensitive state lifecycle that ADR-012 intentionally defers.
 
 - Unit tests prove active clients are not evicted and inactive clients are evicted first.
 - HTTP tests prove registration and authorization allocation limits return 429 and emit
-  structured audit events.
+  structured audit events; Owner-auth tests prove successful approvals are not charged,
+  failures are isolated per transaction, untrusted forwarding headers do not bypass the
+  peer backstop, and repeated failures still produce 429.
 - Configuration tests prove the runtime capacity is a positive safe integer.
 - `npm run check` and a production build must pass.

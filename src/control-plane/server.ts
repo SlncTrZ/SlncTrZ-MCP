@@ -1,6 +1,7 @@
 /** Loopback-only local diagnostics and revocation control plane. */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { FixedWindowRateLimiter } from "../auth/fixed-window-rate-limiter.js";
 import { validateConnectionLabel } from "../auth/oauth-grant-store.js";
 import type { OwnerConnectionService } from "../auth/owner-connection-service.js";
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
@@ -53,6 +54,20 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+function sendRateLimit(res: ServerResponse, retryAfterSeconds: number): void {
+  const payload = JSON.stringify({
+    error: { code: "rate_limited", message: "Too many failed Owner authentication attempts" }
+  });
+  res.writeHead(429, {
+    "cache-control": "no-store",
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(payload),
+    "retry-after": String(Math.max(1, retryAfterSeconds)),
+    "x-content-type-options": "nosniff"
+  });
+  res.end(payload);
+}
+
 function bearer(req: IncomingMessage): string | undefined {
   const value = req.headers.authorization;
   if (value === undefined || !value.startsWith("Bearer ")) return undefined;
@@ -91,6 +106,7 @@ function authorized(req: IncomingMessage, ownerSecretHash: string): boolean {
 
 export function createControlPlaneServer(options: ControlPlaneOptions): Server {
   const maxBodyBytes = options.maxBodyBytes ?? MAX_CONTROL_BODY_BYTES;
+  const ownerFailureLimiter = new FixedWindowRateLimiter({ limit: 10, windowSeconds: 60 });
   return createServer((req, res) => {
     void (async () => {
       const startedAt = Date.now();
@@ -110,7 +126,16 @@ export function createControlPlaneServer(options: ControlPlaneOptions): Server {
         });
       };
 
+      const peerKey = req.socket.remoteAddress ?? "unknown";
+      const ownerBudget = ownerFailureLimiter.check(peerKey);
+      if (!ownerBudget.allowed) {
+        sendRateLimit(res, ownerBudget.retryAfterSeconds);
+        audit("denied");
+        return;
+      }
+
       if (!authorized(req, options.ownerSecretHash)) {
+        ownerFailureLimiter.consume(peerKey);
         sendJson(res, 401, {
           error: { code: "unauthorized", message: "Owner authentication required" }
         });

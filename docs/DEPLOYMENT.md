@@ -96,6 +96,8 @@ Requirements:
 - the public hostname must be present in the configured Host allowlist;
 - when the Owner Console is enabled publicly, the public hostname must also be present in the Origin allowlist.
 
+Host and Origin validation run before Owner Console, OAuth, and MCP application dispatch. `/healthz` and `/readyz` are intentionally usable without the Origin gate.
+
 The gateway can still bind to `127.0.0.1:3100` behind a reverse proxy. Public URL describes the externally advertised MCP/OAuth identity; it does not force the process to bind directly to the public interface.
 
 ## Reverse proxy
@@ -109,7 +111,7 @@ Internet client
   -> SlncTrZ-MCP
 ```
 
-Forward the original Host correctly and terminate TLS at the trusted public edge. Do not expose the loopback control plane (default port 3101) through the proxy.
+Forward the original Host correctly and terminate TLS at the trusted public edge. Do not expose the loopback control plane (default port 3101) through the proxy. Owner failed-authentication accounting intentionally uses the direct socket peer and does not trust forwarding headers. Behind a shared tunnel/proxy, multiple clients can therefore share one bounded failure bucket; once that bucket is exhausted, the peer fails closed until the window resets. This preserves the pre-KDF CPU-abuse cutoff. If per-client edge rate limiting is required, enforce it at a trusted proxy/edge rather than teaching the gateway to trust forwarded client-IP headers implicitly.
 
 Public routes include:
 
@@ -122,6 +124,12 @@ OAuth metadata/authorization routes
 ```
 
 The control plane is separate and loopback-only.
+
+## Release/update trust boundary
+
+Fresh installation starts with a bootstrap trust problem: the installer/bootstrap binary must itself be obtained through a trusted HTTPS/release path. Once a signing-enabled standalone binary is active, setup/update requires `manifest.json` plus `manifest.json.sig`, verifies the Ed25519 publisher signature over the exact manifest bytes before parsing, and only then accepts artifacts whose declared size and SHA-256 match.
+
+The release-signing private key is **not** deployed to the gateway host. Official CI references the protected GitHub `release-signing` Environment; production acceptance must verify that this Environment was pre-created, restricted to `v*` tags, requires review with self-review/bypass protections, and owns the only `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64` secret. Runtime config/state must never contain that private key.
 
 ## Initial Path
 

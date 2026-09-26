@@ -17,6 +17,7 @@ import {
   uninstallProduct,
   updateProduct
 } from "../../src/standalone/product-management.js";
+import { TEST_RELEASE_TRUST_KEYS, signedManifestResponse } from "../helpers/release-signing.js";
 
 const cleanup: string[] = [];
 
@@ -52,8 +53,7 @@ function releaseFetch(releases: Readonly<Record<string, Buffer>>): typeof fetch 
     const version = Object.keys(releases).find((entry) => url.includes(entry)) ?? "1.0.0";
     const bytes = releases[version];
     if (bytes === undefined) return new Response("missing", { status: 404 });
-    if (url.includes("manifest")) return new Response(manifest(version, bytes), { status: 200 });
-    return new Response(bytes, { status: 200 });
+    return signedManifestResponse(input, manifest(version, bytes), bytes);
   }) as typeof fetch;
 }
 
@@ -78,7 +78,7 @@ async function fixture() {
       stateRoot,
       configRoot
     },
-    { fetch, checkPort: async () => undefined }
+    { fetch, checkPort: async () => undefined, releaseTrustKeys: TEST_RELEASE_TRUST_KEYS }
   );
   return { root, workspace, installRoot, stateRoot, configRoot, fetch };
 }
@@ -104,7 +104,7 @@ async function rollbackCompatibilityFixture() {
       stateRoot,
       configRoot
     },
-    { fetch, checkPort: async () => undefined }
+    { fetch, checkPort: async () => undefined, releaseTrustKeys: TEST_RELEASE_TRUST_KEYS }
   );
   return { root, workspace, installRoot, stateRoot, configRoot, fetch };
 }
@@ -206,7 +206,11 @@ describe("installed product management", () => {
       ].join("\n"),
       "utf8"
     );
-    const management = { stateRoot: f.stateRoot, fetch: f.fetch };
+    const management = {
+      stateRoot: f.stateRoot,
+      fetch: f.fetch,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    };
     await setProductConfig("port", "9160", management);
     const persistedAdvanced = await readFile(join(f.configRoot, "gateway.env"), "utf8");
     expect(persistedAdvanced).toContain("SLNCTRZ_MAX_DYNAMIC_CLIENTS=2048");
@@ -236,7 +240,11 @@ describe("installed product management", () => {
 
   it("blocks an incompatible custom-harness rollback before activation while default rollback remains valid", async () => {
     const defaultInstall = await rollbackCompatibilityFixture();
-    const defaultManagement = { stateRoot: defaultInstall.stateRoot, fetch: defaultInstall.fetch };
+    const defaultManagement = {
+      stateRoot: defaultInstall.stateRoot,
+      fetch: defaultInstall.fetch,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    };
     await updateProduct(
       { manifestUrl: "https://updates.example.test/0.3.0/manifest.json" },
       defaultManagement
@@ -246,7 +254,11 @@ describe("installed product management", () => {
     });
 
     const customInstall = await rollbackCompatibilityFixture();
-    const customManagement = { stateRoot: customInstall.stateRoot, fetch: customInstall.fetch };
+    const customManagement = {
+      stateRoot: customInstall.stateRoot,
+      fetch: customInstall.fetch,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    };
     await updateProduct(
       { manifestUrl: "https://updates.example.test/0.3.0/manifest.json" },
       customManagement
@@ -265,9 +277,50 @@ describe("installed product management", () => {
     expect(await readFile(gatewayConfigFile, "utf8")).toBe(configBefore);
   });
 
+  it("rejects a tampered signed manifest before artifact download or activation", async () => {
+    const f = await fixture();
+    const activationFile = join(f.installRoot, "current.json");
+    const activationBefore = await readFile(activationFile, "utf8");
+    let artifactRequests = 0;
+    const tamperedFetch = (async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1]
+    ) => {
+      const url = String(input);
+      if (url === "https://updates.example.test/1.1.0/manifest.json") {
+        const response = await f.fetch(input, init);
+        const original = await response.text();
+        return new Response(original.replace('"version":"1.1.0"', '"version":"1.1.1"'), {
+          status: response.status,
+          headers: response.headers
+        });
+      }
+      if (url.includes("objects.example.test")) artifactRequests += 1;
+      return f.fetch(input, init);
+    }) as typeof fetch;
+
+    await expect(
+      updateProduct(
+        { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+        {
+          stateRoot: f.stateRoot,
+          fetch: tamperedFetch,
+          releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+        }
+      )
+    ).rejects.toThrow("verification failed");
+
+    expect(artifactRequests).toBe(0);
+    expect(await readFile(activationFile, "utf8")).toBe(activationBefore);
+  });
+
   it("updates and rolls back immutable releases while preserving OAuth config", async () => {
     const f = await fixture();
-    const management = { stateRoot: f.stateRoot, fetch: f.fetch };
+    const management = {
+      stateRoot: f.stateRoot,
+      fetch: f.fetch,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    };
     const clientSecret = "legacy-client-secret";
     await writeFile(
       join(f.configRoot, "client.env"),
@@ -352,7 +405,8 @@ describe("installed product management", () => {
             run,
             serviceUnitRoot,
             isRoot: () => true,
-            sleep: async () => undefined
+            sleep: async () => undefined,
+            releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
           }
         )
       ).rejects.toThrow("Standalone artifact download failed");
@@ -427,7 +481,8 @@ describe("installed product management", () => {
             run,
             serviceUnitRoot,
             isRoot: () => true,
-            sleep: async () => undefined
+            sleep: async () => undefined,
+            releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
           }
         )
       ).rejects.toThrow("service_setup_failed: systemctl restart slnctrz-mcp.service");
@@ -480,7 +535,8 @@ describe("installed product management", () => {
             run,
             serviceUnitRoot,
             isRoot: () => true,
-            sleep: async () => undefined
+            sleep: async () => undefined,
+            releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
           }
         )
       ).rejects.toThrow("service_identity_overridden");
@@ -546,7 +602,8 @@ describe("installed product management", () => {
         run,
         serviceUnitRoot,
         isRoot: () => true,
-        sleep: async () => undefined
+        sleep: async () => undefined,
+        releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
       };
 
       const unavailableRun = async (command: string, args: readonly string[]) =>
@@ -624,12 +681,20 @@ describe("installed product management", () => {
         await chmod(path, 0o755);
       }
 
-      const before = await runDoctor({ stateRoot: f.stateRoot, fetch: f.fetch });
+      const before = await runDoctor({
+        stateRoot: f.stateRoot,
+        fetch: f.fetch,
+        releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+      });
       expect(before).toContainEqual(
         expect.objectContaining({ level: "FAIL", code: "state_root_permissions_unsafe" })
       );
 
-      const repaired = await repairProduct({ stateRoot: f.stateRoot, fetch: f.fetch });
+      const repaired = await repairProduct({
+        stateRoot: f.stateRoot,
+        fetch: f.fetch,
+        releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+      });
       expect(repaired.changes).toContain("fixed_managed_state_modes");
       for (const path of [
         f.stateRoot,
@@ -644,7 +709,11 @@ describe("installed product management", () => {
 
   it("repairs only safe non-secret defaults and never regenerates a missing owner secret", async () => {
     const f = await fixture();
-    const management = { stateRoot: f.stateRoot, fetch: f.fetch };
+    const management = {
+      stateRoot: f.stateRoot,
+      fetch: f.fetch,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    };
     await rm(join(f.stateRoot, "command.json"));
     await rm(join(f.installRoot, userPlatformLayout().launcherFileName));
     await rm(join(f.stateRoot, "secrets", "owner-passphrase"));
@@ -668,7 +737,11 @@ describe("installed product management", () => {
     const emptyCatalog = `${JSON.stringify({ shell: { allowlist: { added: [] } } }, null, 2)}\n`;
     await writeFile(join(f.stateRoot, "command.json"), emptyCatalog, "utf8");
 
-    const result = await repairProduct({ stateRoot: f.stateRoot, fetch: f.fetch });
+    const result = await repairProduct({
+      stateRoot: f.stateRoot,
+      fetch: f.fetch,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    });
 
     expect(result.changes).not.toContain("restored_default_command_catalog");
     expect(await readFile(join(f.stateRoot, "command.json"), "utf8")).toBe(emptyCatalog);
@@ -687,7 +760,10 @@ describe("installed product management", () => {
 
   it("uninstalls program-only by default and preserves config/state", async () => {
     const f = await fixture();
-    const result = await uninstallProduct({}, { stateRoot: f.stateRoot, fetch: f.fetch });
+    const result = await uninstallProduct(
+      {},
+      { stateRoot: f.stateRoot, fetch: f.fetch, releaseTrustKeys: TEST_RELEASE_TRUST_KEYS }
+    );
     expect(result.statePreserved).toBe(true);
     await expect(access(f.installRoot)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(f.stateRoot)).resolves.toBeUndefined();
@@ -705,7 +781,11 @@ describe("installed product management", () => {
       ),
       "tampered"
     );
-    const items = await runDoctor({ stateRoot: f.stateRoot, fetch: f.fetch });
+    const items = await runDoctor({
+      stateRoot: f.stateRoot,
+      fetch: f.fetch,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    });
     expect(items).toContainEqual(
       expect.objectContaining({ level: "FAIL", code: "installed_release_integrity_failed" })
     );

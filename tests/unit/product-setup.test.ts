@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadPolicyDocument } from "../../src/policy/policy-config.js";
 import { currentReleaseTarget } from "../../src/standalone/release-manifest.js";
 import { prepareProductSetup } from "../../src/standalone/product-setup.js";
+import { TEST_RELEASE_TRUST_KEYS, signedManifestResponse } from "../helpers/release-signing.js";
 
 const cleanup: string[] = [];
 
@@ -35,10 +36,7 @@ function releaseFetch(bytes: Buffer): typeof fetch {
       }
     ]
   });
-  return (async (input) => {
-    const url = String(input);
-    return new Response(url.includes("manifest") ? manifest : bytes, { status: 200 });
-  }) as typeof fetch;
+  return (async (input) => signedManifestResponse(input, manifest, bytes)) as typeof fetch;
 }
 
 async function roots() {
@@ -67,7 +65,11 @@ describe("product setup", () => {
       configRoot: paths.configRoot
     };
 
-    const first = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
+    const first = await prepareProductSetup(request, {
+      fetch,
+      checkPort: async () => undefined,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    });
     expect(first.mcpEndpoint).toBe("http://127.0.0.1:9123/mcp");
     expect(first.ownerConsoleUrl).toBe("http://127.0.0.1:9123/owner");
     expect(first.runtimeAccount).toBe(userInfo().username);
@@ -97,7 +99,11 @@ describe("product setup", () => {
       join(paths.configRoot, "gateway.env"),
       config + `SLNCTRZ_HARNESS_ROOT=${customHarness}\n`
     );
-    const second = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
+    const second = await prepareProductSetup(request, {
+      fetch,
+      checkPort: async () => undefined,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    });
     expect(second.harnessRoot).toBe(customHarness);
     expect(await readFile(join(customHarness, "AGENTS.md"), "utf8")).toBe("OWNER-GLOBAL");
     expect(await readFile(join(paths.configRoot, "gateway.env"), "utf8")).toContain(
@@ -123,7 +129,11 @@ describe("product setup", () => {
         stateRoot: paths.stateRoot,
         configRoot: paths.configRoot
       },
-      { fetch: releaseFetch(Buffer.from("standalone-bytes")), checkPort: async () => undefined }
+      {
+        fetch: releaseFetch(Buffer.from("standalone-bytes")),
+        checkPort: async () => undefined,
+        releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+      }
     );
 
     expect(result.mcpEndpoint).toBe("https://mcp.example.test/mcp");
@@ -146,7 +156,11 @@ describe("product setup", () => {
       configRoot: paths.configRoot
     };
 
-    const first = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
+    const first = await prepareProductSetup(request, {
+      fetch,
+      checkPort: async () => undefined,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    });
     expect(first.staticClientId).toBe("slnctrz-mcp");
     expect(first.staticClientFile).toBe(join(paths.configRoot, "client.env"));
     expect(first.firstRunStaticClientSecret).toMatch(/^[0-9a-f]{48}$/u);
@@ -167,7 +181,11 @@ describe("product setup", () => {
       ].join("\n") + "\n",
       { encoding: "utf8", mode: 0o600 }
     );
-    const second = await prepareProductSetup(request, { fetch, checkPort: async () => undefined });
+    const second = await prepareProductSetup(request, {
+      fetch,
+      checkPort: async () => undefined,
+      releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+    });
     expect(second.firstRunStaticClientSecret).toBeUndefined();
     const preserved = await readFile(second.staticClientFile, "utf8");
     expect(preserved).toContain(`SLNCTRZ_CLIENT_SECRET=${operatorSecret}`);
@@ -191,7 +209,11 @@ describe("product setup", () => {
         clientId: "custom-client",
         clientSecret: "custom-client-secret"
       },
-      { fetch: releaseFetch(Buffer.from("standalone-bytes")), checkPort: async () => undefined }
+      {
+        fetch: releaseFetch(Buffer.from("standalone-bytes")),
+        checkPort: async () => undefined,
+        releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+      }
     );
 
     expect(result.staticClientId).toBe("custom-client");
@@ -226,7 +248,8 @@ describe("product setup", () => {
             fetch: releaseFetch(Buffer.from("standalone-bytes")),
             checkPort: async () => undefined,
             resolveRuntimeIdentity: () => runtimeIdentity,
-            verifyRuntimeBinary: () => true
+            verifyRuntimeBinary: () => true,
+            releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
           }
         )
       ).rejects.toThrow("explicit Initial Path");

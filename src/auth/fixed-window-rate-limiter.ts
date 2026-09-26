@@ -1,6 +1,6 @@
 /**
- * Fixed Window Rate Limiter — bounds OAuth abuse per direct peer address.
- * Wing: auth | Topic: oauth-abuse-control | Updated: 2026-08-26
+ * Fixed Window Rate Limiter — bounds OAuth abuse by caller-selected keys.
+ * Wing: auth | Topic: oauth-abuse-control | Updated: 2026-09-23
  *
  * Provenance: SECURITY invariants 1 and 12; standalone in-process design.
  */
@@ -21,7 +21,7 @@ export interface FixedWindowRateLimiterOptions {
   readonly now?: () => number;
 }
 
-/** Small in-memory limiter. Callers deliberately choose the trusted peer key. */
+/** Small in-memory limiter. Callers deliberately choose the bounded key scope. */
 export class FixedWindowRateLimiter {
   readonly #limit: number;
   readonly #windowSeconds: number;
@@ -41,8 +41,22 @@ export class FixedWindowRateLimiter {
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1_000));
   }
 
+  check(key: string): RateLimitDecision {
+    const now = this.#now();
+    this.#purgeExpired(now);
+    const current = this.#counters.get(key);
+    if (current === undefined || current.resetAt <= now || current.count < this.#limit) {
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, current.resetAt - now)
+    };
+  }
+
   consume(key: string): RateLimitDecision {
     const now = this.#now();
+    this.#purgeExpired(now);
     const current = this.#counters.get(key);
 
     if (current === undefined || current.resetAt <= now) {
@@ -62,5 +76,11 @@ export class FixedWindowRateLimiter {
 
     current.count += 1;
     return { allowed: true, retryAfterSeconds: 0 };
+  }
+
+  #purgeExpired(now: number): void {
+    for (const [key, counter] of this.#counters) {
+      if (counter.resetAt <= now) this.#counters.delete(key);
+    }
   }
 }

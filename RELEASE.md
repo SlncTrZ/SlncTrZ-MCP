@@ -23,6 +23,7 @@ A multi-target public release contains:
 slnctrz-mcp
 slnctrz-mcp.exe
 manifest.json
+manifest.json.sig
 SHA256SUMS
 install.sh
 release notes
@@ -32,7 +33,9 @@ The standalone binary is a self-contained Node SEA. End-user runtime does not re
 
 ### Windows signing policy
 
-The 0.3.x Windows distribution tier is allowed to publish an **unsigned** `slnctrz-mcp.exe`. The mandatory trust contract is the official GitHub Release URL plus the release-level SHA-256/manifest verification. Release notes and troubleshooting must not imply Authenticode signing when it is absent.
+The 0.3.x Windows distribution tier is allowed to publish an **unsigned** `slnctrz-mcp.exe` at the Authenticode layer. Release notes and troubleshooting must not imply Authenticode signing when it is absent.
+
+The updater's mandatory publisher-authenticity contract is separate: the canonical `manifest.json` is signed with Ed25519, the release publishes `manifest.json.sig`, and every signing-enabled standalone binary embeds the trusted Ed25519 public key. Update/setup manifest retrieval verifies the signature **before** parsing or activating any artifact; the manifest's existing size + SHA-256 fields then bind the exact binary bytes.
 
 If Authenticode is introduced later, signing must occur after SEA injection and before final SHA-256/manifest generation; CI must verify the signature and publish only the signed bytes.
 
@@ -44,6 +47,7 @@ Use Node 24 on the native target runner. Linux x64 example:
 npm ci
 SLNCTRZ_BUILD_COMMIT="$(git rev-parse HEAD)" \
 SLNCTRZ_RELEASE_BASE_URL="https://github.com/SlncTrZ/SlncTrZ-MCP/releases/download/v$(node -p "require('./package.json').version")/" \
+SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64="<base64 DER SPKI Ed25519 public key>" \
   npm run build:sea:linux-x64
 ```
 
@@ -63,9 +67,9 @@ dist/standalone/win32-x64/
 └── SHA256SUMS
 ```
 
-The release workflow aggregates both verified fragments into one canonical multi-target `manifest.json` and one release-level `SHA256SUMS`.
+The release workflow aggregates both verified fragments into one canonical multi-target `manifest.json` and one release-level `SHA256SUMS`, then signs the exact canonical manifest bytes and emits `manifest.json.sig`.
 
-The bundle, SEA configuration, and preparation blob are build intermediates, not release assets.
+The bundle, SEA configuration, preparation blob, and signing private key are never release assets.
 
 ## Local verification
 
@@ -98,6 +102,7 @@ standalone --version
 standalone --build-info
 manifest.json version
 manifest linux-x64 target
+publisher-authentic manifest.json.sig
 manifest SHA-256 + size
 SHA256SUMS
 artifact URL release-tag path
@@ -142,14 +147,29 @@ Native target builds:
 - Linux x64 SEA on `ubuntu-latest`;
 - Windows x64 SEA on `windows-latest`;
 - exact `github.sha` embedded in each binary;
+- the configured Ed25519 release public key embedded in each SEA;
 - help/version/build-info smoke;
 - target checksum/manifest projection;
 - native release identity gate;
-- aggregation into one canonical release manifest before publication.
+- aggregation into one canonical release manifest;
+- Ed25519 signing of the exact canonical manifest bytes before publication.
+
+GitHub Actions configuration for an official release:
+
+- repository variable `SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64`: canonical base64 DER/SPKI Ed25519 public key;
+- protected GitHub Environment `release-signing` configured **before** the release run;
+- Environment secret `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64`: canonical base64 DER/PKCS8 matching private key;
+- `release-signing` deployment policy restricted to selected tags matching `v*`;
+- at least one required reviewer, with self-review prevented and administrator bypass disabled for the release environment;
+- no repository-level or organization-level duplicate of `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64` that would bypass the Environment custody boundary.
+
+The workflow itself additionally gates `aggregate-release` to a `v*` tag and checks that the tagged commit is on `origin/main` history before the signing step. A non-tag `workflow_dispatch` may exercise quality/build jobs but must not aggregate, sign, or publish a candidate.
+
+The private key is CI-only and must never be committed, uploaded as an artifact, copied into a runtime install, exposed to an unreviewed workflow ref, or written into release notes/logs. The signing script verifies that the configured public/private keys are a matching Ed25519 pair before writing `manifest.json.sig`. GitHub Environment protection is external repository configuration: the workflow name alone is not proof that reviewer/tag restrictions are actually enabled.
 
 ### Candidate publication
 
-On a tag only, the workflow creates a **prerelease candidate** containing the verified assets.
+On a reviewed `v*` tag only, after the `release-signing` Environment gate and main-history check pass, the workflow creates a **prerelease candidate** containing the verified assets.
 The canonical GitHub Release body is `docs/releases/<tag>.md`; candidate publication fails if the
 tag-specific notes file is missing. Existing candidates are refreshed with the same notes file, so
 generated GitHub notes never replace support, migration, limitation, or rollback statements.
@@ -182,7 +202,9 @@ Acceptance covers:
 download public install.sh
 download public binary + SHA256SUMS
 follow public HTTPS redirects
-verify SHA-256
+verify bootstrap SHA-256
+run User setup against manifest.json + manifest.json.sig
+require publisher signature verification before manifest acceptance
 run User setup in isolated HOME
 verify installed binary/version/state/passphrase
 run status --json
@@ -247,6 +269,14 @@ sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME"
 
 After setup, the Windows runtime is native `slnctrz-mcp.exe`; Git Bash, Node.js, npm, and the repository are not runtime dependencies.
 
+## Release-signing bootstrap and key lifecycle
+
+The signing-enabled updater pins one Ed25519 public key into each standalone binary. The first release that introduces this mechanism is a **trust bootstrap**: an older installed binary may still acquire that transition release under the historical HTTPS + SHA-256 contract. Once the signing-enabled binary is active, every later setup/update manifest must carry a valid publisher signature or the operation fails before activation.
+
+Planned key rotation is explicit and review-driven. The current schema pins one active key per build; therefore changing the release key is a release-boundary event, not a runtime setting. Before rotating a production key, ship a reviewed transition design that preserves upgrade continuity (for example a multi-key trust set or dual-signature envelope) and test skipped-version clients. Until that transition mechanism ships, **do not rotate the production key casually**.
+
+If the private key is suspected compromised, stop publishing with it. Existing binaries must not be taught to trust an unreviewed replacement key through unsigned metadata. Recovery requires a separately trusted bootstrap/reinstall or a previously shipped rotation mechanism. Revoked private keys are removed from the `release-signing` Environment secret immediately; any accidental repository/organization duplicate is also removed. Public verification keys may remain documented for forensic verification.
+
 ## Update/rollback acceptance
 
 Product commands:
@@ -260,7 +290,9 @@ Release acceptance for update/rollback requires:
 
 - release A installed;
 - persistent Paths/Commands/providers/passphrase configured;
-- release B downloaded through public manifest/redirect path;
+- release B manifest and `manifest.json.sig` downloaded through the public HTTPS/redirect path;
+- publisher signature verified before release B artifact download/activation;
+- tampered manifest, bad signature, unknown key, and missing signature all fail before activation;
 - B activated and, for System Install, restarted/health-checked;
 - installed/running identity = B;
 - state preserved;

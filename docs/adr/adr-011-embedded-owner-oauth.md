@@ -4,6 +4,8 @@
 > Date: 2026-08-26  
 > Owners: SlncTrZ
 
+> Current-contract note (2026-09-24): this ADR records the original Phase 1 bootstrap. The current v0.3.5 contract persists dynamic client registrations in the managed state file, persists grant families/access+refresh token hashes/client-default profiles in the OAuth SQLite store, and keeps only pending authorization transactions and authorization codes in memory. A normal gateway restart therefore preserves acknowledged clients and durable grants/tokens but drops unfinished authorization transactions/codes. The current durability contract supersedes the historical restart statements below; the owner-only/single-process and strict PKCE/redirect/resource-binding decisions remain active.
+
 ## Context
 
 The Phase 1 public MCP endpoint must connect to web clients without allowing anonymous
@@ -26,23 +28,32 @@ Run a small OAuth authorization server in the gateway process for Phase 1 dogfoo
   scrypt verifier;
 - issue opaque, short-lived access tokens and rotating refresh tokens;
 - verify expiry, resource, client, and scope before MCP dispatch;
-- rate-limit registration, token exchange, and owner authentication by direct peer.
+- rate-limit registration and token exchange by direct peer; Owner-authentication failure budgeting is refined by ADR-013.
 
-Clients, pending grants, authorization codes, and tokens are in memory. A process
-restart invalidates them. Runtime hostname, public URL, and owner verifier remain
-outside tracked source.
+Historical Phase 1 statement (superseded): clients, pending grants, authorization codes,
+and tokens were originally in memory and a process restart invalidated them. Runtime
+hostname, public URL, and owner verifier remain outside tracked source.
 
-Persistent identity, multi-user accounts, federation, token revocation, and external
-identity-provider integration are explicitly out of scope for this decision.
+Current v0.3.5 state is deliberately split:
+
+- dynamic client registrations are durable managed state;
+- grant families, token hashes, grant profiles, labels, and client-default profiles are durable SQLite state;
+- pending authorization transactions and authorization codes remain bounded in-memory state;
+- raw bearer/refresh credentials are not persisted as plaintext.
+
+Multi-user accounts, federation, and external identity-provider integration remain out
+of scope for this owner-only design. Token revocation and durable grant-family state are
+now implemented by later work and ADR-012's current-contract note.
 
 ## Consequences
 
 - **Positive:** Phase 1 can be exercised end-to-end with real OAuth-capable MCP clients
   while remaining self-contained and default-deny.
-- **Negative / costs:** clients must reconnect after restart; one process owns all
-  authorization state; this design is unsuitable for horizontal scaling.
-- **Risks and mitigations:** brute-force and allocation abuse are bounded by direct-peer
-  rate limits, short lifetimes, strict input limits, and opaque credentials. The public
+- **Negative / costs:** unfinished authorization transactions/codes are intentionally lost
+  on restart; one process owns live authorization flow state; this design is unsuitable
+  for horizontal scaling without a new shared-state design.
+- **Risks and mitigations:** brute-force and allocation abuse are bounded by the rate-limit
+  model refined in ADR-013, short lifetimes, strict input limits, and opaque credentials. The public
   endpoint must remain behind HTTPS ingress. A later ADR must replace or persist the
   authority before multi-user or high-availability operation.
 

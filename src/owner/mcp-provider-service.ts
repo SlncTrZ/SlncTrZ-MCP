@@ -96,8 +96,7 @@ export function createMcpProviderService(options: {
   readonly isActiveProviderReady: (providerId: string, activeVersion: string) => boolean;
   readonly resolveCredentials?: (refs: readonly string[]) => Promise<readonly ProviderCredential[]>;
 }): McpProviderService {
-  const activate = async (): Promise<ReloadResult> =>
-    options.policyStore.reload({ ownerApproved: true });
+  const activate = async (): Promise<ReloadResult> => options.policyStore.reload();
 
   let mutationTail: Promise<void> = Promise.resolve();
   const serializeMutation = <T>(operation: () => Promise<T>): Promise<T> => {

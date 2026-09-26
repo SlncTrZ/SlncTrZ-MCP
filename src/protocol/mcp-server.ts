@@ -216,6 +216,14 @@ function errorResult(
   };
 }
 
+function toolAuditResultForError(error: unknown): Exclude<ToolAuditEvent["result"], "success"> {
+  return error instanceof ExecutionError
+    ? error.code === "cancelled"
+      ? "cancelled"
+      : "timeout"
+    : "error";
+}
+
 /** Bucket a requested read path to the bootstrap documentation allowlist (exact or docs/** recurse). */
 function isReadAllowed(ctx: AuthorizedKernelContext, path: string): boolean {
   if (ctx.readAllowlist === undefined) return true;
@@ -241,13 +249,14 @@ async function readWithin(
   roots: readonly string[] | undefined,
   fallback: string,
   path: string,
-  maxBytes: number
+  maxBytes: number,
+  signal?: AbortSignal
 ) {
   const candidates = roots !== undefined && roots.length > 0 ? [...roots] : [fallback];
   let last: ReadError | undefined;
   for (const root of candidates) {
     try {
-      return await readContainedFile(root, path, maxBytes);
+      return await readContainedFile(root, path, maxBytes, signal === undefined ? {} : { signal });
     } catch (error) {
       if (
         error instanceof ReadError &&
@@ -1047,15 +1056,18 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               );
             }
             const target = autonomousPath(readAuthorization.root, args.path);
+            const signal = context.http?.req?.signal;
             const result = autonomous
               ? await readContainedFile(target.root, target.relPath, DEFAULT_MAX_READ_BYTES, {
-                  protectSecrets: false
+                  protectSecrets: false,
+                  ...(signal === undefined ? {} : { signal })
                 })
               : await readWithin(
                   readAuthorization.readRoots,
                   readAuthorization.root,
                   args.path,
-                  DEFAULT_MAX_READ_BYTES
+                  DEFAULT_MAX_READ_BYTES,
+                  signal
                 );
             return {
               content: [{ type: "text", text: result.content }],
@@ -1074,7 +1086,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               auditResult = "error";
               return harnessErrorResult(error);
             }
-            auditResult = "error";
+            auditResult = toolAuditResultForError(error);
             if (error instanceof ReadError || error instanceof ExecutionError) {
               return errorResult(error);
             }
@@ -1272,7 +1284,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               auditResult = "error";
               return harnessErrorResult(error);
             }
-            auditResult = "error";
+            auditResult = toolAuditResultForError(error);
             if (error instanceof SearchError || error instanceof ExecutionError) {
               return errorResult(error);
             }
@@ -1629,13 +1641,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               args.root
             );
             auditedCommandId = authorized.binary;
-            const task = await taskRuntime.start(taskActor, kernelPolicy.version, () =>
-              startRunCommand(authorized.binary, args.args ?? [], authorized.runRoot, {
-                ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
-                ...(args.maxOutputBytes === undefined
-                  ? {}
-                  : { maxOutputBytes: args.maxOutputBytes })
-              })
+            const task = await taskRuntime.start(
+              taskActor,
+              kernelPolicy.version,
+              () =>
+                startRunCommand(authorized.binary, args.args ?? [], authorized.runRoot, {
+                  ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+                  ...(args.maxOutputBytes === undefined
+                    ? {}
+                    : { maxOutputBytes: args.maxOutputBytes })
+                }),
+              { commandId: authorized.binary }
             );
             auditResult = "success";
             return {

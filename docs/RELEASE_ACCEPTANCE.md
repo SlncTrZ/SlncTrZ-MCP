@@ -2,6 +2,36 @@
 
 This document defines the evidence format for a SlncTrZ-MCP public release. It is not a claim that every item below has already passed.
 
+## Release-signing custody gate
+
+Before any production signing key is installed or any signed candidate is approved, verify the external GitHub configuration as a release gate:
+
+- the `release-signing` Environment exists **before** the workflow run; do not rely on implicit environment creation;
+- deployment branches/tags use **Selected branches and tags** with a Tag rule matching `v*` and no branch rule for signing;
+- at least one required reviewer is configured;
+- **Prevent self-review** is enabled;
+- administrator bypass of protection rules is disabled;
+- `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64` exists only as an Environment secret for `release-signing`; no same-name repository/organization secret remains;
+- `SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64` contains the matching public DER/SPKI key;
+- the `aggregate-release` workflow job has a tag-only condition, references `release-signing`, and verifies the tag commit is on `origin/main` history before the signer runs;
+- a non-tag manual `workflow_dispatch` skips aggregate/sign/publish and cannot obtain the production private key.
+
+Record:
+
+```text
+release-signing environment pre-created: PASS/FAIL
+selected tag rule v*: PASS/FAIL
+required reviewer: PASS/FAIL
+prevent self-review: PASS/FAIL
+admin bypass disabled: PASS/FAIL
+private key environment-only: PASS/FAIL
+public/private key match: PASS/FAIL
+non-tag dispatch cannot sign: PASS/FAIL
+tag commit on main history: PASS/FAIL
+```
+
+Environment protection is repository configuration, not something source tests can self-certify. A workflow that merely names `release-signing` is insufficient evidence.
+
 ## Automated Linux x64 candidate evidence
 
 Produced by `.github/workflows/standalone.yml`:
@@ -12,7 +42,8 @@ Produced by `.github/workflows/standalone.yml`:
 - Linux x64 SEA build;
 - binary help/version/build-info;
 - checksum + manifest projection;
-- version/tag/build identity gate;
+- Ed25519 `manifest.json.sig` created only after the protected release-signing gate;
+- version/tag/build identity gate plus tag-on-main-history check;
 - prerelease candidate publication;
 - exact public GitHub release-asset redirect path;
 - clean User Install in isolated HOME;
@@ -30,6 +61,8 @@ binary version:
 binary build commit:
 linux-x64 sha256:
 manifest:
+manifest.json.sig verification: PASS/FAIL
+release-signing environment approval/run:
 workflow run:
 clean User Install: PASS/FAIL
 promotion: PASS/FAIL
@@ -65,7 +98,8 @@ workflow run:
 Git Bash clean User Install: PASS/FAIL
 running health/status/doctor: PASS/FAIL
 default uninstall preservation: PASS/FAIL
-signing policy: unsigned/signed
+manifest publisher signature: PASS/FAIL
+Authenticode policy: unsigned/signed
 ```
 
 Windows x64 must not be advertised as an end-user target based only on source CI.
@@ -122,9 +156,11 @@ Required flow:
 8. add/remove Command;
 9. add/test/sync/enable/disable/remove MCP provider;
 10. logout;
-11. login again.
+11. login again;
+12. prove Owner-login abuse accounting is failure-only and pre-KDF fail-closed: more than ten successful logins from one peer remain successful, then ten invalid passphrases return 401, the next attempt returns 429 with `Retry-After`, and another attempt from that still-saturated direct peer is rejected with 429 until the fixed window resets even if it presents the correct passphrase;
+13. when public Owner Console behavior is claimed, prove a disallowed `Origin` on `/owner` returns 403 before Owner handler dispatch and confirm the allowed public Origin still works normally.
 
-Record local loopback HTTP and, if claimed, public HTTPS behavior separately.
+Record local loopback HTTP and, if claimed, public HTTPS behavior separately. Shared tunnel/proxy deployments may intentionally share the direct-peer failure bucket; per-client abuse controls belong at a trusted edge unless a separately reviewed trusted-proxy identity contract is enabled.
 
 ```text
 browser/version:
@@ -136,6 +172,8 @@ Paths:
 Commands:
 MCP provider:
 logout/login:
+Owner failure budget:
+Origin gate:
 result:
 ```
 
@@ -383,7 +421,7 @@ A v0.3.2 public claim requires all normal release gates plus evidence for the fo
 - a legacy Streamable HTTP provider with a valid MCP session that receives `POST /mcp -> 404` is classified internally as an invalid session rather than an undifferentiated provider crash;
 - the tool call that observes the stale session fails once and is **never replayed automatically**, including write/execute-class provider tools;
 - provider-local recovery clears the stale session and performs a fresh handshake for that provider only;
-- a successful recovery resets the incident restart budget, so separated transient incidents do not accumulate toward quarantine across the lifetime of a healthy runtime generation;
+- historical v0.3.2 behavior: a successful recovery reset the per-incident restart budget for later independent incidents; v0.3.5 supersedes this as a complete current contract by adding the rolling cross-incident invalid-session budget described below;
 - repeated restart failures within one incident remain bounded by `maxRestarts` and fail closed by quarantining the provider;
 - an ordinary upstream `5xx`, authentication failure, or protocol/tool declaration failure is not misclassified as successful stale-session recovery;
 - a provider that is temporarily unavailable during gateway startup receives bounded background recovery without requiring Owner Console Sync;
@@ -393,3 +431,19 @@ A v0.3.2 public claim requires all normal release gates plus evidence for the fo
 - the installed `/owner` artifact presents Commands and MCP operational health in Overview, keeps detailed runtime metadata under collapsed Advanced, and preserves existing CSRF and mutation behavior.
 
 The v0.3.2 release does **not** claim generation-local activation for Owner-driven provider configuration mutations. Add/Enable/Disable/Sync/credential activation may still rebuild the policy/runtime generation; this is separate from the provider-local automatic fault-recovery path above and remains a future scalability optimization.
+
+For **v0.3.5 and later**, the historical v0.3.2 sentence that a successful stale-session recovery fully resets lifetime incident pressure is superseded. Acceptance must also prove the current rolling `provider_session_invalid` incident budget: with a configured budget of two inside one rolling window, two incidents may recover, the third quarantines without replay, post-quarantine calls are not dispatched, and incidents older than the window expire instead of causing permanent quarantine.
+
+## Follow-up Opencode audit acceptance — 2026-09-25
+
+Before promoting the exact candidate that contains the follow-up hardening, verify:
+
+- control-plane: 10 failed Owner authentications return 401, the next request from the same peer returns 429 + `Retry-After`, and a valid passphrase from the saturated peer is still rejected before KDF until reset;
+- OAuth durability: simulate dynamic-client persistence failure during Owner revocation and confirm revocation fails without partially deleting live client state;
+- Usage: send an oversized `tools/call.params.name` and confirm the MCP response remains functional while persisted telemetry omits the oversized tool identifier;
+- rollback: tamper the previous installed executable after a newer version is active and confirm rollback rejects without changing `current.json`;
+- release retrieval: stall the manifest fetch and confirm the overall manifest/signature deadline aborts the operation without retrying indefinitely;
+- Debate: concurrent waiters for one debate all wake on one notification, and cancellation of the final waiter does not retain an in-process waiter entry;
+- full supported-runtime gate on Windows Node 24 passes with formatting, lint, typecheck and all non-skipped tests green.
+
+These checks are additive to the existing live OAuth, protected release-signing Environment and exact-candidate acceptance gates.

@@ -10,6 +10,7 @@ import {
 import {
   createTaskRuntime,
   type RunnerTaskActor,
+  type RunnerTaskTerminalEvent,
   type TaskRuntimeError
 } from "../../src/task/runtime.js";
 
@@ -106,25 +107,68 @@ describe("in-process task runtime", () => {
     expect(waited.task.result?.stdout).toBe("done\n");
   });
 
-  it("maps non-zero, timeout, and explicit cancellation to distinct terminal states", async () => {
-    const ids = ["failed", "timed", "cancelled"];
-    const runtime = createTaskRuntime({ id: () => ids.shift() ?? "unexpected" });
+  it("emits one metadata-only terminal event for every Runner terminal state", async () => {
+    const ids = ["completed", "failed", "timed", "cancelled"];
+    const terminal: RunnerTaskTerminalEvent[] = [];
+    const runtime = createTaskRuntime({
+      id: () => ids.shift() ?? "unexpected",
+      onRunnerTerminal: (event) => terminal.push(event)
+    });
+
+    const completed = handle();
+    await runtime.start(ACTOR, "policy-1", async () => completed.managed, {
+      commandId: "/safe/completed"
+    });
+    completed.completion.resolve(result({ stdout: "secret-completed-output" }));
+    expect((await runtime.wait(ACTOR, "completed", { timeoutMs: 1_000 })).task.state).toBe(
+      "completed"
+    );
 
     const failed = handle();
-    await runtime.start(ACTOR, "policy-1", async () => failed.managed);
-    failed.completion.resolve(result({ exitCode: 7 }));
+    await runtime.start(ACTOR, "policy-1", async () => failed.managed, {
+      commandId: "/safe/failed"
+    });
+    failed.completion.resolve(
+      result({ exitCode: 7, argv: ["secret-arg"], stderr: "secret-stderr" })
+    );
     expect((await runtime.wait(ACTOR, "failed", { timeoutMs: 1_000 })).task.state).toBe("failed");
 
     const timed = handle();
-    await runtime.start(ACTOR, "policy-1", async () => timed.managed);
-    timed.completion.resolve(result({ exitCode: null, signal: "SIGTERM", timedOut: true }));
+    await runtime.start(ACTOR, "policy-1", async () => timed.managed, {
+      commandId: "/safe/timed"
+    });
+    timed.completion.resolve(
+      result({
+        exitCode: null,
+        signal: "SIGTERM",
+        timedOut: true,
+        stdout: "secret-stdout"
+      })
+    );
     expect((await runtime.wait(ACTOR, "timed", { timeoutMs: 1_000 })).task.state).toBe("timed_out");
 
     const cancelled = handle();
-    await runtime.start(ACTOR, "policy-1", async () => cancelled.managed);
+    await runtime.start(ACTOR, "policy-1", async () => cancelled.managed, {
+      commandId: "/safe/cancelled"
+    });
     const cancelledTask = await runtime.cancel(ACTOR, "cancelled");
     expect(cancelledTask.state).toBe("cancelled");
     expect(cancelled.cancelCalls()).toBe(1);
+
+    expect(terminal.map(({ taskId, state, commandId }) => ({ taskId, state, commandId }))).toEqual([
+      { taskId: "completed", state: "completed", commandId: "/safe/completed" },
+      { taskId: "failed", state: "failed", commandId: "/safe/failed" },
+      { taskId: "timed", state: "timed_out", commandId: "/safe/timed" },
+      { taskId: "cancelled", state: "cancelled", commandId: "/safe/cancelled" }
+    ]);
+    expect(JSON.stringify(terminal)).not.toContain("secret-arg");
+    expect(JSON.stringify(terminal)).not.toContain("secret-stderr");
+    expect(JSON.stringify(terminal)).not.toContain("secret-stdout");
+    expect(JSON.stringify(terminal)).not.toContain("secret-completed-output");
+
+    await runtime.wait(ACTOR, "failed", { timeoutMs: 1_000 });
+    await runtime.cancel(ACTOR, "cancelled");
+    expect(terminal).toHaveLength(4);
   });
 
   it("times out or aborts a wait without cancelling the underlying task", async () => {

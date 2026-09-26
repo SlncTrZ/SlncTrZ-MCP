@@ -99,6 +99,90 @@ describe("SQLite usage store", () => {
     expect(raw.includes(Buffer.from("secret payload should never persist"))).toBe(false);
   });
 
+  it("reports dropped events when persistence fails without blocking later usage writes", async () => {
+    const path = await databasePath("slnctrz-usage-failure-");
+    const errors: unknown[] = [];
+    const store = createSqliteUsageStore(path, { onError: (error) => errors.push(error) });
+    const blocker = new DatabaseSync(path);
+    blocker.exec("BEGIN IMMEDIATE");
+
+    store.traffic({
+      timestamp: "2026-09-11T02:30:00.000Z",
+      workspaceId: "default",
+      requestKind: "tools_call",
+      toolId: "core.read",
+      inputBytes: 4,
+      outputBytes: 4,
+      estimatedInputTokens: 1,
+      estimatedOutputTokens: 1,
+      durationMs: 1
+    });
+    store.flush();
+
+    expect(store.health()).toEqual({
+      available: true,
+      degraded: true,
+      droppedEvents: 1,
+      pendingEvents: 0,
+      lastFailureClass: "persistence_failure"
+    });
+    expect(errors).toHaveLength(1);
+
+    blocker.exec("ROLLBACK");
+    blocker.close();
+    store.traffic({
+      timestamp: "2026-09-11T02:31:00.000Z",
+      workspaceId: "default",
+      requestKind: "tools_call",
+      toolId: "core.search",
+      inputBytes: 8,
+      outputBytes: 8,
+      estimatedInputTokens: 2,
+      estimatedOutputTokens: 2,
+      durationMs: 2
+    });
+    store.flush();
+
+    expect(store.summary("all").calls).toBe(1);
+    expect(store.health()).toMatchObject({
+      degraded: true,
+      droppedEvents: 1,
+      pendingEvents: 0,
+      lastFailureClass: "persistence_failure"
+    });
+    store.close();
+  });
+
+  it("reports bounded queue overflow loss without throwing into the caller", async () => {
+    const path = await databasePath("slnctrz-usage-overflow-");
+    const errors: unknown[] = [];
+    const store = createSqliteUsageStore(path, { onError: (error) => errors.push(error) });
+
+    for (let index = 0; index < 2_050; index += 1) {
+      store.traffic({
+        timestamp: "2026-09-11T02:30:00.000Z",
+        workspaceId: "default",
+        requestKind: "tools_call",
+        toolId: "core.read",
+        inputBytes: 4,
+        outputBytes: 4,
+        estimatedInputTokens: 1,
+        estimatedOutputTokens: 1,
+        durationMs: 1
+      });
+    }
+
+    expect(store.health()).toEqual({
+      available: true,
+      degraded: true,
+      droppedEvents: 2,
+      pendingEvents: 2_048,
+      lastFailureClass: "queue_overflow"
+    });
+    expect(errors).toHaveLength(2);
+    store.close();
+  });
+
   it("keeps event retention bounded and clamps disclosure at the eager baseline", async () => {
     const path = await databasePath("slnctrz-usage-bounds-");
     const store = createSqliteUsageStore(path, {

@@ -14,6 +14,8 @@ import type {
   UsageTrafficEvent
 } from "./usage-types.js";
 import type {
+  UsageFailureClass,
+  UsageHealth,
   UsageRange,
   UsageReader,
   UsageSavings,
@@ -158,11 +160,19 @@ export function createSqliteUsageStore(
   let flushScheduled = false;
   let writesSincePrune = 0;
   let closed = false;
+  let droppedEvents = 0;
+  let lastFailureClass: UsageFailureClass | undefined;
+
+  const recordFailure = (failureClass: UsageFailureClass, dropped = 0): void => {
+    lastFailureClass = failureClass;
+    droppedEvents = Math.min(Number.MAX_SAFE_INTEGER, droppedEvents + dropped);
+  };
 
   const flush = (): void => {
     flushScheduled = false;
     if (closed || pending.length === 0) return;
     const batch = pending.splice(0, FLUSH_BATCH_SIZE);
+    let committed = false;
     try {
       database.exec("BEGIN IMMEDIATE");
       for (const item of batch) {
@@ -201,18 +211,28 @@ export function createSqliteUsageStore(
         }
       }
       database.exec("COMMIT");
+      committed = true;
       writesSincePrune += batch.length;
-      if (writesSincePrune >= PRUNE_INTERVAL) {
-        prune(database, maxRows, retentionDays, now());
-        writesSincePrune = 0;
-      }
     } catch (error) {
-      try {
-        database.exec("ROLLBACK");
-      } catch {
-        // The original persistence failure remains the useful diagnostic.
+      if (!committed) {
+        try {
+          database.exec("ROLLBACK");
+        } catch {
+          // The original persistence failure remains the useful diagnostic.
+        }
+        recordFailure("persistence_failure", batch.length);
       }
       options.onError?.(error);
+    }
+
+    if (committed && writesSincePrune >= PRUNE_INTERVAL) {
+      try {
+        prune(database, maxRows, retentionDays, now());
+        writesSincePrune = 0;
+      } catch (error) {
+        recordFailure("maintenance_failure");
+        options.onError?.(error);
+      }
     }
     if (pending.length > 0) scheduleFlush();
   };
@@ -226,6 +246,7 @@ export function createSqliteUsageStore(
   const enqueue = (item: PendingUsage): void => {
     if (closed) return;
     if (pending.length >= MAX_PENDING_USAGE_EVENTS) {
+      recordFailure("queue_overflow", 1);
       options.onError?.(new Error("usage_queue_full"));
       return;
     }
@@ -370,6 +391,15 @@ export function createSqliteUsageStore(
             ? 0
             : Math.round((avoidedEstimatedTokens / potentialEagerEstimatedTokens) * 10_000) / 100
       } satisfies UsageSavings;
+    },
+    health() {
+      return {
+        available: true,
+        degraded: lastFailureClass !== undefined,
+        droppedEvents,
+        pendingEvents: pending.length,
+        ...(lastFailureClass === undefined ? {} : { lastFailureClass })
+      } satisfies UsageHealth;
     }
   };
 
