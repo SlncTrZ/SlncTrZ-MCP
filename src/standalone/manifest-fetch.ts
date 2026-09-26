@@ -21,6 +21,7 @@ export const DEFAULT_MAX_RELEASE_MANIFEST_BYTES = 1_048_576;
 export const DEFAULT_MAX_RELEASE_SIGNATURE_BYTES = 16_384;
 export const DEFAULT_RELEASE_MANIFEST_ATTEMPTS = 7;
 export const DEFAULT_RELEASE_MANIFEST_RETRY_DELAY_MS = 5_000;
+export const DEFAULT_RELEASE_MANIFEST_TIMEOUT_MS = 120_000;
 const MAX_RELEASE_MANIFEST_RETRY_DELAY_MS = 30_000;
 
 function retryableStatus(status: number): boolean {
@@ -137,6 +138,7 @@ export async function fetchReleaseManifest(
     readonly signal?: AbortSignal;
     readonly attempts?: number;
     readonly retryDelayMs?: number;
+    readonly timeoutMs?: number;
     readonly trustedKeys?: readonly ReleaseTrustKey[];
   } = {}
 ): Promise<ReleaseManifest> {
@@ -151,19 +153,26 @@ export async function fetchReleaseManifest(
   }
   const attempts = options.attempts ?? DEFAULT_RELEASE_MANIFEST_ATTEMPTS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RELEASE_MANIFEST_RETRY_DELAY_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_RELEASE_MANIFEST_TIMEOUT_MS;
   if (!Number.isSafeInteger(attempts) || attempts < 1 || attempts > 10) {
     throw new Error("Release manifest attempts must be an integer from 1 to 10");
   }
   if (!Number.isSafeInteger(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 30_000) {
     throw new Error("Release manifest retry delay must be an integer from 0 to 30000");
   }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10 * 60_000) {
+    throw new Error("Release manifest timeout must be an integer from 1 to 600000");
+  }
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const requestSignal =
+    options.signal === undefined ? timeoutSignal : AbortSignal.any([options.signal, timeoutSignal]);
 
   const trustedKeys = options.trustedKeys ?? embeddedReleaseTrustKeys();
   if (trustedKeys.length === 0) throw new Error("release_signature_trust_root_unconfigured");
 
   const common = {
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    signal: requestSignal,
     attempts,
     retryDelayMs
   };

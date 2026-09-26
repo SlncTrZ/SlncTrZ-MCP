@@ -138,6 +138,25 @@ describe("control plane server", () => {
     expect(await response.json()).toMatchObject({ error: { code: "unauthorized" } });
   });
 
+  it("rate-limits repeated failed owner authentication before more KDF work", async () => {
+    const { origin } = await fixture();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await fetch(`${origin}/status`, {
+        headers: { authorization: "Bearer wrong owner secret" }
+      });
+      expect(response.status).toBe(401);
+    }
+
+    const limited = await fetch(`${origin}/status`, {
+      headers: { authorization: "Bearer wrong owner secret" }
+    });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).not.toBeNull();
+
+    const validWhileLimited = await fetch(`${origin}/status`, { headers: authHeaders() });
+    expect(validWhileLimited.status).toBe(429);
+  });
+
   it("reports status/policy and activates reload", async () => {
     const { origin } = await fixture();
     const status = await fetch(`${origin}/status`, { headers: authHeaders() });

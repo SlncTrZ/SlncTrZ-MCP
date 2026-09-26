@@ -57,11 +57,17 @@ describe("release manifest retrieval", () => {
 
   it("propagates abort signals and rejects interrupted or invalid-UTF-8 streams", async () => {
     const controller = new AbortController();
-    const aborting = (async (_url: URL, options?: RequestInit) => {
-      expect(options?.redirect).toBe("manual");
-      expect(options?.signal).toBe(controller.signal);
-      throw new DOMException("aborted", "AbortError");
-    }) as typeof fetch;
+    const aborting = ((_url: URL, options?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        expect(options?.redirect).toBe("manual");
+        expect(options?.signal).toBeDefined();
+        options?.signal?.addEventListener(
+          "abort",
+          () => reject(options.signal?.reason ?? new DOMException("aborted", "AbortError")),
+          { once: true }
+        );
+        controller.abort(new DOMException("aborted", "AbortError"));
+      })) as typeof fetch;
     await expect(
       fetchSigned("https://updates.example.test/stable.json", {
         fetch: aborting,
@@ -89,6 +95,29 @@ describe("release manifest retrieval", () => {
         fetch: signedResponder(invalidUtf8)
       })
     ).rejects.toThrow("valid UTF-8");
+  });
+
+  it("enforces one overall deadline across manifest retrieval", async () => {
+    let calls = 0;
+    const stalled = ((_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      calls += 1;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason ?? new DOMException("aborted", "AbortError")),
+          { once: true }
+        );
+      });
+    }) as typeof fetch;
+
+    await expect(
+      fetchSigned("https://updates.example.test/stable.json", {
+        fetch: stalled,
+        timeoutMs: 20,
+        retryDelayMs: 0
+      })
+    ).rejects.toThrow(/timeout|timed out/u);
+    expect(calls).toBe(1);
   });
 
   it("follows bounded HTTPS redirects for both manifest and signature", async () => {

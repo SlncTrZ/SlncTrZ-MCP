@@ -32,6 +32,12 @@ Audit hardening update: 2026-09-25
 - Managed Runner tasks emit exactly one metadata-only durable terminal audit event after completion/failure/timeout/cancellation.
 - Owner Console successful logins do not consume the failed-authentication budget; repeated failed passphrase attempts remain bounded, and an exhausted direct-peer budget intentionally fails closed until its window resets.
 - Host/Origin validation now runs before Owner Console and OAuth dispatch as well as MCP dispatch, matching the documented public-ingress contract.
+- Loopback control-plane Owner authentication now has a direct-peer 10/60s pre-KDF failure budget; saturated peers fail closed with 429 + `Retry-After`.
+- Owner DCR revocation now persists the durable client-set removal before mutating in-memory/client grant state, so persistence failure cannot make a revoked dynamic client reappear after restart.
+- Usage telemetry drops oversized caller-supplied tool identifiers instead of persisting unbounded metadata.
+- Standalone rollback re-hashes and re-sizes the target executable against immutable release metadata before activation.
+- Release manifest + signature retrieval has one bounded overall deadline across redirects, retries and backoff.
+- Debate long-poll waiters now share one ref-counted notification signal per debate instead of allocating one callback per concurrent waiter.
 
 ### Security
 

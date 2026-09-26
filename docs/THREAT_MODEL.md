@@ -346,3 +346,19 @@ Key test families:
 5. Metadata-only auditing favors privacy over complete forensic reconstruction even though restart-safe SQLite history is enabled by default.
 6. External OS/network/container policy remains necessary for untrusted multi-tenant workloads.
 7. Build provenance is only as strong as the release/deployment process that injects and verifies it.
+
+## Follow-up hardening from the 2026-09-25 independent Opencode audit
+
+The follow-up review re-verified the reported High/Medium/Low findings against the current source rather than accepting the report classifications verbatim.
+
+Confirmed controls added:
+
+- **Loopback control-plane brute force:** failed Owner authentication is limited per direct socket peer before scrypt verification; once exhausted, the peer receives 429 + `Retry-After` until reset. Forwarding headers are not trusted.
+- **Dynamic-client revocation durability:** removal of a persisted dynamic client is saved before live state/grants are mutated; a persistence failure leaves the client live rather than creating restart resurrection.
+- **Runtime lease cleanup:** policy/extension runtime leases are released if MCP handler construction fails before request dispatch.
+- **Usage metadata bounds:** caller-supplied tool names longer than the supported telemetry bound are omitted rather than persisted verbatim.
+- **Standalone rollback integrity:** rollback re-verifies executable size and SHA-256 from immutable release metadata before activation.
+- **Release fetch liveness:** manifest + signature retrieval shares one bounded deadline across redirects, retries and retry backoff.
+- **Debate wait fan-out:** concurrent long-poll callers for one debate share a ref-counted notification signal, and the signal is removed when the final waiter cancels or when notification fires.
+
+Findings intentionally not converted into code changes include synchronous check/consume sequences that cannot interleave on the JavaScript event loop, documented Gateway-only/harness recovery behavior, public input-length bounds, and theoretical PID/path races without a confirmed new bypass.

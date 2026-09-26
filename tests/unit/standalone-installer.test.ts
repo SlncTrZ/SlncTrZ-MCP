@@ -324,6 +324,26 @@ describe("standalone installer", () => {
     await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
   });
 
+  it("refuses rollback when the previous executable bytes were tampered after install", async () => {
+    const installRoot = await root();
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.1.0", Buffer.from("two")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("two"))
+    });
+    await writeFile(join(installRoot, "versions", "1.0.0", "slnctrz-mcp"), "tampered");
+
+    await expect(rollbackStandaloneRelease({ installRoot })).rejects.toThrow(/size|SHA-256/u);
+    await expect(currentVersion(installRoot)).resolves.toBe("1.1.0");
+  });
+
   it("retains the active release and cleans staging when metadata publication is denied", async () => {
     const installRoot = await root();
     await installStandaloneRelease({

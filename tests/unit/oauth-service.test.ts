@@ -622,6 +622,74 @@ describe("OAuthService", () => {
     ).toThrow("Unknown client");
   });
 
+  it("fails owner DCR revocation closed when durable persistence fails", () => {
+    const saved: DynamicClientRecord[] = [];
+    let failWrites = false;
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      dynamicClientStore: {
+        load: () => saved,
+        save: (clients) => {
+          if (failWrites) throw new Error("disk unavailable");
+          saved.splice(0, saved.length, ...clients);
+        }
+      }
+    });
+    const clientId = registerTestClient(service);
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+
+    failWrites = true;
+    expect(() => service.revokeClientByOwner(clientId)).toThrow("disk unavailable");
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+    expect(() =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: "https://client.example.com/oauth/callback",
+        code_challenge: service.pkceChallenge("w".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      })
+    ).not.toThrow();
+  });
+
+  it("fails owner revoke-all closed when dynamic-client persistence fails", () => {
+    const saved: DynamicClientRecord[] = [];
+    let failWrites = false;
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      dynamicClientStore: {
+        load: () => saved,
+        save: (clients) => {
+          if (failWrites) throw new Error("disk unavailable");
+          saved.splice(0, saved.length, ...clients);
+        }
+      }
+    });
+    const clientId = registerTestClient(service);
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+
+    failWrites = true;
+    expect(() => service.revokeAllByOwner()).toThrow("disk unavailable");
+    expect(saved.map((record) => record.clientId)).toEqual([clientId]);
+    expect(() =>
+      service.beginAuthorization({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: "https://client.example.com/oauth/callback",
+        code_challenge: service.pkceChallenge("q".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE.href,
+        scope: "mcp:tools"
+      })
+    ).not.toThrow();
+  });
+
   it("persists dynamic client registrations across service reconstruction", () => {
     const saved: DynamicClientRecord[] = [];
     const store = {

@@ -5,8 +5,14 @@ interface WaitRegistration {
   cancel(): void;
 }
 
+interface DebateSignal {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  refs: number;
+}
+
 export class DebateWaiterRegistry {
-  readonly #waiters = new Map<string, Set<() => void>>();
+  readonly #waiters = new Map<string, DebateSignal>();
   #closed = false;
 
   register(debateId: string): WaitRegistration {
@@ -14,38 +20,36 @@ export class DebateWaiterRegistry {
       return { promise: Promise.resolve(), cancel: () => undefined };
     }
 
-    let active = true;
-    let resolvePromise!: () => void;
-    const promise = new Promise<void>((resolve) => {
-      resolvePromise = resolve;
-    });
-    const callback = (): void => {
-      if (!active) return;
-      active = false;
-      this.#remove(debateId, callback);
-      resolvePromise();
-    };
-    let set = this.#waiters.get(debateId);
-    if (set === undefined) {
-      set = new Set();
-      this.#waiters.set(debateId, set);
+    let signal = this.#waiters.get(debateId);
+    if (signal === undefined) {
+      let resolvePromise!: () => void;
+      const promise = new Promise<void>((resolve) => {
+        resolvePromise = resolve;
+      });
+      signal = { promise, resolve: resolvePromise, refs: 0 };
+      this.#waiters.set(debateId, signal);
     }
-    set.add(callback);
+    signal.refs += 1;
 
+    let active = true;
     return {
-      promise,
+      promise: signal.promise,
       cancel: () => {
         if (!active) return;
         active = false;
-        this.#remove(debateId, callback);
+        const current = this.#waiters.get(debateId);
+        if (current !== signal) return;
+        current.refs -= 1;
+        if (current.refs === 0) this.#waiters.delete(debateId);
       }
     };
   }
 
   notify(debateId: string): void {
-    const set = this.#waiters.get(debateId);
-    if (set === undefined) return;
-    for (const callback of [...set]) callback();
+    const signal = this.#waiters.get(debateId);
+    if (signal === undefined) return;
+    this.#waiters.delete(debateId);
+    signal.resolve();
   }
 
   close(): void {
@@ -53,12 +57,5 @@ export class DebateWaiterRegistry {
     this.#closed = true;
     for (const debateId of [...this.#waiters.keys()]) this.notify(debateId);
     this.#waiters.clear();
-  }
-
-  #remove(debateId: string, callback: () => void): void {
-    const set = this.#waiters.get(debateId);
-    if (set === undefined) return;
-    set.delete(callback);
-    if (set.size === 0) this.#waiters.delete(debateId);
   }
 }

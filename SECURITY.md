@@ -68,6 +68,10 @@ The following invariants apply to the current schema-v2 product model:
 19. OAuth redirect URIs remain exact-match values. A previously unseen Gemini custom-MCP callback may be persisted only for the configured static Client ID, only after successful Owner authentication, and only when it passes the bounded Google callback classifier; wildcard matching and DCR-client mutation are forbidden.
 20. Owner-secret abuse budgets count failed authentication attempts, not successful Owner logins/approvals; once a direct-peer failure budget is exhausted, subsequent authentication attempts from that peer fail closed until its bounded window resets. This preserves the pre-KDF CPU-abuse cutoff and can create a bounded shared-peer lockout behind one ingress; forwarding headers are not trusted implicitly.
 21. Host and Origin allowlists are enforced before Owner Console, OAuth, and MCP application dispatch; liveness/readiness endpoints remain intentionally outside the Origin gate.
+22. Loopback control-plane Owner authentication uses a direct-peer failed-authentication budget before scrypt verification; an exhausted peer fails closed until the bounded window resets.
+23. Dynamic-client revocation is durable-before-visible in reverse: if removal cannot be persisted, the live client/grant state is not revoked partially.
+24. Usage telemetry stores only bounded tool identifiers; oversized caller-supplied names are omitted from persisted metadata rather than expanding the telemetry keyspace.
+25. Rollback activation re-verifies installed executable size + SHA-256 against immutable release metadata, and signed-manifest retrieval has a bounded overall deadline across redirects/retries/backoff.
 
 ## Secrets
 

@@ -433,3 +433,17 @@ A v0.3.2 public claim requires all normal release gates plus evidence for the fo
 The v0.3.2 release does **not** claim generation-local activation for Owner-driven provider configuration mutations. Add/Enable/Disable/Sync/credential activation may still rebuild the policy/runtime generation; this is separate from the provider-local automatic fault-recovery path above and remains a future scalability optimization.
 
 For **v0.3.5 and later**, the historical v0.3.2 sentence that a successful stale-session recovery fully resets lifetime incident pressure is superseded. Acceptance must also prove the current rolling `provider_session_invalid` incident budget: with a configured budget of two inside one rolling window, two incidents may recover, the third quarantines without replay, post-quarantine calls are not dispatched, and incidents older than the window expire instead of causing permanent quarantine.
+
+## Follow-up Opencode audit acceptance — 2026-09-25
+
+Before promoting the exact candidate that contains the follow-up hardening, verify:
+
+- control-plane: 10 failed Owner authentications return 401, the next request from the same peer returns 429 + `Retry-After`, and a valid passphrase from the saturated peer is still rejected before KDF until reset;
+- OAuth durability: simulate dynamic-client persistence failure during Owner revocation and confirm revocation fails without partially deleting live client state;
+- Usage: send an oversized `tools/call.params.name` and confirm the MCP response remains functional while persisted telemetry omits the oversized tool identifier;
+- rollback: tamper the previous installed executable after a newer version is active and confirm rollback rejects without changing `current.json`;
+- release retrieval: stall the manifest fetch and confirm the overall manifest/signature deadline aborts the operation without retrying indefinitely;
+- Debate: concurrent waiters for one debate all wake on one notification, and cancellation of the final waiter does not retain an in-process waiter entry;
+- full supported-runtime gate on Windows Node 24 passes with formatting, lint, typecheck and all non-skipped tests green.
+
+These checks are additive to the existing live OAuth, protected release-signing Environment and exact-candidate acceptance gates.

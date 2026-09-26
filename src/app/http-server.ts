@@ -42,6 +42,7 @@ import {
 
 const DEFAULT_ALLOWED_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"] as const;
 const DEFAULT_MAX_BODY_BYTES = 16 * 1_048_576;
+const MAX_USAGE_TOOL_ID_CHARS = 256;
 const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set([
   "2026-07-28",
   "2025-11-25",
@@ -208,7 +209,7 @@ function classifyUsageRequest(body: unknown): {
       typeof params === "object" && params !== null && !Array.isArray(params)
         ? (params as { name?: unknown }).name
         : undefined;
-    return typeof toolId === "string"
+    return typeof toolId === "string" && toolId.length <= MAX_USAGE_TOOL_ID_CHARS
       ? { requestKind: "tools_call", toolId }
       : { requestKind: "tools_call" };
   }
@@ -451,26 +452,34 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           });
           return;
         }
-        releaseRuntime ??= resolution.snapshot.extensionRuntime?.acquire();
-        const requestHandler = createGatewayMcpHandler({
-          ...(options.onError === undefined ? {} : { onError: reportError }),
-          kernelPolicy: resolution.snapshot,
-          ...(options.ownerConsoleUrl === undefined
-            ? {}
-            : { ownerConsoleUrl: options.ownerConsoleUrl }),
-          ...(options.gatewayInfo === undefined ? {} : { gatewayInfo: options.gatewayInfo }),
-          ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
-          ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
-          ...(options.mcpEventBus === undefined ? {} : { eventBus: options.mcpEventBus }),
-          ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
-          ...(options.harnessRuntime === undefined
-            ? {}
-            : { harnessRuntime: options.harnessRuntime }),
-          authenticatedConnection,
-          ...(options.debateService === undefined ? {} : { debateService: options.debateService }),
-          restrictSurfaceProfile: (profile) =>
-            options.oauthService.restrictConnection(accessToken, profile)
-        });
+        let requestHandler: ReturnType<typeof createGatewayMcpHandler>;
+        try {
+          requestHandler = createGatewayMcpHandler({
+            ...(options.onError === undefined ? {} : { onError: reportError }),
+            kernelPolicy: resolution.snapshot,
+            ...(options.ownerConsoleUrl === undefined
+              ? {}
+              : { ownerConsoleUrl: options.ownerConsoleUrl }),
+            ...(options.gatewayInfo === undefined ? {} : { gatewayInfo: options.gatewayInfo }),
+            ...(options.toolAudit === undefined ? {} : { toolAudit: options.toolAudit }),
+            ...(options.metrics === undefined ? {} : { metrics: options.metrics }),
+            ...(options.mcpEventBus === undefined ? {} : { eventBus: options.mcpEventBus }),
+            ...(options.taskRuntime === undefined ? {} : { taskRuntime: options.taskRuntime }),
+            ...(options.harnessRuntime === undefined
+              ? {}
+              : { harnessRuntime: options.harnessRuntime }),
+            authenticatedConnection,
+            ...(options.debateService === undefined
+              ? {}
+              : { debateService: options.debateService }),
+            restrictSurfaceProfile: (profile) =>
+              options.oauthService.restrictConnection(accessToken, profile)
+          });
+          releaseRuntime ??= resolution.snapshot.extensionRuntime?.acquire();
+        } catch (error) {
+          releaseRuntime?.();
+          throw error;
+        }
         const requestHandleMcp = toNodeHandler(
           requestHandler,
           options.onError === undefined ? {} : { onerror: reportError }

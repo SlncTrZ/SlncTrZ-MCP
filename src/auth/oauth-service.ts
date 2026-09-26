@@ -904,6 +904,7 @@ export class OAuthService implements OAuthTokenVerifier {
   /** Revoke every ephemeral authorization artifact and grant across all dynamic clients. */
   revokeAllByOwner(): { readonly clients: number; readonly grants: number } {
     this.#purgeExpired();
+    if (this.#dynamicClientIds.size > 0) this.#persistDynamicClientRecords([], true);
     const clientIds = new Set<string>();
     const grantIds = new Set<string>();
     for (const value of this.#pending.values()) clientIds.add(value.clientId);
@@ -917,7 +918,6 @@ export class OAuthService implements OAuthTokenVerifier {
     this.#grants.revokeAll();
     for (const clientId of this.#dynamicClientIds) this.#clients.delete(clientId);
     this.#dynamicClientIds.clear();
-    this.#persistDynamicClients();
     for (const clientId of clientIds) this.#emit("token.revoked", "success", clientId);
     return { clients: clientIds.size, grants: grantIds.size };
   }
@@ -926,6 +926,8 @@ export class OAuthService implements OAuthTokenVerifier {
   revokeClientByOwner(clientId: string): boolean {
     this.#purgeExpired();
     const known = this.#clients.has(clientId);
+    const dynamic = this.#dynamicClientIds.has(clientId);
+    if (dynamic) this.#persistDynamicClientRecords(this.#dynamicClientRecords(clientId), true);
     for (const [key, value] of this.#pending) {
       if (value.clientId === clientId) this.#pending.delete(key);
     }
@@ -933,8 +935,10 @@ export class OAuthService implements OAuthTokenVerifier {
       if (value.clientId === clientId) this.#codes.delete(key);
     }
     this.#grants.revokeClient(clientId);
-    if (this.#dynamicClientIds.delete(clientId)) this.#clients.delete(clientId);
-    this.#persistDynamicClients();
+    if (dynamic) {
+      this.#dynamicClientIds.delete(clientId);
+      this.#clients.delete(clientId);
+    }
     if (known) this.#emit("token.revoked", "success", clientId);
     return known;
   }

@@ -382,6 +382,29 @@ describe("gateway HTTP surface", () => {
     expect(events[0]?.outputBytes).toBeGreaterThan(0);
     expect(JSON.stringify(events[0])).not.toContain(secretPayload);
 
+    const oversizedToolId = "x".repeat(4_096);
+    const oversizedBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 301,
+      method: "tools/call",
+      params: { name: oversizedToolId, arguments: {} }
+    });
+    const oversized = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18"
+      },
+      body: oversizedBody
+    });
+    expect(oversized.status).toBe(200);
+    await oversized.text();
+    expect(events).toHaveLength(2);
+    expect(events[1]?.requestKind).toBe("tools_call");
+    expect(events[1]?.toolId).toBeUndefined();
+
     const throwingObserver: UsageObserver = {
       traffic() {
         throw new Error("telemetry failure");
