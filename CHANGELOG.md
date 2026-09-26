@@ -2,6 +2,14 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.6-rc.1
+
+Date: 2026-09-26
+
+### Added
+
+- Release candidate for the signed-release line: exact candidate built from this commit with Ed25519-signed canonical manifest (`manifest.json.sig`) after the protected `release-signing` Environment gate.
+
 ## 0.3.5
 
 Date: 2026-09-22

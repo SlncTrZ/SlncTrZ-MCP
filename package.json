@@ -1,6 +1,6 @@
 {
   "name": "slnctrz-mcp",
-  "version": "0.3.5",
+  "version": "0.3.6-rc.1",
   "description": "Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.",
   "license": "Apache-2.0",
   "type": "module",
