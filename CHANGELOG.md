@@ -2,6 +2,30 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.6-rc.2
+
+Date: 2026-09-27
+
+### Changed
+
+- Corrected the v0.3.6 release-candidate documentation and CI contracts so historical v0.3.5 notes remain immutable and Windows source CI supplies a disposable Ed25519 verification key without weakening production signing custody.
+- Harness capacity tests now fill bounded context slots concurrently, avoiding artificial serial contention while preserving the same capacity invariant.
+
+### Fixed
+
+- Browser OAuth approval/retry pages now use `Referrer-Policy: same-origin`, preserving a normal same-origin `Origin` header on form POSTs instead of serializing it as `Origin: null`.
+- OAuth callback redirects remain `Referrer-Policy: no-referrer`; explicit `Origin: null` and untrusted cross-origin POSTs remain rejected by the ingress Origin boundary.
+
+### Security
+
+- The OAuth correction does not relax Host/Origin validation or add `null` to the Origin allowlist.
+- Source CI uses a disposable public verification key only for non-published Windows SEA verification; official release signing remains gated by the protected `release-signing` Environment.
+
+### Verification / promotion
+
+- Local Windows Node 24 quality gate passed before candidate preparation: 95 test files passed, 1 skipped; 660 tests passed, 23 skipped.
+- Stable promotion remains blocked on exact-candidate hosted CI/release acceptance, live ChatGPT OAuth acceptance, release-signing custody acceptance, and final exact-candidate audit.
+
 ## 0.3.6-rc.1
 
 Date: 2026-09-26

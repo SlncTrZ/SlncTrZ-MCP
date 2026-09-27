@@ -239,7 +239,7 @@ requireText(adr008, "Current-contract note (2026-09-25)", "ADR-008");
 requireText(adr008, "protected `release-signing` GitHub Environment", "ADR-008");
 requireText(adr020, "rolling `provider_session_invalid` incident budget", "ADR-020");
 
-const changelog036Start = changelog.indexOf("\n## 0.3.6-rc.1\n");
+const changelog036Start = changelog.indexOf(`\n## ${pkg.version}\n`);
 const changelog035Start = changelog.indexOf("\n## 0.3.5\n");
 const changelog034Start = changelog.indexOf("\n## 0.3.4\n");
 if (
@@ -258,7 +258,7 @@ for (const value of [
   "Debate long-poll waiters share",
   "Publisher-authenticated update manifests"
 ]) {
-  requireText(changelog036, value, "CHANGELOG 0.3.6-rc.1");
+  requireText(changelog036, value, "CHANGELOG current 0.3.6 release line");
 }
 for (const value of [
   "Wrong Owner Passphrase during browser OAuth",
