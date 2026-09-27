@@ -24,7 +24,7 @@ Date: 2026-09-27
 ### Verification / promotion
 
 - Local Windows Node 24 quality gate passed before candidate preparation: 95 test files passed, 1 skipped; 660 tests passed, 23 skipped.
-- Stable promotion remains blocked on exact-candidate hosted CI/release acceptance, live ChatGPT OAuth acceptance, release-signing custody acceptance, and final exact-candidate audit.
+- Exact-candidate hosted main CI passed on `92ad95af997ff3488aacfb6a7665327f530b855b`; stable promotion remains blocked on completion of the protected signed-release/public-install/browser acceptance path, live ChatGPT OAuth acceptance, release-signing custody acceptance, and final exact-candidate audit.
 
 ## 0.3.6-rc.1
 
