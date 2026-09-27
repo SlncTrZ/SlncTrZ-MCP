@@ -34,7 +34,7 @@ SlncTrZ-MCP puts those answers behind one owner-controlled gateway.
 - **Files + search + write/edit + command execution** through a small stable core tool surface.
 - **Global `AGENTS.md` + Agent Skills** with progressive disclosure instead of eagerly loading every instruction file.
 - **Managed runner and coordination tasks** for longer or multi-agent work.
-- **Extra MCP servers behind one namespace** such as `kb.search`, `github.issue`, or any provider you add.
+- **Extra MCP servers behind provider namespaces** such as `kb.knowledge_search` or any provider tool you add.
 - **Owner Console** for Paths, Commands, MCP Servers, authority, and operation.
 - **`/usage` dashboard in v0.3.1** for observed gateway traffic, per-tool context cost, progressive-disclosure savings, and estimated cost avoided.
 - **Metadata-only audit history** and a separate privacy-minimal usage ledger.

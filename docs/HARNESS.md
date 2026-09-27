@@ -1,6 +1,6 @@
 # Coding harness
 
-SlncTrZ-MCP 0.3.1 supplies a coding environment through MCP: global instructions, Agent Skills,
+SlncTrZ-MCP supplies a coding environment through MCP: global instructions, Agent Skills,
 file and command tools, managed tasks, images and owner-managed MCP providers. Any compatible
 coding agent or chat client can use the same endpoint. The connected host still owns its model,
 conversation, context window and user interface.
