@@ -128,6 +128,56 @@ describe("standalone CLI", () => {
     );
   });
 
+  it("does not print the rotated Owner Passphrase", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-cli-rotate-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "slnctrz-cli-rotate-workspace-"));
+    cleanup.push(root, workspaceRoot);
+    const installRoot = join(root, "install");
+    const stateRoot = join(root, "state");
+    const configRoot = join(root, "config");
+
+    await runStandaloneCli(
+      [
+        "setup",
+        "--port",
+        "9127",
+        "--path",
+        workspaceRoot,
+        "--manifest",
+        "https://updates.example.test/manifest.json",
+        "--install-root",
+        installRoot,
+        "--state-root",
+        stateRoot,
+        "--config-root",
+        configRoot
+      ],
+      {
+        output: output(),
+        fetch: releaseFetch(Buffer.from("standalone-rotate-bytes")),
+        environment: {},
+        checkPort: async () => undefined,
+        releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+      }
+    );
+
+    const captured = output();
+    await expect(
+      runStandaloneCli(["owner", "rotate-passphrase"], {
+        output: captured,
+        environment: {},
+        management: { stateRoot }
+      })
+    ).resolves.toBe(true);
+
+    const recoveryFile = join(stateRoot, "secrets", "owner-passphrase");
+    const passphrase = (await readFile(recoveryFile, "utf8")).trim();
+    const cliOutput = captured.lines.join("\n");
+    expect(passphrase).toHaveLength(32);
+    expect(cliOutput).toContain(`Stored at: ${recoveryFile}`);
+    expect(cliOutput).not.toContain(passphrase);
+  });
+
   it("maps bounded owner diagnostics to loopback control requests", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer owner-secret");

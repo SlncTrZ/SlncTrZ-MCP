@@ -419,7 +419,6 @@ export async function runStandaloneCli(
     output.write(
       [
         "Owner Passphrase rotated.",
-        `New Owner Passphrase: ${result.passphrase}`,
         `Stored at: ${result.recoveryFile}`,
         "Restart required: yes"
       ].join("\n")
