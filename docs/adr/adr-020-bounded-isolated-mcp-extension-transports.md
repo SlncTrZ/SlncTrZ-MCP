@@ -1,10 +1,10 @@
 # ADR-020: Bounded isolated MCP extension transports
 
-> Status: Partially superseded by schema-v2 authority and v0.3.5 recovery policy
+> Status: Partially superseded by schema-v2 authority and v0.3.6 recovery policy
 > Date: 2026-08-27
 > Owners: SlncTrZ
 
-> Current-contract note (2026-09-25): the transport/isolation decisions remain active. The historical workspace/profile authorization language is superseded by schema-v2 Paths + `authorityMode`: provider manifests never grant authority, provider exposure requires configured/enabled/accepted/ready state, and the product no longer has a per-provider workspace/profile/tool-subset grant layer. v0.3.5 also adds a rolling `provider_session_invalid` incident budget so successful individual recoveries cannot permit unbounded recurrent flapping.
+> Current-contract note (2026-09-25): the transport/isolation decisions remain active. The historical workspace/profile authorization language is superseded by schema-v2 Paths + `authorityMode`: provider manifests never grant authority, provider exposure requires configured/enabled/accepted/ready state, and the product no longer has a per-provider workspace/profile/tool-subset grant layer. the v0.3.6 release line also adds a rolling `provider_session_invalid` incident budget so successful individual recoveries cannot permit unbounded recurrent flapping.
 
 ## Context
 

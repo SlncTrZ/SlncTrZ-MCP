@@ -22,7 +22,9 @@ const OWNER_FAILURE_WINDOW_SECONDS = 300;
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
-  "referrer-policy": "no-referrer",
+  // Keep Origin on same-origin form POSTs; no-referrer serializes it as "null".
+  // Cross-origin requests omit Referer; callback redirects remain no-referrer.
+  "referrer-policy": "same-origin",
   "x-content-type-options": "nosniff"
 } as const;
 

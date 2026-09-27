@@ -218,9 +218,9 @@ describe("global context and progressive skill disclosure", () => {
       runtime = new HarnessRuntime(root),
       oldActor = actor(root, "a", "one"),
       newActor = actor(root, "a", "two");
-    for (let index = 0; index < MAX_CONTEXT_HANDLES; index += 1) {
-      await runtime.bootstrap(oldActor);
-    }
+    await Promise.all(
+      Array.from({ length: MAX_CONTEXT_HANDLES }, () => runtime.bootstrap(oldActor))
+    );
     await expect(runtime.bootstrap(newActor)).resolves.toMatchObject({
       schemaVersion: 1,
       projectRoot: null
@@ -232,9 +232,7 @@ describe("global context and progressive skill disclosure", () => {
       runtime = new HarnessRuntime(root),
       a = actor(root);
     await writeFile(join(root, "AGENTS.md"), "GLOBAL-ONE");
-    for (let index = 0; index < MAX_CONTEXT_HANDLES; index += 1) {
-      await runtime.bootstrap(a);
-    }
+    await Promise.all(Array.from({ length: MAX_CONTEXT_HANDLES }, () => runtime.bootstrap(a)));
     await writeFile(join(root, "AGENTS.md"), "GLOBAL-TWO");
     await expect(runtime.bootstrap(a)).resolves.toMatchObject({
       schemaVersion: 1,

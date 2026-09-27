@@ -58,6 +58,17 @@ function transactionFromHtml(html: string): string {
 }
 
 describe("OAuth HTTP flow", () => {
+  it.each(["/authorize", "/owner", "/mcp"])("keeps the Origin boundary on %s", async (path) => {
+    const { origin } = await startOAuthServer();
+    for (const requestOrigin of ["null", "https://untrusted.example"]) {
+      const response = await fetch(`${origin}${path}`, {
+        method: "POST",
+        headers: { origin: requestOrigin }
+      });
+      expect(response.status).toBe(403);
+    }
+  });
+
   it("serves authorization and protected-resource discovery", async () => {
     const { origin } = await startOAuthServer();
 
@@ -318,6 +329,7 @@ describe("OAuth HTTP flow", () => {
 
     const authorizationPage = await fetch(authorizeUrl);
     expect(authorizationPage.status).toBe(200);
+    expect(authorizationPage.headers.get("referrer-policy")).toBe("same-origin");
     const transactionId = transactionFromHtml(await authorizationPage.text());
 
     const approval = await fetch(`${origin}/authorize`, {
@@ -331,6 +343,7 @@ describe("OAuth HTTP flow", () => {
       redirect: "manual"
     });
     expect(approval.status).toBe(303);
+    expect(approval.headers.get("referrer-policy")).toBe("no-referrer");
     const callback = new URL(approval.headers.get("location") ?? "");
     expect(callback.origin).toBe("https://client.example.com");
     expect(callback.searchParams.get("state")).toBe("http-state");
@@ -450,6 +463,7 @@ describe("OAuth HTTP flow", () => {
     const failedBody = await failed.text();
 
     expect(failed.status).toBe(200);
+    expect(failed.headers.get("referrer-policy")).toBe("same-origin");
     expect(failedBody).not.toContain(submittedSecret);
     expect(transactionFromHtml(failedBody)).toBe(transactionId);
 

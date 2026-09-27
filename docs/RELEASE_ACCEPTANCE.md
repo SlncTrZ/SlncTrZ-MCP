@@ -421,7 +421,7 @@ A v0.3.2 public claim requires all normal release gates plus evidence for the fo
 - a legacy Streamable HTTP provider with a valid MCP session that receives `POST /mcp -> 404` is classified internally as an invalid session rather than an undifferentiated provider crash;
 - the tool call that observes the stale session fails once and is **never replayed automatically**, including write/execute-class provider tools;
 - provider-local recovery clears the stale session and performs a fresh handshake for that provider only;
-- historical v0.3.2 behavior: a successful recovery reset the per-incident restart budget for later independent incidents; v0.3.5 supersedes this as a complete current contract by adding the rolling cross-incident invalid-session budget described below;
+- historical v0.3.2 behavior: a successful recovery reset the per-incident restart budget for later independent incidents; the v0.3.6 release line supersedes this as a complete current contract by adding the rolling cross-incident invalid-session budget described below;
 - repeated restart failures within one incident remain bounded by `maxRestarts` and fail closed by quarantining the provider;
 - an ordinary upstream `5xx`, authentication failure, or protocol/tool declaration failure is not misclassified as successful stale-session recovery;
 - a provider that is temporarily unavailable during gateway startup receives bounded background recovery without requiring Owner Console Sync;
@@ -432,7 +432,7 @@ A v0.3.2 public claim requires all normal release gates plus evidence for the fo
 
 The v0.3.2 release does **not** claim generation-local activation for Owner-driven provider configuration mutations. Add/Enable/Disable/Sync/credential activation may still rebuild the policy/runtime generation; this is separate from the provider-local automatic fault-recovery path above and remains a future scalability optimization.
 
-For **v0.3.5 and later**, the historical v0.3.2 sentence that a successful stale-session recovery fully resets lifetime incident pressure is superseded. Acceptance must also prove the current rolling `provider_session_invalid` incident budget: with a configured budget of two inside one rolling window, two incidents may recover, the third quarantines without replay, post-quarantine calls are not dispatched, and incidents older than the window expire instead of causing permanent quarantine.
+For **v0.3.6 and later**, the historical v0.3.2 sentence that a successful stale-session recovery fully resets lifetime incident pressure is superseded. Acceptance must also prove the current rolling `provider_session_invalid` incident budget: with a configured budget of two inside one rolling window, two incidents may recover, the third quarantines without replay, post-quarantine calls are not dispatched, and incidents older than the window expire instead of causing permanent quarantine.
 
 ## Follow-up Opencode audit acceptance — 2026-09-25
 

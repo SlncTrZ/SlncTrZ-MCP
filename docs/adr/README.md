@@ -16,7 +16,7 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-005 | Policy Engine is the single source of authorization truth           | Accepted                                                         |
 | ADR-006 | Isolated modern MCP with stateless legacy compatibility             | Accepted                                                         |
 | ADR-007 | Tool registry uses canonical names independent of runtime topology  | Accepted                                                         |
-| ADR-008 | Standalone packaging is separated from runtime architecture         | Partially superseded by v0.3.5 signed release pipeline           |
+| ADR-008 | Standalone packaging is separated from runtime architecture         | Partially superseded by v0.3.6 signed release pipeline           |
 | ADR-009 | Project instructions are explicit context, not a security mechanism | Superseded by ADR-027                                            |
 | ADR-010 | No home-directory access by default                                 | Accepted                                                         |
 | ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood                       | Accepted                                                         |

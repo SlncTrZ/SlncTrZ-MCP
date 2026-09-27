@@ -1,6 +1,6 @@
 # ADR-008: Standalone packaging is separated from runtime architecture
 
-> Status: Partially superseded by the v0.3.5 signed release pipeline
+> Status: Partially superseded by the v0.3.6 signed release pipeline
 > Date: 2026-08-28
 > Owners: SlncTrZ
 
@@ -34,7 +34,7 @@ activate.
   activation metadata and does not rely on symlinks.
 - Existing versions are immutable: same-version/same-artifact installation is idempotent,
   while artifact substitution fails closed.
-- Historical publication boundary (superseded by v0.3.5): release publication remained outside
+- Historical publication boundary (superseded by the v0.3.6 release line): release publication remained outside
   CI. The current workflow may create/update a prerelease candidate only after the tag/signing gates
   complete; stable promotion still waits for public acceptance.
 - Per-target signing/notarization and clean-machine runtime evidence are release gates, not
@@ -65,7 +65,7 @@ activate.
 - **Symlink-only activation:** rejected because Windows portability and metadata validation
   would depend on filesystem-specific link behavior.
 - **Automatic release publication:** historically rejected until target, checksum, signing, and
-  verification records were complete. v0.3.5 permits prerelease publication from the gated release
+  verification records were complete. the v0.3.6 release line permits prerelease publication from the gated release
   workflow; stable promotion remains acceptance-gated.
 
 ## Verification

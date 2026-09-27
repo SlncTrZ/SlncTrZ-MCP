@@ -54,11 +54,22 @@ if (directInventoryStart < 0 || directInventoryEnd <= directInventoryStart) {
   throw new Error("docs_contract_failed: PROVENANCE direct dependency inventory section missing");
 }
 const directInventory = provenance.slice(directInventoryStart, directInventoryEnd);
-const [userGuide, adrIndex, standaloneWorkflow, changelog, adr008, adr020] = await Promise.all([
+const [
+  userGuide,
+  adrIndex,
+  standaloneWorkflow,
+  ciWorkflow,
+  changelog,
+  release035,
+  adr008,
+  adr020
+] = await Promise.all([
   readFile(join(root, "docs", "USER_GUIDE.md"), "utf8"),
   readFile(join(root, "docs", "adr", "README.md"), "utf8"),
   readFile(join(root, ".github", "workflows", "standalone.yml"), "utf8"),
+  readFile(join(root, ".github", "workflows", "ci.yml"), "utf8"),
   readFile(join(root, "CHANGELOG.md"), "utf8"),
+  readFile(join(root, "docs", "releases", "v0.3.5.md"), "utf8"),
   readFile(join(root, "docs", "adr", "adr-008-standalone-packaging-runtime-separation.md"), "utf8"),
   readFile(
     join(root, "docs", "adr", "adr-020-bounded-isolated-mcp-extension-transports.md"),
@@ -150,6 +161,16 @@ for (const value of [
   requireText(standaloneWorkflow, value, "standalone release workflow");
 }
 
+const windowsCiStart = ciWorkflow.indexOf("\n  verify-windows:");
+const provenanceCiStart = ciWorkflow.indexOf("\n  provenance:");
+if (windowsCiStart < 0 || provenanceCiStart <= windowsCiStart) {
+  throw new Error("docs_contract_failed: Windows CI gate block missing");
+}
+const windowsCiWorkflow = ciWorkflow.slice(windowsCiStart, provenanceCiStart);
+for (const value of ["Build Windows x64 SEA", "SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64"]) {
+  requireText(windowsCiWorkflow, value, "Windows CI SEA build");
+}
+
 const aggregateReleaseStart = standaloneWorkflow.indexOf("\n  aggregate-release:");
 const publishCandidateStart = standaloneWorkflow.indexOf("\n  publish-candidate:");
 if (aggregateReleaseStart < 0 || publishCandidateStart <= aggregateReleaseStart) {
@@ -172,8 +193,14 @@ for (const value of [
 requireText(release, "manifest.json.sig", "RELEASE");
 requireText(release, "protected GitHub Environment `release-signing`", "RELEASE");
 requireText(release, "no repository-level or organization-level duplicate", "RELEASE");
+requireText(release, "disposable Ed25519 verification key", "RELEASE");
 requireText(readme, "Ed25519 trust root", "README");
-requireText(readme, "v0.3.5 focuses on closing the Master Audit hardening work", "README");
+requireText(
+  readme,
+  `The current source line, v${pkg.version}, focuses on closing the Master Audit and follow-up hardening work`,
+  "README"
+);
+requireText(readme, "GitHub's latest stable release remains v0.3.5", "README");
 requireText(threatModel, "Ed25519 publisher signature", "THREAT_MODEL");
 requireText(threatModel, "Release signing-key misuse", "THREAT_MODEL");
 requireText(
@@ -206,12 +233,48 @@ requireText(
   "recurrent `session_invalid` incidents are additionally bounded by a rolling incident budget",
   "ARCHITECTURE"
 );
-requireText(adrIndex, "Partially superseded by v0.3.5 signed release pipeline", "ADR index");
+requireText(adrIndex, "Partially superseded by v0.3.6 signed release pipeline", "ADR index");
 requireText(adrIndex, "Partially superseded by schema-v2/provider recovery contract", "ADR index");
 requireText(adr008, "Current-contract note (2026-09-25)", "ADR-008");
 requireText(adr008, "protected `release-signing` GitHub Environment", "ADR-008");
 requireText(adr020, "rolling `provider_session_invalid` incident budget", "ADR-020");
-requireText(changelog, "Audit hardening update: 2026-09-25", "CHANGELOG");
+
+const changelog036Start = changelog.indexOf("\n## 0.3.6-rc.1\n");
+const changelog035Start = changelog.indexOf("\n## 0.3.5\n");
+const changelog034Start = changelog.indexOf("\n## 0.3.4\n");
+if (
+  changelog036Start < 0 ||
+  changelog035Start <= changelog036Start ||
+  changelog034Start <= changelog035Start
+) {
+  throw new Error("docs_contract_failed: changelog release boundaries missing");
+}
+const changelog036 = changelog.slice(changelog036Start, changelog035Start);
+const changelog035 = changelog.slice(changelog035Start, changelog034Start);
+for (const value of [
+  "Wrong Owner Passphrase during browser OAuth",
+  "Loopback control-plane Owner authentication",
+  "MCP handler-construction failure releases",
+  "Debate long-poll waiters share",
+  "Publisher-authenticated update manifests"
+]) {
+  requireText(changelog036, value, "CHANGELOG 0.3.6-rc.1");
+}
+for (const value of [
+  "Wrong Owner Passphrase during browser OAuth",
+  "Loopback control-plane Owner authentication",
+  "MCP handler-construction failure",
+  "manifest.json.sig",
+  "Follow-up audit hardening"
+]) {
+  forbidText(changelog035, value, "CHANGELOG 0.3.5");
+  forbidText(release035, value, "v0.3.5 release notes");
+}
+requireText(
+  release035,
+  "Post-tag audit/signing hardening belongs to the v0.3.6 release line",
+  "v0.3.5 release notes"
+);
 requireText(
   currentReleaseNotes,
   "`audit.sqlite3` receives an additive migration",
