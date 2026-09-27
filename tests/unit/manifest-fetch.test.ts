@@ -269,7 +269,7 @@ describe("release manifest retrieval", () => {
         ? new Response(
             JSON.stringify({
               ...validEnvelope,
-              signature: `A${validEnvelope.signature.slice(1)}`
+              signature: `${validEnvelope.signature[0] === "A" ? "B" : "A"}${validEnvelope.signature.slice(1)}`
             }),
             { status: 200 }
           )
