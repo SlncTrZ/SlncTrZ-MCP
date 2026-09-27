@@ -253,10 +253,10 @@ export async function runStandaloneCli(
       `Config: ${setup.gatewayConfigFile}`,
       `Owner Console: ${setup.ownerConsoleUrl}`,
       `MCP Endpoint: ${setup.mcpEndpoint}`,
-      `Owner Passphrase: ${setup.firstRunOwnerPassphrase ?? "preserved"}`,
+      `Owner Passphrase: ${setup.firstRunOwnerPassphrase === undefined ? "preserved" : `(stored at ${setup.ownerPassphraseFile})`}`,
       `Passphrase file: ${setup.ownerPassphraseFile}`,
       `Client ID: ${setup.staticClientId}`,
-      `Client Secret: ${setup.firstRunStaticClientSecret ?? `(from ${setup.staticClientFile})`}`,
+      `Client Secret: ${setup.firstRunStaticClientSecret === undefined ? `(from ${setup.staticClientFile})` : `(stored at ${setup.staticClientFile})`}`,
       `Client file: ${setup.staticClientFile}`,
       "",
       setup.installation.installMode === "user"

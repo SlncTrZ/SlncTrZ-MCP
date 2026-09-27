@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 
 const [origin, passphraseFile] = process.argv.slice(2);
 if (!origin || !passphraseFile) {
@@ -130,7 +131,24 @@ class CdpClient {
   }
 }
 
+async function reserveLoopbackPort() {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen({ host: "127.0.0.1", port: 0, exclusive: true }, () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Could not reserve a Chrome DevTools port"));
+        return;
+      }
+      server.close((error) => (error ? reject(error) : resolve(address.port)));
+    });
+  });
+}
+
 async function startBrowser() {
+  const browserPort = await reserveLoopbackPort();
   return await new Promise((resolve, reject) => {
     const args = [
       "--headless=new",
@@ -138,14 +156,15 @@ async function startBrowser() {
       "--disable-dev-shm-usage",
       "--no-first-run",
       "--no-default-browser-check",
-      "--remote-debugging-port=0",
+      `--remote-debugging-port=${browserPort}`,
+      "--remote-debugging-address=127.0.0.1",
       `--user-data-dir=${profile}`,
       "about:blank"
     ];
     if (process.env.SLNCTRZ_BROWSER_NO_SANDBOX === "1") args.splice(1, 0, "--no-sandbox");
     const child = spawn(browserCommand, args, {
       stdio: ["ignore", "ignore", "pipe"],
-      env: { ...process.env, HOME: profile }
+      env: { ...process.env, DBUS_SESSION_BUS_ADDRESS: "" }
     });
     let stderr = "";
     const timeout = setTimeout(() => {

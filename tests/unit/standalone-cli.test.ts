@@ -115,7 +115,14 @@ describe("standalone CLI", () => {
       )
     ).resolves.toBe(true);
 
-    expect(captured.lines.join("\n")).toContain("Client ID: cli-client");
+    const setupOutput = captured.lines.join("\n");
+    expect(setupOutput).toContain("Client ID: cli-client");
+    expect(setupOutput).not.toContain("cli-client-secret");
+    const ownerPassphrase = (
+      await readFile(join(root, "state", "secrets", "owner-passphrase"), "utf8")
+    ).trim();
+    expect(ownerPassphrase).toHaveLength(32);
+    expect(setupOutput).not.toContain(ownerPassphrase);
     expect(await readFile(join(configRoot, "client.env"), "utf8")).toContain(
       ["SLNCTRZ_CLIENT_ID=cli-client", "SLNCTRZ_CLIENT_SECRET=cli-client-secret"].join("\n")
     );
