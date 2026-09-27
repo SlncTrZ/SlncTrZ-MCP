@@ -2,6 +2,21 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.6-rc.3
+
+Date: 2026-09-27
+
+### Fixed
+
+- Hardened installed /usage browser acceptance after rc.2 exposed a release-gate failure.
+- Owner Passphrase rotation no longer prints the newly generated passphrase to CLI stdout; the recovery-file path and restart requirement remain visible.
+
+### Verification / promotion
+
+- Pre-candidate Windows Node 24 quality gate: 95 test files passed, 1 skipped; 661 tests passed, 23 skipped.
+- Hosted main CI passed on pre-candidate fix SHA 641705ca7632adb2a596298f1bd5c484ed5da516.
+- rc.3 must still pass exact-candidate hosted CI, protected signed publication, clean Linux/Windows User Install, installed /usage browser acceptance, live ChatGPT/tunnel acceptance, signing-custody acceptance, and final exact-candidate audit before stable promotion.
+
 ## 0.3.6-rc.2
 
 Date: 2026-09-27
