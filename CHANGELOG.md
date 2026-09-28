@@ -2,6 +2,24 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.6-rc.4
+
+Date: 2026-09-28
+
+Post-rc.3 adversarial hardening candidate. Carries the full v0.3.6 set plus the integrity/auth/concurrency fixes below.
+
+### Fixed
+
+- Existing-version update re-verifies the installed artifact bytes against immutable release metadata before activation, so a tampered or substituted on-disk binary cannot be re-activated by an update that otherwise matches metadata.
+- OAuth pending authorization allocation now has a global capacity bound, so unfinished authorization transactions cannot grow memory without limit.
+- Installation metadata writes are serialized per file and use UUID temporary names, so concurrent install/update operations cannot interleave or clobber the activation record.
+
+### Verification / promotion
+
+- Pre-candidate Windows Node 24 gate: 96 test files passed, 1 skipped; 664 tests passed, 23 skipped, 0 failed.
+- Hosted main CI `36363917293` passed on pre-candidate SHA `d361d192e6ad9d4a10fe1fed592e1912efafc3a9`.
+- rc.4 must still pass exact-candidate hosted CI, protected signed publication, clean Linux/Windows User Install, installed `/usage` browser acceptance, real ChatGPT/tunnel acceptance, signing-custody acceptance, and the final exact-candidate A01-A10 audit before stable promotion.
+
 ## 0.3.6-rc.3
 
 Date: 2026-09-27
