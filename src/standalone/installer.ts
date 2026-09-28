@@ -401,6 +401,7 @@ export async function installStandaloneRelease(
     if (!sameRelease(existing, installed)) {
       throw new Error("Standalone version already exists with a different artifact");
     }
+    await verifyInstalledReleaseBytes(options.installRoot, existing);
     return activateRelease(options.installRoot, existing, mutations);
   }
 

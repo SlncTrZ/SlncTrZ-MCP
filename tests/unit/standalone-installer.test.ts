@@ -305,6 +305,34 @@ describe("standalone installer", () => {
     await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
   });
 
+  it("refuses to reactivate an existing version whose executable was tampered", async () => {
+    const installRoot = await root();
+    const bytes = Buffer.from("verified-release");
+    const manifest = release("1.0.0", bytes);
+    await installStandaloneRelease({
+      installRoot,
+      manifest,
+      target: "linux-x64",
+      fetch: fetchBytes(bytes)
+    });
+    await writeFile(join(installRoot, "versions", "1.0.0", "slnctrz-mcp"), "tampered");
+    let fetchCalls = 0;
+    const noNetwork = (async () => {
+      fetchCalls += 1;
+      throw new Error("network must not be called");
+    }) as typeof fetch;
+
+    await expect(
+      installStandaloneRelease({
+        installRoot,
+        manifest,
+        target: "linux-x64",
+        fetch: noNetwork
+      })
+    ).rejects.toThrow(/size|SHA-256/u);
+    expect(fetchCalls).toBe(0);
+  });
+
   it("rolls back atomically to the previous verified version", async () => {
     const installRoot = await root();
     await installStandaloneRelease({

@@ -32,6 +32,7 @@ const PKCE_VERIFIER_PATTERN = /^[A-Za-z0-9\-._~]{43,128}$/u;
 const PKCE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const MAX_REDIRECT_URIS = 10;
 const DEFAULT_MAX_DYNAMIC_CLIENTS = 1_024;
+const DEFAULT_MAX_PENDING_AUTHORIZATIONS = 1_024;
 
 type StringRecord = Record<string, string | undefined>;
 
@@ -79,6 +80,7 @@ export interface OAuthServiceOptions {
   readonly ownerSecretHash: string;
   readonly audit?: AuthAuditSink;
   readonly maxDynamicClients?: number;
+  readonly maxPendingAuthorizations?: number;
   /** Durable store for dynamic public-client registrations (survives restart). */
   readonly dynamicClientStore?: {
     readonly load: () => readonly DynamicClientRecord[];
@@ -273,6 +275,7 @@ export class OAuthService implements OAuthTokenVerifier {
   readonly #now: () => number;
   readonly #audit: AuthAuditSink;
   readonly #maxDynamicClients: number;
+  readonly #maxPendingAuthorizations: number;
   readonly #dynamicClientStore?: OAuthServiceOptions["dynamicClientStore"];
   readonly #staticRedirectStore?: OAuthServiceOptions["staticRedirectStore"];
   readonly #staticClientId: string | undefined;
@@ -302,6 +305,14 @@ export class OAuthService implements OAuthTokenVerifier {
     this.#maxDynamicClients = options.maxDynamicClients ?? DEFAULT_MAX_DYNAMIC_CLIENTS;
     if (!Number.isSafeInteger(this.#maxDynamicClients) || this.#maxDynamicClients <= 0) {
       throw new RangeError("maxDynamicClients must be a positive safe integer");
+    }
+    this.#maxPendingAuthorizations =
+      options.maxPendingAuthorizations ?? DEFAULT_MAX_PENDING_AUTHORIZATIONS;
+    if (
+      !Number.isSafeInteger(this.#maxPendingAuthorizations) ||
+      this.#maxPendingAuthorizations <= 0
+    ) {
+      throw new RangeError("maxPendingAuthorizations must be a positive safe integer");
     }
     this.#dynamicClientStore = options.dynamicClientStore;
     this.#staticRedirectStore = options.staticRedirectStore;
@@ -483,6 +494,12 @@ export class OAuthService implements OAuthTokenVerifier {
 
   beginAuthorization(parameters: StringRecord): PendingAuthorizationResponse {
     this.#purgeExpired();
+    if (this.#pending.size >= this.#maxPendingAuthorizations) {
+      throw new OAuthError(
+        OAuthErrorCode.TooManyRequests,
+        "Pending authorization capacity is temporarily exhausted"
+      );
+    }
     if (parameters.response_type !== "code") {
       throw new OAuthError(OAuthErrorCode.UnsupportedResponseType, "response_type must be code");
     }

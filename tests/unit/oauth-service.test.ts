@@ -455,6 +455,29 @@ describe("OAuthService", () => {
     );
   });
 
+  it("bounds pending authorization allocations globally", () => {
+    const service = new OAuthService({
+      issuer: new URL("https://mcp.example.com"),
+      resource: RESOURCE,
+      ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
+      maxPendingAuthorizations: 2
+    });
+    const clientId = registerTestClient(service);
+    const base = {
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.example.com/oauth/callback",
+      code_challenge: service.pkceChallenge("p".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    };
+
+    service.beginAuthorization({ ...base, state: "one" });
+    service.beginAuthorization({ ...base, state: "two" });
+    expect(() => service.beginAuthorization({ ...base, state: "three" })).toThrowError(OAuthError);
+  });
+
   it("verifies audience, expiry, scope, and rotates refresh tokens", async () => {
     const service = createService();
     const clientId = registerTestClient(service);

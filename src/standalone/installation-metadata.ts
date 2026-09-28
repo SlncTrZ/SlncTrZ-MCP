@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import * as z from "zod/v4";
 
 export type InstallMode = "user" | "system";
@@ -26,6 +26,30 @@ export interface InstallationMetadata {
   readonly initialPath: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+const mutationQueues = new Map<string, Promise<void>>();
+
+async function withFileMutation<T>(path: string, operation: () => Promise<T>): Promise<T> {
+  const key = resolve(path);
+  const prior = mutationQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolveGate) => {
+    release = resolveGate;
+  });
+  const tail = prior.catch(() => undefined).then(() => gate);
+  mutationQueues.set(key, tail);
+  await prior.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (mutationQueues.get(key) === tail) {
+      void tail.finally(() => {
+        if (mutationQueues.get(key) === tail) mutationQueues.delete(key);
+      });
+    }
+  }
 }
 
 const schema = z
@@ -91,16 +115,18 @@ export async function writeInstallationMetadata(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now
   });
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-      flag: "wx"
-    });
-    await rename(temporary, path);
-  } finally {
-    await rm(temporary, { force: true }).catch(() => undefined);
-  }
-  return metadata;
+  return withFileMutation(path, async () => {
+    const temporary = `${path}.tmp-${randomUUID()}`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx"
+      });
+      await rename(temporary, path);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
+    return metadata;
+  });
 }
