@@ -209,7 +209,7 @@ function showError(el,msg){el.textContent=msg;el.classList.remove('hidden')}
 function clearError(el){el.classList.add('hidden')}
 function renderOverview(d){const commands=d.commands||[];const commandStatus=d.commandCatalog?.status||'unknown';q('overview-command-count').textContent=String(commands.length);q('overview-command-note').textContent=commandStatus==='ready'?'ready':commandStatus;const s=d.mcpSummary||{total:(d.mcpServers||[]).length,working:0,attention:0,error:0,disabled:0};q('overview-mcp-count').textContent=String(s.total);q('overview-mcp-working').textContent=String(s.working)+' working';q('overview-mcp-error').textContent=String(s.error)+' error';q('overview-mcp-attention').textContent=String(s.attention)+' attention';q('overview-mcp-disabled').textContent=String(s.disabled)+' disabled';q('overview-mcp-attention-row').classList.toggle('hidden',!s.attention);q('overview-mcp-disabled-row').classList.toggle('hidden',!s.disabled)}
 function renderAdvanced(d){const p=d.product||{};q('advanced-version').textContent=p.version||'unknown';q('advanced-build').textContent=p.buildCommit?String(p.buildCommit).slice(0,8):'unknown';q('advanced-authority').textContent=d.authorityMode||'restricted';q('advanced-paths').textContent=String((d.paths||[]).length);q('advanced-state').textContent=p.stateRoot||'unknown';q('advanced-recovery').textContent=p.ownerPassphraseFile?'configured':'unavailable'}
-function renderConnections(list){const el=q('connections');el.replaceChildren();for(const c of list||[]){const grantId=String(c.grantId||c.connectionId||'');const label=String(c.label||c.clientId||'OAuth client');const profile=c.surfaceProfile||'full';const row=document.createElement('div');row.className='item conn-item';const main=document.createElement('div');main.className='grow';const top=document.createElement('div');top.className='conn-top';const title=document.createElement('div');title.className='conn-title';title.textContent=label;title.title=label;const badge=document.createElement('span');badge.className='conn-badge'+(profile==='full'?' full':'');badge.textContent=profile==='full'?'Full':'Gateway-only';const edit=document.createElement('button');edit.type='button';edit.className='conn-edit';edit.textContent='✎';edit.title='Rename connection';edit.setAttribute('aria-label','Rename '+label);const rename=document.createElement('input');rename.className='conn-rename hidden';rename.value=String(c.label||'');rename.maxLength=64;rename.placeholder='Agent name';rename.setAttribute('aria-label','New display name for '+label);const confirm=btn('Apply','btn-approve hidden',async()=>{await api('/owner/api/connections/label',{method:'PUT',body:JSON.stringify({grantId,label:rename.value})});await refresh()});const cancelEdit=()=>{rename.classList.add('hidden');confirm.classList.add('hidden');title.classList.remove('hidden');edit.classList.remove('hidden')};edit.onclick=()=>{const opening=rename.classList.contains('hidden');if(opening){title.classList.add('hidden');edit.classList.add('hidden');rename.classList.remove('hidden');confirm.classList.remove('hidden');rename.value=String(c.label||'');rename.focus();rename.select()}else cancelEdit()};rename.addEventListener('keydown',(event)=>{if(event.key==='Escape')cancelEdit();if(event.key==='Enter'){event.preventDefault();confirm.click()}});top.append(title,badge,edit,rename,confirm);main.append(top);const controls=document.createElement('div');controls.className='conn-controls';const select=document.createElement('select');select.setAttribute('aria-label','Tool surface for '+label);for(const value of ['full','gateway-only']){const option=document.createElement('option');option.value=value;option.textContent=value==='full'?'Full':'Gateway-only';select.appendChild(option)}select.value=profile;const apply=btn('Apply','btn-approve',async()=>{await api('/owner/api/connections/profile',{method:'PUT',body:JSON.stringify({grantId,surfaceProfile:select.value})});await refresh()});controls.append(select,apply);row.append(main,controls);el.appendChild(row)}if(!(list||[]).length){const empty=document.createElement('div');empty.className='empty';empty.textContent='No active OAuth connections.';el.appendChild(empty)}}
+function renderConnections(list){const el=q('connections');el.replaceChildren();for(const c of list||[]){const grantId=String(c.grantId||c.connectionId||'');const label=String(c.label||c.clientId||'OAuth client');const profile=c.surfaceProfile||'full';const row=document.createElement('div');row.className='item conn-item';const main=document.createElement('div');main.className='grow';const top=document.createElement('div');top.className='conn-top';const title=document.createElement('div');title.className='conn-title';title.textContent=label;title.title=label;const badge=document.createElement('span');badge.className='conn-badge'+(profile==='full'?' full':'');badge.textContent=profile==='full'?'Full':'Gateway-only';const edit=document.createElement('button');edit.type='button';edit.className='conn-edit';edit.textContent='✎';edit.title='Rename connection';edit.setAttribute('aria-label','Rename '+label);const rename=document.createElement('input');rename.className='conn-rename hidden';rename.value=String(c.label||'');rename.maxLength=64;rename.placeholder='Agent name';rename.setAttribute('aria-label','New display name for '+label);const confirm=btn('Apply','btn-approve hidden',async()=>{await api('/owner/api/connections/label',{method:'PUT',body:JSON.stringify({grantId,label:rename.value})});await refresh()});const cancelEdit=()=>{rename.classList.add('hidden');confirm.classList.add('hidden');title.classList.remove('hidden');edit.classList.remove('hidden')};edit.onclick=()=>{const opening=rename.classList.contains('hidden');if(opening){title.classList.add('hidden');edit.classList.add('hidden');rename.classList.remove('hidden');confirm.classList.remove('hidden');rename.value=String(c.label||'');rename.focus();rename.select()}else cancelEdit()};rename.addEventListener('keydown',(event)=>{if(event.key==='Escape')cancelEdit();if(event.key==='Enter'){event.preventDefault();confirm.click()}});top.append(title,badge,edit,rename,confirm);main.append(top);const controls=document.createElement('div');controls.className='conn-controls';const select=document.createElement('select');select.setAttribute('aria-label','Tool surface for '+label);for(const value of ['full','gateway-only']){const option=document.createElement('option');option.value=value;option.textContent=value==='full'?'Full':'Gateway-only';select.appendChild(option)}select.value=profile;const apply=btn('Apply','btn-approve',async()=>{await api('/owner/api/connections/profile',{method:'PUT',body:JSON.stringify({grantId,surfaceProfile:select.value})});await refresh()});const del=btn('Delete','btn-danger',async()=>{if(!confirm('Delete connection '+label+'? This revokes its access and cannot be undone.'))return;await api('/owner/api/connections',{method:'DELETE',body:JSON.stringify({grantId})});await refresh()});controls.append(select,apply,del);row.append(main,controls);el.appendChild(row)}if(!(list||[]).length){const empty=document.createElement('div');empty.className='empty';empty.textContent='No active OAuth connections.';el.appendChild(empty)}}
 async function refresh(){const d=await api('/owner/api/state');q('authority').value=d.authorityMode||'restricted';renderOverview(d);renderAdvanced(d);renderConnections(d.connections||[]);const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight()}
 function syncCommandHeight(){const card=q('commands-card'),col=document.querySelector('.app-grid > .col');if(card&&col)card.style.maxHeight=(col.offsetHeight)+'px'}
 window.addEventListener('resize',syncCommandHeight);
@@ -282,7 +282,11 @@ export function createOwnerWebConsole(options: {
   readonly mcpOrchestrator?: McpOwnerOrchestrator;
   readonly connections?: Pick<
     OwnerConnectionService,
-    "listConnections" | "setGrantProfile" | "setClientDefault" | "setConnectionLabel"
+    | "listConnections"
+    | "setGrantProfile"
+    | "setClientDefault"
+    | "setConnectionLabel"
+    | "revokeGrant"
   >;
   readonly debates?: Pick<
     DebateService,
@@ -635,6 +639,33 @@ export function createOwnerWebConsole(options: {
           throw error;
         }
         sendJson(res, 200, { grantId: body.grantId, label });
+        return true;
+      }
+      if (method === "DELETE" && pathname === "/owner/api/connections") {
+        if (!requireCsrf(req, res, session)) return true;
+        if (options.connections === undefined) {
+          sendJson(res, 503, {
+            error: {
+              code: "connections_unavailable",
+              message: "Connection profiles are unavailable"
+            }
+          });
+          return true;
+        }
+        const body = (await readBoundedJson(req, MAX_BODY_BYTES)) as { grantId?: unknown };
+        if (typeof body.grantId !== "string" || body.grantId.length === 0) {
+          sendJson(res, 400, {
+            error: { code: "invalid_grant_id", message: "grantId is required" }
+          });
+          return true;
+        }
+        if (!options.connections.revokeGrant(body.grantId)) {
+          sendJson(res, 404, {
+            error: { code: "unknown_grant", message: "Connection grant no longer exists" }
+          });
+          return true;
+        }
+        sendJson(res, 200, { grantId: body.grantId, revoked: true });
         return true;
       }
       if (pathname === "/owner/api/debates" && method === "GET") {

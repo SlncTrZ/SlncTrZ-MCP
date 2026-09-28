@@ -155,10 +155,11 @@ Required flow:
 7. add/remove Path;
 8. add/remove Command;
 9. add/test/sync/enable/disable/remove MCP provider;
-10. logout;
-11. login again;
-12. prove Owner-login abuse accounting is failure-only and pre-KDF fail-closed: more than ten successful logins from one peer remain successful, then ten invalid passphrases return 401, the next attempt returns 429 with `Retry-After`, and another attempt from that still-saturated direct peer is rejected with 429 until the fixed window resets even if it presents the correct passphrase;
-13. when public Owner Console behavior is claimed, prove a disallowed `Origin` on `/owner` returns 403 before Owner handler dispatch and confirm the allowed public Origin still works normally.
+10. delete a Connection (revoke a grant) and confirm it leaves the Connections list;
+11. logout;
+12. login again;
+13. prove Owner-login abuse accounting is failure-only and pre-KDF fail-closed: more than ten successful logins from one peer remain successful, then ten invalid passphrases return 401, the next attempt returns 429 with `Retry-After`, and another attempt from that still-saturated direct peer is rejected with 429 until the fixed window resets even if it presents the correct passphrase;
+14. when public Owner Console behavior is claimed, prove a disallowed `Origin` on `/owner` returns 403 before Owner handler dispatch and confirm the allowed public Origin still works normally.
 
 Record local loopback HTTP and, if claimed, public HTTPS behavior separately. Shared tunnel/proxy deployments may intentionally share the direct-peer failure bucket; per-client abuse controls belong at a trusted edge unless a separately reviewed trusted-proxy identity contract is enabled.
 
@@ -171,6 +172,7 @@ Autonomy:
 Paths:
 Commands:
 MCP provider:
+Connections:
 logout/login:
 Owner failure budget:
 Origin gate:

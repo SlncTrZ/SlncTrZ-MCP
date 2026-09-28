@@ -33,6 +33,7 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     const profiles: { grantId: string; profile: "full" | "gateway-only" }[] = [];
     const defaults: { clientId: string; profile: "full" | "gateway-only" }[] = [];
     const labels: { grantId: string; label: string }[] = [];
+    const revokedGrants: string[] = [];
     const ownerStops: string[] = [];
     const ownerResumes: string[] = [];
     const ownerDeletes: string[] = [];
@@ -88,6 +89,11 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
         },
         setConnectionLabel(grantId, label) {
           labels.push({ grantId, label });
+        },
+        revokeGrant(grantId) {
+          if (grantId !== "grant-1") return false;
+          revokedGrants.push(grantId);
+          return true;
         }
       },
       debates: {
@@ -239,9 +245,19 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     expect(ownerPage).not.toContain("/owner/api/connections/default");
     expect(ownerPage).not.toContain("Save as default for future grants of this client");
     expect(ownerPage).toContain("/owner/api/connections/label");
+    expect(ownerPage).toContain("Delete connection ");
     expect(ownerPage).toContain('href="/debate"');
 
     expect((await fetch(`${origin}/owner/api/connections`)).status).toBe(401);
+    expect(
+      (
+        await fetch(`${origin}/owner/api/connections`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ grantId: "grant-1" })
+        })
+      ).status
+    ).toBe(401);
     expect((await fetch(`${origin}/owner/api/debates`)).status).toBe(401);
 
     const login = await fetch(`${origin}/owner/api/login`, {
@@ -295,6 +311,38 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     });
     expect(badRename.status).toBe(400);
     expect(labels).toHaveLength(1);
+
+    const missingCsrfDelete = await fetch(`${origin}/owner/api/connections`, {
+      method: "DELETE",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ grantId: "grant-1" })
+    });
+    expect(missingCsrfDelete.status).toBe(403);
+    expect(revokedGrants).toHaveLength(0);
+
+    const missingGrantId = await fetch(`${origin}/owner/api/connections`, {
+      method: "DELETE",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({})
+    });
+    expect(missingGrantId.status).toBe(400);
+
+    const unknownGrantDelete = await fetch(`${origin}/owner/api/connections`, {
+      method: "DELETE",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ grantId: "grant-unknown" })
+    });
+    expect(unknownGrantDelete.status).toBe(404);
+    expect(revokedGrants).toHaveLength(0);
+
+    const deletedConnection = await fetch(`${origin}/owner/api/connections`, {
+      method: "DELETE",
+      headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
+      body: JSON.stringify({ grantId: "grant-1" })
+    });
+    expect(deletedConnection.status).toBe(200);
+    expect(await deletedConnection.json()).toEqual({ grantId: "grant-1", revoked: true });
+    expect(revokedGrants).toEqual(["grant-1"]);
 
     const debates = await fetch(`${origin}/owner/api/debates`, { headers: { cookie } });
     expect(await debates.json()).toEqual({

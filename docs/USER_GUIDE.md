@@ -121,6 +121,14 @@ Do not share, re-submit, or repeatedly reopen that one-time URL. It contains OAu
 
 Normal gateway restarts preserve acknowledged OAuth grants/token families, with access/refresh credentials stored only as hashes/metadata. A browser authorization flow already in progress is different: pending authorization transactions and codes are process-local, so restart that flow after a gateway restart instead of reusing an old callback/code URL.
 
+### Manage connections
+
+Every completed authorization creates a **Connection** (one OAuth grant) shown in the Owner Console **Connections** card. From that card the Owner can:
+
+- **Rename** a connection with the pencil control; the label is display-only.
+- **Change the Tool Surface** between Full and Gateway-only for that grant.
+- **Delete** a connection to revoke that grant immediately. Deleting a connection removes its access and cannot be undone; the client must authorize again to reconnect. Deleting a connection does not by itself remove a dynamically registered client, which is revoked separately through the loopback control plane.
+
 ## Core file tools you will see
 
 The built-in file surface uses the current names `core.read`, `core.search`, `core.write`, and `core.edit`. They all remain subject to the active authority/policy boundary; their presence does not grant access outside configured authority.
