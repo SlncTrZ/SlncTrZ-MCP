@@ -54,28 +54,23 @@ if (directInventoryStart < 0 || directInventoryEnd <= directInventoryStart) {
   throw new Error("docs_contract_failed: PROVENANCE direct dependency inventory section missing");
 }
 const directInventory = provenance.slice(directInventoryStart, directInventoryEnd);
-const [
-  userGuide,
-  adrIndex,
-  standaloneWorkflow,
-  ciWorkflow,
-  changelog,
-  release035,
-  adr008,
-  adr020
-] = await Promise.all([
-  readFile(join(root, "docs", "USER_GUIDE.md"), "utf8"),
-  readFile(join(root, "docs", "adr", "README.md"), "utf8"),
-  readFile(join(root, ".github", "workflows", "standalone.yml"), "utf8"),
-  readFile(join(root, ".github", "workflows", "ci.yml"), "utf8"),
-  readFile(join(root, "CHANGELOG.md"), "utf8"),
-  readFile(join(root, "docs", "releases", "v0.3.5.md"), "utf8"),
-  readFile(join(root, "docs", "adr", "adr-008-standalone-packaging-runtime-separation.md"), "utf8"),
-  readFile(
-    join(root, "docs", "adr", "adr-020-bounded-isolated-mcp-extension-transports.md"),
-    "utf8"
-  )
-]);
+const [userGuide, adrIndex, standaloneWorkflow, ciWorkflow, changelog, release035, adr008, adr020] =
+  await Promise.all([
+    readFile(join(root, "docs", "USER_GUIDE.md"), "utf8"),
+    readFile(join(root, "docs", "adr", "README.md"), "utf8"),
+    readFile(join(root, ".github", "workflows", "standalone.yml"), "utf8"),
+    readFile(join(root, ".github", "workflows", "ci.yml"), "utf8"),
+    readFile(join(root, "CHANGELOG.md"), "utf8"),
+    readFile(join(root, "docs", "releases", "v0.3.5.md"), "utf8"),
+    readFile(
+      join(root, "docs", "adr", "adr-008-standalone-packaging-runtime-separation.md"),
+      "utf8"
+    ),
+    readFile(
+      join(root, "docs", "adr", "adr-020-bounded-isolated-mcp-extension-transports.md"),
+      "utf8"
+    )
+  ]);
 
 function requireText(haystack, needle, label) {
   if (!haystack.includes(needle)) {
@@ -195,12 +190,8 @@ requireText(release, "protected GitHub Environment `release-signing`", "RELEASE"
 requireText(release, "no repository-level or organization-level duplicate", "RELEASE");
 requireText(release, "disposable Ed25519 verification key", "RELEASE");
 requireText(readme, "Ed25519 trust root", "README");
-requireText(
-  readme,
-  `The current source line, v${pkg.version}, focuses on closing the Master Audit and follow-up hardening work`,
-  "README"
-);
-requireText(readme, "GitHub's latest stable release remains v0.3.5", "README");
+requireText(readme, `The v${pkg.version} line includes`, "README");
+requireText(readme, "Release status is determined by the published GitHub release", "README");
 requireText(threatModel, "Ed25519 publisher signature", "THREAT_MODEL");
 requireText(threatModel, "Release signing-key misuse", "THREAT_MODEL");
 requireText(

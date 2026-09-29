@@ -94,7 +94,7 @@ The engineering is ahead of the community.
 
 We consider the core safety model, architecture, release model, and extension path mature enough to put in front of more real users. The weak point today is adoption: SlncTrZ-MCP is still a small project with very limited stars, forks, third-party integrations, independent review, and community testing.
 
-We are not going to hide that behind marketing language. The current source line, v0.3.6-rc.4, focuses on closing the Master Audit and follow-up hardening work: safer OAuth failure handling, bounded provider flapping, durable diagnostics, passive-telemetry health, clearer current contracts, and publisher-authenticated update manifests. GitHub's latest stable release remains v0.3.5 until this candidate completes its remaining acceptance gates.
+We are not going to hide that behind marketing language. The v0.3.6 line includes safer OAuth failure handling, bounded provider flapping, durable diagnostics, passive-telemetry health, clearer current contracts, and publisher-authenticated update manifests. Release status is determined by the published GitHub release and its acceptance evidence, not by the source version alone.
 
 If the idea is useful to you, the most valuable contributions right now are straightforward: **try it, break it, report what is confusing, open issues, review the security model, and tell us which clients or workflows need better support.**
 
