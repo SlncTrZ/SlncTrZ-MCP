@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { DebateError } from "../../src/debate/index.js";
@@ -247,6 +248,56 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     expect(ownerPage).toContain("/owner/api/connections/label");
     expect(ownerPage).toContain("Delete connection ");
     expect(ownerPage).toContain('href="/debate"');
+
+    // Exercise the actual page callback: an Apply button named "confirm" must not shadow
+    // the browser confirmation used by Delete.
+    const renderBody = ownerPage
+      .split("function renderConnections(list)")[1]
+      ?.split("async function refresh()")[0];
+    expect(renderBody).toBeDefined();
+    let deleteClick: (() => Promise<void>) | undefined;
+    const pageCalls: { path: string; method: string | undefined; body: string | undefined }[] = [];
+    const node = () => ({
+      classList: { add: () => undefined, remove: () => undefined, contains: () => true },
+      append: () => undefined,
+      appendChild: () => undefined,
+      replaceChildren: () => undefined,
+      setAttribute: () => undefined,
+      addEventListener: () => undefined,
+      focus: () => undefined,
+      select: () => undefined,
+      value: "",
+      textContent: ""
+    });
+    runInNewContext(
+      "function renderConnections(list)" +
+        renderBody +
+        ";renderConnections([{grantId:'grant-1',label:'Agent 1',surfaceProfile:'full'}]);",
+      {
+        document: { createElement: node },
+        q: () => node(),
+        btn: (label: string, _className: string, callback: () => Promise<void>) => {
+          if (label === "Delete") deleteClick = callback;
+          return node();
+        },
+        api: async (path: string, options: { method?: string; body?: string }) => {
+          pageCalls.push({ path, method: options.method, body: options.body });
+        },
+        refresh: async () => undefined,
+        window: { confirm: () => true },
+        String,
+        JSON
+      }
+    );
+    expect(deleteClick).toBeDefined();
+    await deleteClick?.();
+    expect(pageCalls).toEqual([
+      {
+        path: "/owner/api/connections",
+        method: "DELETE",
+        body: JSON.stringify({ grantId: "grant-1" })
+      }
+    ]);
 
     expect((await fetch(`${origin}/owner/api/connections`)).status).toBe(401);
     expect(

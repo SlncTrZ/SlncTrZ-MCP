@@ -216,6 +216,54 @@ describe("Debate owner page foundation", () => {
     ).toEqual(["Alpha · creator", "Alpha · joiner"]);
   });
 
+  it("sends the Owner CSRF token when Delete has no request body", async () => {
+    const script = debatePageHtml().split("<script>\n")[1]?.split("\n</script>")[0];
+    expect(script).toBeDefined();
+    const elements = new Map<string, FakeElement>();
+    const handlers = new Map<string, () => Promise<void>>();
+    const calls: {
+      path: string;
+      method: string | undefined;
+      headers: Record<string, string> | undefined;
+    }[] = [];
+    const element = (id: string): FakeElement => {
+      let found = elements.get(id);
+      if (!found) {
+        found = fakeElement();
+        found.addEventListener = (type, listener) => {
+          if (type === "click") handlers.set(id, listener as () => Promise<void>);
+        };
+        elements.set(id, found);
+      }
+      return found;
+    };
+    runInNewContext(script?.replace("boot();", "csrf='csrf-test';currentId='debate-1';") ?? "", {
+      document: { getElementById: element, createElement: fakeElement },
+      fetch: async (
+        path: string,
+        options?: { method?: string; headers?: Record<string, string> }
+      ) => {
+        calls.push({ path, method: options?.method, headers: options?.headers });
+        return { ok: true, json: async () => ({ debates: [] }) };
+      },
+      confirm: () => true,
+      setTimeout: () => 0,
+      encodeURIComponent,
+      Date,
+      Error,
+      String,
+      Number,
+      Math
+    });
+
+    await handlers.get("delete-action")?.();
+    expect(calls.find((call) => call.method === "DELETE")).toMatchObject({
+      path: "/owner/api/debates/debate-1",
+      headers: { "x-slnctrz-csrf": "csrf-test" }
+    });
+    expect(element("page-error").textContent).toBe("");
+  });
+
   it("keeps browser refresh bounded and reconnects from the last observed sequence", () => {
     const html = debatePageHtml();
 

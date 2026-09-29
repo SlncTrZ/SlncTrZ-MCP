@@ -25,7 +25,7 @@ import { DebateWaiterRegistry } from "./waiters.js";
 export const DEFAULT_DEBATE_PICKUP_TIMEOUT_MS = 2 * 60_000;
 export const DEFAULT_DEBATE_RESPONSE_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_DEBATE_REQUEST_WAIT_MS = 20_000;
-export const MAX_DEBATE_REQUEST_WAIT_MS = 25_000;
+export const MAX_DEBATE_REQUEST_WAIT_MS = DEFAULT_DEBATE_REQUEST_WAIT_MS;
 export const MIN_DEBATE_TURNS = 3;
 export const MAX_DEBATE_TURNS = 64;
 

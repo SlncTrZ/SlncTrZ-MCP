@@ -13,7 +13,11 @@ import {
   type AuthenticatedConnection,
   type SurfaceProfile
 } from "../auth/connection-profile.js";
-import { DebateError, type DebateService } from "../debate/index.js";
+import {
+  DebateError,
+  DEFAULT_DEBATE_REQUEST_WAIT_MS,
+  type DebateService
+} from "../debate/index.js";
 import {
   DEFAULT_MAX_EXEC_ARGS,
   HARD_EXEC_OUTPUT_CEILING_BYTES,
@@ -763,7 +767,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       {
         title: "Wait for Debate",
         description:
-          "Wait briefly for a Debate state change or your turn. The wait is bounded below the public HTTP request timeout.",
+          "Wait up to 20 seconds per call (default and maximum). To wait longer, repeat with the last seen afterSequence until your own overall deadline; timedOut only ends this call, not the Debate turn. Stop when the sequence changes, it is your turn, or the Debate ends.",
         annotations: {
           readOnlyHint: true,
           destructiveHint: false,
@@ -774,7 +778,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           .object({
             ...debateAuthSchema,
             afterSequence: z.number().int().nonnegative(),
-            maxWaitMs: z.number().int().positive().max(25_000).optional()
+            maxWaitMs: z.number().int().positive().max(DEFAULT_DEBATE_REQUEST_WAIT_MS).optional()
           })
           .strict()
       },

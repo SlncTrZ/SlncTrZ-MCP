@@ -184,6 +184,12 @@ describe("surface profile and Debate integration", () => {
     expect(fullNames).toContain("sample.echo");
     expect(fullNames).toContain("debate.create");
     expect(fullNames).toContain("connection.restrict");
+    const waitTool = fullList.result?.tools?.find((tool) => tool.name === "debate.wait") as
+      { description?: string; inputSchema?: unknown } | undefined;
+    expect(waitTool?.description).toContain("20 seconds per call");
+    expect(waitTool?.inputSchema).toMatchObject({
+      properties: { maxWaitMs: { maximum: 20_000 } }
+    });
 
     const fullProviderWithoutHarness = await rpc(firstToken, "tools/call", {
       name: "sample.echo",

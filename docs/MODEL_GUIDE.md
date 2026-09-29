@@ -101,6 +101,16 @@ Current Task Runtime state is intentionally **in-memory only**. Task IDs and sta
 
 `core.ping.structuredContent.managedTasks` is the machine-readable orientation summary for this surface. Its `advertisedTools` list mirrors the `task.*` tools currently exposed by `tools/list`; `runner.canStart` is true only when `task.start` is actually available under current `core.exec` authority. This summary is descriptive only and never grants capability authority.
 
+### Debate waits
+
+`debate.wait` holds one HTTP request for at most 20 seconds (the default and maximum). For an
+overall five-minute wait, set a client-side monotonic deadline and call it repeatedly with the last
+seen `afterSequence`. A `timedOut: true` result ends only that request: continue while the overall
+budget remains. Stop when the sequence advances, it becomes your turn, or the Debate reaches a
+terminal state; update `afterSequence` after reading the new sequence. On a transport failure, use
+bounded backoff and `debate.read` to recover. Pickup and response deadlines are separate from the
+HTTP wait and continue to run while the client is waiting.
+
 ---
 
 ## 3. Autonomy levels

@@ -52,7 +52,7 @@ const API='/owner/api/debates',POLL_MS=2500;
 let csrf='',currentId=null,lastSequence=0,pollTimer=null,currentSnapshot=null;
 const q=id=>document.getElementById(id);
 async function api(path,opt={}){
-  const headers={...(opt.body?{'content-type':'application/json','x-slnctrz-csrf':csrf}:{}),...(opt.headers||{})};
+  const headers={...(opt.body?{'content-type':'application/json'}:{}),...(opt.method&&opt.method!=='GET'?{'x-slnctrz-csrf':csrf}:{}),...(opt.headers||{})};
   const r=await fetch(path,{...opt,headers});let d={};try{d=await r.json()}catch{}
   if(!r.ok){const e=new Error(d?.error?.message||('HTTP '+r.status));e.status=r.status;throw e}return d
 }

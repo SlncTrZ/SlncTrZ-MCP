@@ -8,6 +8,12 @@ User-visible product changes are recorded here. Internal commit history is not a
 
 - Owner Console Connections card can now **delete** a connection (revoke one OAuth grant) directly, with a confirmation prompt. This is the per-grant delete the earlier cards lacked; it revokes that grant's access immediately and cannot be undone.
 
+### Fixed
+
+- The Connections Delete button now opens its confirmation and sends the revocation request.
+- The Debate page sends the Owner CSRF token when deleting a debate without a request body.
+- `debate.wait` advertises the effective 20-second per-call limit and explains how to repeat bounded waits for a longer overall wait.
+
 ## 0.3.6-rc.4
 
 Date: 2026-09-28

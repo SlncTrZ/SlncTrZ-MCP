@@ -563,6 +563,11 @@ describe("durable Debate service", () => {
     );
     service.read({ auth: a });
 
+    await expect(service.wait({ auth: b, afterSequence: 0, maxWaitMs: 251 })).rejects.toMatchObject(
+      {
+        code: "invalid_input"
+      }
+    );
     const waiting = service.wait({ auth: b, afterSequence: 0, maxWaitMs: 200 });
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
     service.send({
