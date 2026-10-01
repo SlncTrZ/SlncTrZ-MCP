@@ -608,11 +608,11 @@ export function createTaskRuntime(options: TaskRuntimeOptions = {}): TaskRuntime
 
     shutdown(shutdownOptions = {}) {
       if (shutdownPromise !== undefined) return shutdownPromise;
-      accepting = false;
       const timeoutMs = shutdownOptions.timeoutMs ?? DEFAULT_TASK_RUNTIME_SHUTDOWN_TIMEOUT_MS;
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
         return Promise.reject(new RangeError("Task runtime shutdown timeout must be positive"));
       }
+      accepting = false;
       shutdownPromise = (async () => {
         const running = [...runnerTasks.values()].filter((task) => task.state === "running");
         for (const task of running) requestRunnerCancel(task);

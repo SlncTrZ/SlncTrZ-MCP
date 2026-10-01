@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   installStandaloneRelease,
   resolveCurrentStandaloneExecutable,
+  restoreStandaloneActivation,
   rollbackStandaloneRelease,
   verifyCurrentStandaloneIntegrity
 } from "../../src/standalone/installer.js";
@@ -331,6 +332,29 @@ describe("standalone installer", () => {
       })
     ).rejects.toThrow(/size|SHA-256/u);
     expect(fetchCalls).toBe(0);
+  });
+
+  it("refuses failure restoration when previous bytes changed and preserves current activation", async () => {
+    const installRoot = await root();
+    const previous = await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.0.0", Buffer.from("one")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("one"))
+    });
+    await installStandaloneRelease({
+      installRoot,
+      manifest: release("1.1.0", Buffer.from("two")),
+      target: "linux-x64",
+      fetch: fetchBytes(Buffer.from("two"))
+    });
+    const current = await readFile(join(installRoot, "current.json"), "utf8");
+    await writeFile(join(installRoot, "versions", "1.0.0", "slnctrz-mcp"), "bad");
+    await expect(restoreStandaloneActivation(installRoot, previous)).rejects.toThrow(/SHA-256/u);
+    expect(await readFile(join(installRoot, "current.json"), "utf8")).toBe(current);
+    await writeFile(join(installRoot, "versions", "1.0.0", "slnctrz-mcp"), "one");
+    await restoreStandaloneActivation(installRoot, previous);
+    await expect(currentVersion(installRoot)).resolves.toBe("1.0.0");
   });
 
   it("rolls back atomically to the previous verified version", async () => {

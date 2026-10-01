@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { installStandaloneRelease } from "../../src/standalone/installer.js";
 import { currentReleaseTarget } from "../../src/standalone/release-manifest.js";
 import { prepareProductSetup } from "../../src/standalone/product-setup.js";
 import {
@@ -58,6 +59,80 @@ const setupDependencies = (bytes: Buffer) => ({
 });
 
 describe("system service setup", () => {
+  it.skipIf(process.platform !== "linux").each([false, true])(
+    "only restarts recovery after verified activation restoration (tampered=%s)",
+    async (tampered) => {
+      const root = await directory("slnctrz-system-restore-");
+      const workspace = await directory("slnctrz-system-restore-workspace-");
+      const setup = await prepareProductSetup(
+        {
+          installMode: "system",
+          initialPath: workspace,
+          manifestUrl: "https://updates.example.test/manifest.json",
+          installRoot: join(root, "install"),
+          stateRoot: join(root, "state"),
+          configRoot: join(root, "config")
+        },
+        setupDependencies(Buffer.from("previous-release"))
+      );
+      const rollbackActivation = setup.activation;
+      const bytes = Buffer.from("replacement-release");
+      const activation = await installStandaloneRelease({
+        installRoot: setup.installation.installRoot,
+        target: currentReleaseTarget(),
+        manifest: {
+          schemaVersion: 1,
+          version: "1.2.4",
+          artifacts: [
+            {
+              target: currentReleaseTarget(),
+              url: "https://objects.example.test/replacement",
+              sha256: createHash("sha256").update(bytes).digest("hex"),
+              sizeBytes: bytes.byteLength,
+              fileName: rollbackActivation.fileName
+            }
+          ]
+        },
+        fetch: (async () => new Response(bytes)) as typeof fetch
+      });
+      if (tampered)
+        await writeFile(
+          join(
+            setup.installation.installRoot,
+            "versions",
+            rollbackActivation.version,
+            rollbackActivation.fileName
+          ),
+          "changed-previous"
+        );
+      const current = await readFile(join(setup.installation.installRoot, "current.json"), "utf8");
+      let restarts = 0;
+      const run: SystemCommandRunner = async (command, args) => {
+        if (command === "systemctl" && args[0] === "restart") {
+          restarts += 1;
+          if (restarts === 1) return { code: 1, stdout: "", stderr: "injected restart failure" };
+        }
+        if (args.includes("--property=User"))
+          return { code: 0, stdout: runtimeIdentity.username, stderr: "" };
+        if (args.includes("--property=Group"))
+          return { code: 0, stdout: runtimeIdentity.groupName, stderr: "" };
+        if (args.includes("--property=MainPID")) return { code: 0, stdout: "111", stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      await expect(
+        activateSystemService(
+          { ...setup, activation, rollbackActivation },
+          { run, isRoot: () => true, serviceUnitRoot: join(root, "systemd") }
+        )
+      ).rejects.toThrow(
+        tampered ? "service_activation_rollback_failed" : "injected restart failure"
+      );
+      expect(restarts).toBe(tampered ? 1 : 2);
+      const restored = await readFile(join(setup.installation.installRoot, "current.json"), "utf8");
+      if (tampered) expect(restored).toBe(current);
+      else expect(JSON.parse(restored)).toMatchObject({ version: rollbackActivation.version });
+    }
+  );
   it.skipIf(process.platform !== "linux")(
     "uses the invoking runtime account, renders the unit, enables service, and health-checks",
     async () => {

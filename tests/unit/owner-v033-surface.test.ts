@@ -255,6 +255,10 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
       .split("function renderConnections(list)")[1]
       ?.split("async function refresh()")[0];
     expect(renderBody).toBeDefined();
+    const errorHelpers = ownerPage
+      .split("function showError")[1]
+      ?.split("function renderOverview")[0];
+    expect(errorHelpers).toBeDefined();
     let deleteClick: (() => Promise<void>) | undefined;
     const pageCalls: { path: string; method: string | undefined; body: string | undefined }[] = [];
     const node = () => ({
@@ -270,7 +274,9 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
       textContent: ""
     });
     runInNewContext(
-      "function renderConnections(list)" +
+      "function showError" +
+        errorHelpers +
+        "function renderConnections(list)" +
         renderBody +
         ";renderConnections([{grantId:'grant-1',label:'Agent 1',surfaceProfile:'full'}]);",
       {

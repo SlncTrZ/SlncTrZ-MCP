@@ -87,6 +87,23 @@ function handle() {
 }
 
 describe("in-process task runtime", () => {
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "keeps admitting tasks after invalid shutdown timeout %s",
+    async (timeoutMs) => {
+      const runtime = createTaskRuntime({ id: () => "after-invalid-shutdown" });
+      await expect(runtime.shutdown({ timeoutMs })).rejects.toThrow(RangeError);
+      const process = handle();
+      await expect(
+        runtime.start(ACTOR, "policy-1", async () => process.managed)
+      ).resolves.toMatchObject({ state: "running" });
+      await runtime.shutdown({ timeoutMs: 1_000 });
+      expect(process.cancelCalls()).toBe(1);
+      expect(runtime.get(ACTOR, "after-invalid-shutdown").state).toBe("cancelled");
+      await expect(
+        runtime.start(ACTOR, "policy-1", async () => handle().managed)
+      ).rejects.toMatchObject({ code: "task_invalid_state" });
+    }
+  );
   it("tracks a managed process from running to completed", async () => {
     const runtime = createTaskRuntime({ id: () => "task-1" });
     const process = handle();

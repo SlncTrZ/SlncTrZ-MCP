@@ -537,7 +537,8 @@ export async function activateSystemService(
     } catch (rollbackError) {
       failures.push(rollbackError);
     }
-    if (configured.previousMainPid > 0) {
+    // Restart recovery only after both activation and configuration were restored.
+    if (configured.previousMainPid > 0 && failures.length === 0) {
       try {
         await requireSuccess(run, "systemctl", ["restart", configured.serviceName]);
       } catch (rollbackError) {
