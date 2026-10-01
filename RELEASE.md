@@ -1,6 +1,9 @@
 # Release process
 
-This document is the current public-release contract for SlncTrZ-MCP.
+This guide is for maintainers building and publishing releases. For installing/updating a gateway,
+use [README](README.md) or [User Guide](docs/USER_GUIDE.md).
+
+It defines release requirements; it does not certify that every external acceptance gate has passed.
 
 The active release line is **0.3.x**. Source history, package version, standalone binary identity, release manifest, and public tag must agree before publication.
 
@@ -127,10 +130,9 @@ npm run release:preflight:windows
 
 The preflight fails unless the worktree is clean, the branch is `main`, local HEAD matches
 `origin/main`, Node is inside the supported range, GitHub CLI authentication can access this
-repository with push permission, and `docs/releases/v<version>.md` exists. On the project hosts,
-`/mnt/pc-dev/SlncTrZ-MCP` on the Linux gateway host and `H:\Develop\SlncTrZ-MCP` on the Windows
-workstation refer to the same development tree; release commands should still use the native path
-for the platform executing them.
+repository with push permission, and `docs/releases/v<version>.md` exists. Run release commands
+using native paths for the platform executing them; do not assume a contributor shares the
+maintainer's mounted development tree.
 
 ### Quality
 
@@ -249,7 +251,7 @@ curl --fail --location --proto '=https' --tlsv1.2 \
   https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest/download/install.sh \
   --output /tmp/slnctrz-install.sh
 
-sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME"
+sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME/projects"
 ```
 
 `install.sh`:
@@ -266,7 +268,7 @@ sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME"
 Windows Git Bash example:
 
 ```bash
-sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME"
+sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME/projects"
 ```
 
 After setup, the Windows runtime is native `slnctrz-mcp.exe`; Git Bash, Node.js, npm, and the repository are not runtime dependencies.
@@ -403,11 +405,12 @@ General-user release readiness remains blocked when critical evidence required b
 - browser evidence for Owner Console claims;
 - real-client evidence for named client claims.
 
-## v0.3.0 migration
+## Upgrading from pre-v0.3.0 clients
 
-This release adds global coding instructions and progressive Agent Skills. Setup/first start seeds
+v0.3.0 introduced global coding instructions and progressive Agent Skills. Setup/first start seeds
 `<stateRoot>/harness/` once; owner edits remain outside the release directory. Clients must refresh
-MCP tool discovery and perform context.bootstrap before ordinary work calls. Context receipts are
+MCP tool discovery; Full connections perform context.bootstrap before ordinary work calls.
+Gateway-only connections do not expose coding-context tools. Context receipts are
 in-memory, expire after four hours and must be renewed after restart or instruction/policy changes.
 Read [HARNESS.md](docs/HARNESS.md) and [CODING_AGENTS.md](docs/CODING_AGENTS.md) before upgrading
 an automated integration. Existing authorization and provider ownership remain unchanged.

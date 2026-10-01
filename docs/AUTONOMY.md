@@ -2,6 +2,10 @@
 
 SlncTrZ-MCP is designed to be useful for real work. Its autonomy setting tells the owner how directly the model may use the authority of the operating-system account running the gateway.
 
+Tool profiles are separate: Full/Gateway-only filters one connection's tool catalog, while
+Restricted/Autonomous sets runtime authority. Gateway-only does not sandbox a provider's tools.
+See [User Guide](USER_GUIDE.md#4-manage-connections-and-tool-profiles) for profile controls.
+
 ## Restricted
 
 Choose **Restricted** when you want to explicitly curate the model-facing capability surface.

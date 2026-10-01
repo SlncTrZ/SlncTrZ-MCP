@@ -2,7 +2,11 @@
 
 > Scope: current schema-v2 gateway architecture. Historical workspace/profile/binding/proposal models belong in ADR history, not in the active security contract.
 > Status: active implementation gate
-> Updated: 2026-09-09
+> Reviewed against v0.3.6 source: 2026-10-01
+>
+> Audience: contributors and security reviewers. For practical configuration, start with
+> [User Guide](USER_GUIDE.md) and [Deployment](DEPLOYMENT.md). This document states controls
+> and residual risks; its acceptance requirements are not a blanket claim of live verification.
 
 ## 1. Security objective
 
@@ -21,7 +25,10 @@ MCP Servers
 
 Security mechanisms behind those concepts include OAuth, canonical path handling, secret-path protection in restricted mode, bounded I/O, command-catalog execution, provider isolation, credential separation, atomic generation activation, owner authentication, bounded audit/metrics and verified standalone releases.
 
-Authentication identifies and authenticates a client. Authorization comes from the active policy snapshot and selected authority mode.
+Authentication identifies a client and its OAuth grant/tool-surface profile. Full/Gateway-only
+filters discovery and dispatch in addition to the active policy and OS authority. Gateway-only
+hides coding/context/task tools while retaining provider and Debate tools; provider calls in that
+profile do not require coding-context receipts.
 
 ## 2. Authority modes
 
@@ -60,6 +67,7 @@ The gateway never silently elevates privileges.
 - Audit attribution and release/build provenance.
 - Integrity of the active runtime generation.
 - Integrity and bounded delivery of owner-edited global/project coding instructions and Agent Skills.
+- Debate membership, sequence/turn state and intentionally stored conversation history.
 
 ## 4. Trust boundaries
 
@@ -76,7 +84,10 @@ The gateway never silently elevates privileges.
 11. **Standalone release path** verifies release metadata and artifact bytes before activation.
 12. **Coding context runtime** discovers bounded global/project guidance, issues principal/policy/revision-bound receipts and gates ordinary dispatch before effects. A receipt proves delivery workflow only; it is not authority.
 
-Product/project instructions, coordination-task instructions/results, prompts, provider descriptions and MCP tool output are data, not capability grants.
+Product/project instructions, task/Debate content, prompts, provider descriptions and MCP tool
+output are data, not capability grants. Debate history persists content in a private SQLite store;
+it does not share the payload-free privacy contract of audit/usage. Protect its backups, enforce
+participant membership/turn checks, and stop active Debates before Owner deletion.
 
 ## 5. Threats and controls
 
@@ -98,7 +109,7 @@ Product/project instructions, coordination-task instructions/results, prompts, p
 | Coordination confused deputy     | Task text asks claimant to exceed current authority                     | Coordination text is context only; Kernel/Auth/Policy remains authoritative.                                                                                                  |
 | Coordination claim race          | Two clients believe they own the same logical task                      | Deterministic atomic single-winner claim in one gateway process.                                                                                                              |
 | Task-state exhaustion            | Client fills in-memory Runner/Coordinator capacity                      | Fixed bounds; Coordinator evicts only oldest terminal history, while active work remains non-evictable and full-active capacity fails loud.                                   |
-| Context bypass                   | Client calls a side-effecting tool without current guidance             | Ordinary core/image/task/provider dispatch validates a current receipt first and reports `operationExecuted: false` on preflight rejection.                                   |
+| Context bypass                   | Client calls a side-effecting tool without current guidance             | Full-connection core/image/task/provider dispatch validates a current receipt first and reports `operationExecuted: false` on preflight rejection.                            |
 | Context receipt exhaustion       | Expired or policy-stale receipts consume the bounded receipt store      | Fixed capacity; expiry/close reclaim entries and bootstrap removes receipts invalidated by the current workspace policy generation.                                           |
 | Skill/resource path escape       | Skill resource uses traversal or a symlink to read outside its root     | Dedicated bounded readers reject traversal, protected names, symlinks/junctions and paths outside the selected skill directory.                                               |
 | Windows command-script injection | `.cmd/.bat` metacharacters                                              | Reject unsafe command-script metacharacters and use controlled Windows invocation.                                                                                            |
@@ -347,7 +358,7 @@ Key test families:
 6. External OS/network/container policy remains necessary for untrusted multi-tenant workloads.
 7. Build provenance is only as strong as the release/deployment process that injects and verifies it.
 
-## Follow-up hardening from the 2026-09-25 independent Opencode audit
+## Follow-up hardening from the 2026-09-25 Opencode agent review
 
 The follow-up review re-verified the reported High/Medium/Low findings against the current source rather than accepting the report classifications verbatim.
 

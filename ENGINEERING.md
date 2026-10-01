@@ -14,11 +14,11 @@ Source of truth is the `engines` field in `package.json` and the CI matrix.
 | `<22.13.0`      | Unsupported                                   |
 | `>=25`          | Unsupported until package/CI contract changes |
 
-Current development environment: Node `v24.18.0`, npm `11.16.0`. TypeScript
-`6.0.3`, lint with ESLint `10.9.1` and `typescript-eslint`, format with Prettier
-`3.9.6`, tests with Vitest `4.1.11`.
+Use supported Node 24 for development and the npm version declared in `package.json`.
+The package manifest and lockfile define compiler, linter, formatter and test-runner versions;
+a workstation's installed versions are not the project contract.
 
-### Operating systems (target matrix, PLAN Phase 8)
+### Operating systems
 
 | OS      | Arch  | Developer/source evidence | Standalone SEA evidence    |
 | ------- | ----- | ------------------------- | -------------------------- |
@@ -45,7 +45,11 @@ Source lives under `src/`, mapping to ARCHITECTURE components:
 | `src/auth`          | Authorization server (OAuth/PKCE)           |
 | `src/config`        | Configuration model and lifecycle           |
 | `src/control-plane` | Local control plane                         |
-| `src/gateway`       | Extension gateway + supervisor              |
+| `src/gateway`       | Snapshot/store composition                  |
+| `src/extension`     | Provider manifests, adapters and supervisor |
+| `src/owner`         | Owner Console and managed-state lifecycle   |
+| `src/debate`        | Durable two-participant Debate              |
+| `src/assets`        | Shipped runtime asset access                |
 | `src/kernel`        | Minimal tool kernel                         |
 | `src/observability` | Audit, metrics, logging                     |
 | `src/policy`        | Policy engine                               |
@@ -73,7 +77,7 @@ Sample configuration lives under `config/`.
 | `npm run lint:fix`             | ESLint autofix                                    |
 | `npm run format`               | Prettier write                                    |
 | `npm run format:check`         | Prettier check                                    |
-| `npm test`                     | Run unit tests (Vitest)                           |
+| `npm test`                     | Run configured Vitest suites                      |
 | `npm run test:watch`           | Watch mode                                        |
 | `npm run test:coverage`        | Coverage report                                   |
 | `npm run check`                | typecheck + lint + format:check + test            |
@@ -102,10 +106,11 @@ stable baseline. CI Node 24 uploads the JSON as `performance-baseline-linux-x64-
 - Usage of `any` is an error; `unknown` is preferred for external input.
 - No magic numbers. Centralised error handling. No comments unless they carry
   rationale (the project follows a no-noise-comment style).
-- Naming: `camelCase` for functions/variables, `PascalCase` for types, canonical tool
-  ids are `kebab/provider.tool` (e.g. `core.read`).
-- Every new or modified module carries the module docstring header:
-  `"""Module Name — one-line description. Wing: <wing> | Topic: <topic> | Updated: YYYY-MM-DD"""`.
+- Naming: `camelCase` for functions/variables, `PascalCase` for types, and canonical tool
+  IDs such as `core.read` or `<provider-id>.<tool-name>`. Provider IDs start with a lowercase
+  letter and contain lowercase letters, digits or hyphens.
+- Use TypeScript comments (`/** ... */`) for useful module purpose/rationale. Match the nearby
+  code; do not add Python-style docstrings or mandatory date stamps.
 
 ## Pre-commit checks
 

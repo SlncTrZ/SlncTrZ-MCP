@@ -79,7 +79,7 @@ and the orchestration still rolls back.
   non-loopback host names.
 - `tests/unit/extension-manifest.test.ts` — loopback-http manifest compiles;
   `http://x.example.com` / `http://192.168.1.10` still rejected.
-- `tests/unit/streamable-http-adapter.test.ts` — loopback-http endpoint constructs and
+- `tests/unit/extension-http-adapter.test.ts` — loopback-http endpoint constructs and
   completes the modern MCP handshake; a redirect to a different loopback port is
   rejected (`provider_protocol_error`).
 - `npm run check` passes (typecheck + lint + vitest).

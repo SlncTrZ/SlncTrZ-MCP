@@ -1,5 +1,8 @@
 # SlncTrZ-MCP Product Plan
 
+This is a contributor-facing scope and acceptance plan. For everyday use, start with the
+[User Guide](docs/USER_GUIDE.md); acceptance items here are requirements, not live PASS results.
+
 ## Product contract
 
 **Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.**
@@ -38,7 +41,8 @@ Editable global `AGENTS.md` and Agent Skills are coding guidance, not additional
 - Model-facing Owner Admin tools removed.
 - Legacy workspace-managed harness/instruction-context authority removed; the canonical Product Agent Harness from root `AGENTS.md` is delivered as product working guidance and remains non-authoritative.
 - Legacy fixed exec registry removed.
-- MCP workspace/profile/tool-subset grants removed; enabled provider = exposed provider.
+- Legacy workspace/profile/tool-subset provider grants removed; enabled/accepted/ready providers
+  are exposed. OAuth Full/Gateway-only profiles additionally filter built-in tool surfaces.
 - Owner Console remains small: Autonomy / Paths / Commands / MCP Servers with typed intents.
 
 ## Current release acceptance
@@ -52,7 +56,10 @@ npm run docs:check
 npm run build
 ```
 
-The Linux x64 standalone release must then pass version/build/hash identity, public GitHub release-asset redirect download, and clean User Install acceptance before promotion from prerelease candidate.
+The Linux x64 and Windows x64 standalone releases must pass native identity gates and clean
+public User Install acceptance. Promotion also requires installed `/usage` Chromium acceptance.
+See [Release Process](RELEASE.md) for the current workflow; signing custody and real-client
+claims require separately recorded evidence.
 
 Named client support still requires real-client acceptance on the **published installed artifact**, not only a development checkout:
 
@@ -61,7 +68,7 @@ Named client support still requires real-client acceptance on the **published in
 2. connect/authenticate Claude or ChatGPT
 3. core.ping reports shared Paths, supported capabilities and harness orientation
 4. tools/list contains context.bootstrap/context.close/skills.list/skills.read plus authorized core/media/task/provider tools
-5. context.bootstrap works global-only when no project AGENTS.md exists
+5. Full-connection context.bootstrap works global-only when no project AGENTS.md exists
 6. optional projectRoot adds project instructions/skills without widening filesystem authority
 7. absent, foreign or stale receipts reject ordinary work before effects; recovery executes the requested operation once
 8. core.write without dryRun applies
@@ -97,7 +104,7 @@ Autonomy guidance is part of the product contract:
 
 Security complexity belongs behind those surfaces: OAuth, path containment where applicable, secret handling, command selection, credential isolation, atomic generation activation, bounded execution and metadata-only audit.
 
-## v0.3.1 product visibility and usage telemetry
+## Completed milestone: v0.3.1 visibility and usage telemetry
 
 v0.3.1 turns two dogfood findings into product work:
 
@@ -108,7 +115,7 @@ The release also changes the public documentation posture. README and operator d
 
 Release contract: telemetry is metadata-only, bounded, owner-readable, separate from audit, and fail-open. See ADR-028 and the v0.3.1 release-acceptance section.
 
-## v0.3.0 coding harness
+## Completed milestone: v0.3.0 coding harness
 
 Owner-approved scope: automatic global AGENTS.md, optional project context, mandatory bootstrap
 receipts, progressive Agent Skills, preserved installation state, client-neutral MCP integration.

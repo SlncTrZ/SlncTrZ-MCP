@@ -3,6 +3,10 @@
 - **Status:** Accepted
 - **Date:** 2026-08-27
 
+> Current-contract note (2026-10-01): this decision applies to Restricted file-tool
+> containment. Autonomous mode follows gateway OS-user authority and does not apply the
+> Restricted secret-path deny as a containment guarantee. See [Security](../../SECURITY.md).
+
 ## Context
 
 A configured workspace root is an allow boundary, but it may still contain credentials,

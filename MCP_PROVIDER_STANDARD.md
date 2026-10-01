@@ -1,520 +1,153 @@
 # SlncTrZ-MCP Provider Standard
 
 > Status: Draft v0.2
-> Scope: SlncTrZ provider-integration convention for MCP servers connected through SlncTrZ-MCP
+> Audience: provider authors seeking first-class SlncTrZ integration.
+> To connect an existing server, use [MCP Servers](MCP_SERVERS.md).
 
-## 1. Purpose
+This document defines provider conventions, not additional gateway permissions.
+A generic third-party MCP server can be connected without implementing every convention below.
+Gateway transport/schema checks still apply.
 
-This document defines the common contract for MCP providers used inside the SlncTrZ ecosystem.
+## 1. Integration boundary
 
-The goal is to make every provider predictable to clients, easy to integrate with SlncTrZ-MCP, secure by default, and self-describing.
+| Provider owns                                   | Gateway owns                                       |
+| ----------------------------------------------- | -------------------------------------------------- |
+| Domain logic, tool schemas and input validation | Registration, namespace and accepted catalog       |
+| Domain persistence and side effects             | Current policy, connection profile and routing     |
+| Provider authentication and credential use      | Private credential references and injection        |
+| Provider help, version and health               | Readiness, lifecycle and catalog Fingerprinting    |
+| Bounded dependency operations                   | Gateway-level time/message/output bounds and audit |
 
-CyberBrain is intended to be the first reference implementation of this standard. The standard itself belongs to the gateway ecosystem, not to any individual provider.
+Neither provider instructions nor a help response grants Paths, Commands or gateway authority.
+Keep business logic in the provider.
 
----
+## 2. Transport and discovery
 
-## 2. Core Principles
+For first-class network providers, prefer MCP Streamable HTTP with a documented endpoint
+(default `/mcp`). A local stdio server is also supported by the gateway.
 
-1. **MCP first** — provider capabilities are exposed through standard MCP tools rather than ad-hoc per-tool HTTP APIs.
-2. **Authenticated by default** — network-accessible providers fail closed when credentials are missing or invalid.
-3. **Self-describing by SlncTrZ convention** — providers targeting first-class SlncTrZ integration expose a mandatory `help` tool. This is a SlncTrZ provider requirement, not a requirement of the MCP protocol itself.
-4. **Provider owns business logic** — SlncTrZ-MCP owns routing, namespace, policy, provider lifecycle, and catalog composition.
-5. **Stable contracts** — transport, tool schemas, errors, and versions must evolve deliberately.
-6. **No secret leakage** — credentials never appear in URLs, prompts, logs, tool results, documentation payloads, or source-controlled configuration.
-7. **Deterministic infrastructure logic** — routing, retries, authorization, validation, and protocol handling must not rely on LLM judgment.
-8. **Fail loud, fail closed** — unknown or invalid state must surface clearly and must not silently broaden authority.
+| Transport       | Requirements                                                                                        |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| Streamable HTTP | HTTPS for non-loopback hosts; clean endpoint without userinfo/query/fragment; same-origin redirects |
+| Local stdio     | Absolute executable path, explicit argument array, MCP on stdout, diagnostics on stderr             |
+| Loopback HTTP   | Only the documented loopback host exception; private LAN HTTP is not accepted                       |
 
----
+The gateway probes modern `server/discover` (`2026-07-28`) and supports legacy
+`initialize` (`2025-11-25`). Discovery must return valid tool definitions.
+Additional REST/health endpoints do not replace the MCP endpoint.
 
-## 3. Transport Standard
+Document the intended bind address/port and proxy deployment. Return safe errors for invalid
+transport/authentication; do not return internal stack traces to untrusted callers.
+Provide a lightweight health check that does not invoke destructive domain operations.
 
-### 3.1 Required transport
+## 3. Authentication and credentials
 
-Providers SHOULD expose MCP using Streamable HTTP.
+Network-accessible first-class providers must authenticate by default.
+The primary convention is `Authorization: Bearer <credential>`; an additional custom header
+such as `X-API-Key` may be supported. Multiple accepted auth forms must reach the same
+authorization logic.
 
-Default endpoint:
+| Outcome                                 | HTTP semantics |
+| --------------------------------------- | -------------- |
+| Missing/invalid authentication          | 401            |
+| Authenticated identity lacks permission | 403            |
 
-```text
-/mcp
-```
+Use deployment-managed secrets, environment injection or protected configuration.
+Never commit secrets, bake them into images, or expose them through URLs, Args, labels,
+help content, logs or tool results.
 
-A provider MAY expose additional REST endpoints for non-MCP integrations, health probes, administration, or internal applications, but those endpoints do not replace the MCP contract.
+The gateway's normal Owner UI supports No auth/Bearer/HTTP header. Stdio environment credentials
+are an advanced manifest capability and require an explicit `envAllowlist`.
+Public/no-auth providers are an explicit owner choice; do not claim authenticated behavior for them.
 
-### 3.2 Network behavior
+## 4. Stable provider and tool names
 
-The provider MUST:
+Gateway provider IDs:
 
-- bind only to the intended interface/port for its deployment
-- support reverse-proxy/tunnel deployment
-- return explicit HTTP errors for invalid transport/authentication state
-- avoid leaking internal stack traces or credentials in error responses
+- start with a lowercase ASCII letter;
+- contain only lowercase letters, digits and hyphens;
+- are at most 64 characters;
+- remain stable across provider upgrades.
 
-### 3.3 Health
+Advertise bare tool names, such as `help`, `knowledge_search` and `knowledge_store`.
+The gateway exposes them as `<provider-id>.<tool-name>`, for example `kb.knowledge_search`.
+An already-canonical name for the same provider is preserved by the namespacing path.
 
-Providers SHOULD expose a lightweight health mechanism suitable for Docker/systemd/orchestrator checks.
+Tool names and schemas must be stable and explicit. Use meaningful operation names.
+Describe output, validation, error behavior, persistence and destructive effects.
+Validate input before effects; reject unknown/invalid fields when permissiveness could hide
+unsafe behavior. Separate destructive operations from ordinary reads/updates.
 
-Health must test provider liveness without requiring execution of destructive business operations.
+## 5. Read-only help for first-class providers
 
----
+A provider claiming compliance with this standard **must** expose a side-effect-free `help`
+tool. This is a SlncTrZ convention, not a requirement of MCP or every third-party server.
 
-## 4. Authentication Standard
+The response should supply:
 
-### 4.1 Primary authentication
+| Field                                  | Meaning                                                    |
+| -------------------------------------- | ---------------------------------------------------------- |
+| `provider_name`, `provider_version`    | Running implementation identity                            |
+| `protocol_version`, `contract_version` | Protocol/tool-contract compatibility                       |
+| `contract_hash`                        | Deterministic fingerprint of the current help contract     |
+| `updated_at`                           | Contract date, when available                              |
+| `authentication`                       | Safe description of supported methods, never secret values |
+| `capabilities`                         | Concise capability overview                                |
+| `content`                              | Current usage instructions                                 |
 
-Primary convention:
+Read help from the provider's runtime guide where practical; mount external guidance read-only.
+An embedded guide is acceptable when deployment requires it. Either way, describe the running
+contract, not an unreleased source-tree intention.
+Use a deterministic hash such as SHA-256 to detect changes.
 
-```text
-Authorization: Bearer <token>
-```
+## 6. Errors and reliability
 
-### 4.2 Optional compatibility authentication
+Distinguish authentication, authorization, validation, not-found, conflict, rate-limit,
+timeout, dependency-unavailable and internal failures. Report safe reason classes and whether
+retrying can be considered; omit credentials, raw configuration and untrusted stack traces.
 
-A provider MAY additionally accept:
+Bound model/API/database/storage calls and retries. Document long-running work explicitly.
+Gateway defaults are 10-second startup and 30-second requests, with message/output limits
+of 8 MiB and a 16 MiB hard ceiling. A provider's own deadlines may be shorter.
 
-```text
-X-API-Key: <token>
-```
+The gateway does not replay a failed domain tool call automatically. A caller retry can duplicate
+effects if the provider committed before losing its response. Providers should document
+idempotency and supply operation IDs/status checks for writes where needed.
 
-When multiple authentication forms are supported, they MUST resolve through one internal authorization layer rather than separate business logic paths.
+Catalog drift must be explicit: update schemas/version, then use gateway Sync/activation.
+Provider recovery is bounded; repeated invalid sessions can quarantine a flapping provider.
 
-### 4.3 Credential source
+## 7. Versions, observability and deployment
 
-Credentials MUST come from deployment-managed secret sources such as:
+Version provider software, tool contract and data schema separately where appropriate.
+Breaking changes need a compatibility/migration decision; prefer additive changes.
 
-- environment variables
-- secret managers
-- protected runtime configuration
+Useful metadata includes tool name, success/failure class, request count, Latency and timeout
+count. Redact/omit sensitive arguments and results. Never log credentials.
 
-Credentials MUST NOT be committed to the repository.
+For containers/services:
 
-### 4.4 Prohibited credential handling
+- keep mutable data outside immutable images;
+- externalize secrets and define required volumes;
+- document dependencies, ports, runtime identity and restart/health behavior;
+- use reproducible builds and bounded resource use.
 
-Never place credentials in:
+A local stdio child is process-isolated from gateway code, but it is not OS-sandboxed by
+the gateway. Use external OS/container controls for an untrusted provider.
 
-```text
-URL path
-query parameters
-command arguments when avoidable
-prompts
-MCP tool arguments
-MCP tool results
-logs
-documentation payloads
-Git-tracked config
-```
+## 8. Integration checklist
 
-### 4.5 Failure semantics
+| Check           | Evidence                                                            |
+| --------------- | ------------------------------------------------------------------- |
+| Discovery       | Supported transport/auth; valid `tools/list` and accepted namespace |
+| Safe invocation | At least one read-only call succeeds through the gateway            |
+| Secrets         | No credentials in source/image/URL/Args/help/output/logs            |
+| Tool semantics  | Explicit schemas, write/destructive effects and error behavior      |
+| Help            | Read-only, current and fingerprinted for first-class compliance     |
+| Bounds          | Dependency timeouts, retries and output/resource limits             |
+| Upgrade         | Deliberate version/schema migration and catalog Sync                |
+| Operations      | Health, restart behavior and safe metadata observability            |
 
-Recommended behavior:
-
-```text
-401 Unauthorized
-```
-
-for missing or invalid authentication.
-
-Use:
-
-```text
-403 Forbidden
-```
-
-when identity/authentication is accepted but the requested operation is not authorized.
-
-Authentication and authorization MUST fail closed.
-
----
-
-## 5. Provider Identity and Namespace
-
-Each provider has a stable provider ID.
-
-Examples:
-
-```text
-cyberbrain
-v2t
-vmk
-research
-```
-
-The provider itself may expose bare MCP tool names internally:
-
-```text
-help
-knowledge_search
-knowledge_store
-```
-
-When a provider is discovered/accepted into the gateway catalog, SlncTrZ-MCP canonicalizes bare provider tool names into:
-
-```text
-<provider>.<tool>
-```
-
-Examples:
-
-```text
-cyberbrain.help
-cyberbrain.knowledge_search
-v2t.help
-v2t.transcribe
-```
-
-Provider IDs and tool names SHOULD use lowercase ASCII identifiers with underscores where necessary.
-
-Canonical namespace ownership belongs to SlncTrZ-MCP. Providers SHOULD advertise bare MCP tool names unless they have an explicit compatibility reason to pre-namespace them; the gateway namespacing path is idempotent and preserves an already-canonical `<provider>.<tool>` identifier.
-
----
-
-## 6. Mandatory `.help` Tool for First-Class SlncTrZ Providers
-
-Every provider that claims first-class compliance with this SlncTrZ provider standard MUST expose a zero-side-effect help tool. Generic third-party MCP servers can still be connected without implementing this convention when the owner explicitly accepts their discovered tool set.
-
-Bare provider tool:
-
-```text
-help
-```
-
-Gateway canonical form:
-
-```text
-<provider>.help
-```
-
-Examples:
-
-```text
-cyberbrain.help
-v2t.help
-vmk.help
-```
-
-### 6.1 Purpose
-
-`.help` allows any AI/client to discover the provider-specific operating contract without relying on account memory, stale prompts, or external documentation.
-
-It is a read-only tool and MUST NOT mutate provider state.
-
-### 6.2 Minimum response fields
-
-The result SHOULD provide at least:
-
-```text
-provider_name
-provider_version
-protocol_version
-contract_version
-contract_hash
-updated_at
-authentication
-capabilities
-content
-```
-
-Where:
-
-- `provider_name` — stable provider identity
-- `provider_version` — running provider/software version
-- `protocol_version` — MCP protocol version/compatibility declaration
-- `contract_version` — version of the provider help/tool contract
-- `contract_hash` — deterministic fingerprint of the current contract content
-- `updated_at` — contract update timestamp when available
-- `authentication` — safe description of supported authentication methods, never credentials
-- `capabilities` — concise provider capability summary
-- `content` — complete current provider usage guide
-
-### 6.3 Source of truth
-
-The help content SHOULD come from a runtime-readable guide/specification file.
-
-Recommended pattern:
-
-```text
-host/provider guide
-      ↓ read-only mount
-container/runtime
-      ↓
-help tool
-```
-
-Do not duplicate the complete guide as a hard-coded application string unless there is a compelling deployment reason.
-
-A mounted guide SHOULD be read-only.
-
-This allows guide changes without rebuilding the provider image.
-
-### 6.4 Contract hash
-
-`contract_hash` SHOULD be a deterministic cryptographic hash such as SHA-256 over the canonical help content.
-
-This enables clients/gateways to detect contract changes and avoid stale caching.
-
----
-
-## 7. Tool Contract Rules
-
-Each tool MUST have:
-
-- a stable name
-- explicit description
-- explicit input schema
-- explicit output/error behavior
-- no hidden privilege escalation
-
-Tool names SHOULD describe operations rather than UI actions.
-
-Examples:
-
-```text
-knowledge_search
-knowledge_store
-transcribe
-render_status
-```
-
-Avoid ambiguous names such as:
-
-```text
-do
-run
-process
-misc
-```
-
-unless the provider domain makes their meaning unambiguous.
-
-### 7.1 Read vs write
-
-Providers SHOULD make read/write semantics obvious from tool descriptions and naming.
-
-Write tools MUST document persistence and side effects.
-
-Destructive operations SHOULD be separated from ordinary write/update operations.
-
-### 7.2 Validation
-
-Tool input MUST be validated before business logic executes.
-
-Unknown/invalid fields SHOULD be rejected when permissive handling could hide client errors or create unsafe behavior.
-
----
-
-## 8. Error Model
-
-Errors SHOULD be structured, predictable, and safe.
-
-At minimum distinguish:
-
-```text
-authentication_error
-authorization_error
-validation_error
-not_found
-conflict
-rate_limited
-timeout
-provider_unavailable
-internal_error
-```
-
-Do not expose:
-
-- credentials
-- secret environment values
-- full stack traces to untrusted callers
-- raw internal configuration
-
-Errors SHOULD tell the client what class of failure occurred and whether retrying is reasonable.
-
----
-
-## 9. Versioning
-
-A provider SHOULD separately version:
-
-```text
-provider software
-provider/tool contract
-schema/data model when applicable
-```
-
-Do not assume software version and tool contract version are the same concept.
-
-Breaking changes require an explicit compatibility decision.
-
-When practical, prefer additive tool/schema evolution over silent breaking mutation.
-
-`.help` MUST reflect the currently running contract, not the source tree's intended future contract.
-
----
-
-## 10. Provider / Gateway Responsibility Boundary
-
-### Provider owns
-
-- business/domain logic
-- provider-specific validation
-- provider-specific tool schemas
-- persistence behavior
-- provider-specific documentation/help
-- internal retries required by its domain
-- provider-local health logic
-
-### SlncTrZ-MCP owns
-
-- provider registration/configuration
-- canonical `<provider>.<tool>` namespace
-- provider readiness/catalog state
-- workspace/policy authorization
-- routing to providers
-- gateway-level audit
-- provider lifecycle visibility
-- catalog Fingerprinting
-- client-facing aggregation
-
-The gateway SHOULD NOT absorb provider business logic merely to make integration easier.
-
-The provider SHOULD NOT attempt to bypass gateway policy or self-expand gateway authority.
-
----
-
-## 11. Logging and Observability
-
-Providers SHOULD emit enough observability to diagnose failures without exposing sensitive content.
-
-Recommended metrics/log dimensions:
-
-```text
-request count
-tool name
-success/failure
-latency
-timeout count
-validation failures
-auth failures
-provider dependency latency
-```
-
-Never log raw credentials.
-
-Sensitive tool arguments/results SHOULD be redacted or omitted according to provider policy.
-
----
-
-## 12. Timeouts and Reliability
-
-Providers SHOULD define bounded timeouts for external dependencies and long-running work.
-
-The provider must not hang indefinitely waiting for:
-
-- model APIs
-- databases
-- storage
-- remote services
-
-Retry behavior SHOULD be deterministic and bounded.
-
-The gateway and provider may have separate timeout layers; provider-local timeout behavior should remain explicit.
-
----
-
-## 13. Docker / Deployment Expectations
-
-Containerized providers SHOULD:
-
-- keep mutable data outside the image
-- avoid embedding secrets into image layers
-- provide reproducible builds
-- expose explicit ports
-- define restart behavior
-- provide healthchecks where practical
-- support runtime configuration through safe environment/config mechanisms
-
-Provider documentation SHOULD identify required dependencies and volumes.
-
----
-
-## 14. Security Baseline
-
-Every provider MUST:
-
-- validate inputs
-- fail closed on invalid auth
-- avoid secret leakage
-- avoid implicit privilege expansion
-- keep credentials out of source control
-- reject unsafe or malformed requests before side effects
-- separate administrative configuration from ordinary tool calls
-
-Administrative/provider configuration SHOULD remain owner-managed unless a dedicated secured management interface explicitly exists.
-
----
-
-## 15. Reference Provider Shape
-
-Recommended repository/runtime structure:
-
-```text
-provider/
-├── server/
-├── tools/
-├── auth/
-├── config/
-├── docs/
-│   └── TOOL_GUIDE.md
-├── tests/
-├── Dockerfile
-└── README.md
-```
-
-Logical runtime flow:
-
-```text
-MCP request
-   ↓
-authentication
-   ↓
-input validation
-   ↓
-tool dispatch
-   ↓
-business logic
-   ↓
-structured result/error
-```
-
-`.help` reads the provider's current runtime contract and returns it without mutation.
-
----
-
-## 16. SlncTrZ-MCP Integration Checklist
-
-A provider is ready for integration when:
-
-- [ ] Streamable HTTP MCP endpoint is available
-- [ ] `/mcp` is the documented default endpoint or an explicit exception is documented
-- [ ] Bearer authentication is implemented for network-accessible deployments
-- [ ] credentials are externalized from source/image
-- [ ] all tool schemas are explicit
-- [ ] `help` exists and is read-only for providers claiming first-class SlncTrZ provider-standard compliance
-- [ ] help content is current and versioned/fingerprinted
-- [ ] provider/tool IDs are stable
-- [ ] error behavior is documented
-- [ ] health behavior is defined
-- [ ] timeouts are bounded
-- [ ] logs do not expose credentials
-- [ ] gateway canonical namespace is `<provider>.<tool>`
-- [ ] provider business logic remains outside SlncTrZ-MCP
-- [ ] integration tests verify discovery and at least one safe tool call
-
----
-
-## 17. Reference Implementation
-
-CyberBrain should implement this standard first and act as the practical validation target.
-
-The current MeiLin MCP deployment is the behavioral starting point because its Streamable HTTP + authenticated MCP integration has already proven compatible with SlncTrZ-MCP.
-
-The goal is not to preserve MeiLin-specific naming. The goal is to preserve the good provider mechanics and generalize them into a reusable standard for every future MCP provider in the system.
+CyberBrain is a reference integration target, not a guaranteed enabled provider.
+Discover the running catalog and provider help to determine actual availability/compliance.
+See [CyberBrain integration](docs/MCP-GUIDE.md) only when that provider is enabled.

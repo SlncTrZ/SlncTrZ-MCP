@@ -73,6 +73,16 @@ The following invariants apply to the current schema-v2 product model:
 24. Usage telemetry stores only bounded tool identifiers; oversized caller-supplied names are omitted from persisted metadata rather than expanding the telemetry keyspace.
 25. Rollback activation re-verifies installed executable size + SHA-256 against immutable release metadata, and signed-manifest retrieval has a bounded overall deadline across redirects/retries/backoff.
 
+## Connection profiles and Debate privacy
+
+Full/Gateway-only profiles filter discovery and dispatch for each OAuth grant. Gateway-only
+keeps enabled provider tools and Debate while hiding coding/file/context/skills/task tools; it
+is not an OS sandbox or a provider-tool permission subset.
+
+Debate topics/messages are intentionally persisted in `<stateRoot>/debate.sqlite3`.
+Membership is connection-bound and credentials are hashed. Keep private secrets out of message
+content and protect backups. Metadata-only audit/usage claims do not apply to Debate history.
+
 ## Secrets
 
 Never commit real tokens, passphrases, private keys or provider credentials. Runtime secrets belong in owner-managed secret state or environment files with restrictive permissions and are referenced by opaque identifiers where applicable.
@@ -89,7 +99,7 @@ If durable audit storage is enabled, the same privacy boundary applies to persis
 
 ## Usage telemetry privacy
 
-The v0.3.1 `/usage` feature is passive observability, not policy. It stores its own bounded metadata in `<stateRoot>/usage.sqlite3`; `audit.sqlite3` remains the security/attribution journal.
+The `/usage` feature is passive observability, not policy. It stores its own bounded metadata in `<stateRoot>/usage.sqlite3`; `audit.sqlite3` remains the security/attribution journal.
 
 The usage schema excludes prompts, MCP request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, bearer tokens, and context receipts. It stores numeric byte/token estimates plus coarse request/tool classification. Usage persistence is fail-open: losing telemetry may make `/usage` incomplete, but it must not authorize, deny, replay, or fail ordinary MCP work. The authenticated Owner usage API exposes bounded degraded/drop health so telemetry loss is visible without becoming an authority dependency.
 
@@ -115,5 +125,6 @@ The harness preflight verifies delivery workflow, not model understanding or aut
 Global/project instructions and skills cannot grant capabilities. Dedicated bounded context
 reads do not add their roots to general Paths. Receipts are client/workspace/policy/revision-bound,
 expire and are kept in bounded memory. They are separate from OAuth credentials. Kernel checks
-still run after preflight. Ping, context lifecycle and owned task cancellation remain available
+still run after preflight. Coding receipts apply to Full connections when the harness is enabled;
+Gateway-only provider calls do not require them. Ping, context lifecycle and owned task cancellation remain available
 for recovery. The host owns conversation boundaries and retention across compaction.

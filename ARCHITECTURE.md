@@ -1,5 +1,8 @@
 # SlncTrZ-MCP Architecture
 
+This reference is for contributors and operators who need implementation detail.
+For installation and everyday operation, use the [User Guide](docs/USER_GUIDE.md).
+
 ## North star
 
 **Owner-controlled access from Web AI to your Linux or Windows machine — files, commands, Agent Skills, tasks, and MCP servers through one gateway.**
@@ -39,8 +42,15 @@ The public MCP gateway owns:
 - `media.read_image` when read authority is available.
 - the in-process managed Task Runtime (`task.*`) when enabled.
 - enabled MCP provider tools.
+- connection self-restriction and durable two-participant Debate tools.
 
-A principal is used for authentication and audit attribution only. It does not select workspace, profile, binding, or grant state.
+Full connections expose authorized coding/context/task capabilities. Gateway-only connections
+retain ping, self-restriction, Debate and provider tools while hiding coding tools; provider calls
+in that profile bypass the coding-context receipt requirement.
+
+Authentication also identifies an OAuth connection/grant with a `full` or `gateway-only`
+tool-surface profile. This profile filters discovery and dispatch; it does not select a legacy
+workspace/profile/binding policy. Owner-managed Paths and authority still govern execution.
 
 OAuth durability is split deliberately: dynamic client registrations and acknowledged grant/token-family state are durable; access/refresh credentials are represented by cryptographic hashes/metadata rather than plaintext secrets. Pending authorization transactions and authorization codes remain bounded in-memory state and are lost on restart. Owner-secret abuse budgets charge failed authentication, not successful Owner logins/approvals.
 
@@ -135,14 +145,28 @@ Normal Owner Console surface:
 ```text
 Overview / Recovery
 Autonomy
+Connections
 Paths
 Commands
 MCP Servers
+Debate history
 ```
 
 Routes are typed intents such as Add/Remove Path, replace Commands, Add/Enable/Disable/Test/Sync/Remove MCP. The browser does not construct generic owner command strings.
 
 The autonomy control should clearly explain the difference between restricted policy boundaries and autonomous user-authority operation. A small Advanced area may expose status, audit or lifecycle diagnostics without introducing a second policy model. Owner Console passphrase abuse control is failure-counted: successful logins do not consume the brute-force failure budget, while an exhausted failure window blocks subsequent attempts until reset.
+
+## Durable Debate
+
+`src/debate` owns two-participant turn sequencing, membership authentication, idempotent sends,
+turn deadlines and bounded long polls. Topics/messages and turn state persist in
+`<stateRoot>/debate.sqlite3`; membership credentials are stored as hashes. This store deliberately
+contains conversation content and is separate from metadata-only audit/usage.
+
+Each wait holds one request for at most 20 seconds. Longer overall waits repeat bounded calls.
+A timed-out turn pauses the Debate; the Owner can resume or stop it. Owner deletion cascades
+participants/messages and rejects an active Debate until it is stopped. A connection profile does
+not grant access to another participant's membership or make Debate text authoritative.
 
 ## Control plane
 
@@ -241,17 +265,17 @@ A failed candidate never partially mutates the active generation.
 7. Owner administration is not exposed through `owner.*` MCP tools.
 8. The canonical Product Agent Harness is product working guidance, not authority; project instruction files remain separate contextual data and cannot override Kernel/Auth/Policy.
 9. `task.start` reuses `core.exec` authority, while coordination tasks never grant execution/filesystem/network capability.
-10. When the coding harness is enabled, ordinary core/image/task/provider dispatch requires a current client/workspace/policy/revision-bound context receipt before effects; that receipt is not authorization.
+10. When the coding harness is enabled, Full-connection core/image/task/provider dispatch requires a current client/workspace/policy/revision-bound context receipt before effects; Gateway-only provider calls bypass harness context. A receipt is not authorization.
 11. Signing-enabled update/setup authenticates the canonical release manifest before parsing and still requires artifact size/SHA-256 verification before activation.
 12. Successful Owner authentication does not consume failed-auth abuse budgets; exhausted failure budgets fail closed for their bounded window.
 
-## Coding context, Agent Skills, and usage telemetry (v0.3.1)
+## Coding context and Agent Skills
 
 `src/context` owns bounded global/project discovery, one-time provisioning and context receipts.
 The product bootstrap creates one HarnessRuntime shared by isolated MCP exchanges. No transport
 session or OAuth-client-wide "already read" flag is used. `context.bootstrap` returns instructions,
-catalog metadata and a client/workspace/policy/revision-bound receipt. Ordinary core, image, task
-and provider dispatch validates it before effects. Ping, bootstrap, context close and owned task
+catalog metadata and a client/workspace/policy/revision-bound receipt. Full-connection core, image, task
+and provider dispatch validates it before effects when the harness is enabled. Ping, bootstrap, context close and owned task
 cancellation remain available for recovery.
 
 `skills.read` activates SKILL.md or reads one referenced text resource. Global-only operation is

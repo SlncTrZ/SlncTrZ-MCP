@@ -5,6 +5,10 @@ file and command tools, managed tasks, images and owner-managed MCP providers. A
 coding agent or chat client can use the same endpoint. The connected host still owns its model,
 conversation, context window and user interface.
 
+This guide is for owners editing guidance and developers integrating Full connections.
+Gateway-only connections hide context/skills tools and call enabled providers without gateway
+harness receipts. See [User Guide](USER_GUIDE.md#4-manage-connections-and-tool-profiles).
+
 ## Global configuration
 
 The default editable configuration is:
@@ -65,8 +69,8 @@ For example, tool arguments to read a project file after bootstrap are:
 `core.ping` remains available for diagnostics. `context.bootstrap` creates a receipt;
 `context.close` releases one. `task.cancel` remains available without bootstrap so an invalid
 configuration cannot prevent cancellation of an already-running task. Its normal ownership and
-authorization checks still apply. Other core, image, task and provider tool calls require a valid
-receipt in the product runtime.
+authorization checks still apply. Other core, image, task and provider tool calls on Full connections require a valid
+receipt when the harness is enabled. Gateway-only provider calls do not require one.
 
 Receipts are opaque, in-memory, bound to authenticated client, workspace and policy version,
 and expire after four hours. They do not survive a gateway restart. Separate conversations/tasks

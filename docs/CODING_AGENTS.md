@@ -10,6 +10,14 @@ The integration has no dependency on ChatGPT rendering, a particular model, or a
 Agent-specific extensions are not required. Compatibility with a named UI depends on that
 client's MCP transport/authentication support; protocol tests are not evidence of a live UI test.
 
+## Check the connection profile
+
+Use `core.ping` to inspect the connection's profile. The coding integration below requires
+**Full**. Gateway-only hides file, command, image, context, skills and task tools, while retaining
+ping, Debate, self-restriction and owner-enabled providers. Its provider calls do not need a
+gateway context receipt. Ask the Owner to restore Full if coding capabilities are needed;
+refresh tool discovery after a profile change.
+
 ## Model-driven integration
 
 An ordinary MCP-capable agent can use the published tool descriptions directly:

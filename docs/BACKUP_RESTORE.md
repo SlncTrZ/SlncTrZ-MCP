@@ -1,170 +1,106 @@
 # Backup and Restore
 
-SlncTrZ-MCP separates immutable program releases from persistent customer state.
+Back up the gateway's **state and config together**. They contain credentials and installation
+identity as well as history. Use encrypted storage or a destination with equivalent access protection.
 
-## What to back up
+## Locate your data
 
-### State root
+Setup prints exact locations; `slnctrz-mcp config show --json` also reports them.
+Use custom paths if you changed the defaults.
 
-User default:
+| Install mode | State                        | Config                  | Program                      |
+| ------------ | ---------------------------- | ----------------------- | ---------------------------- |
+| Linux User   | `~/.slnctrz-mcp`             | `~/.config/slnctrz-mcp` | `~/.local/share/slnctrz-mcp` |
+| Windows User | `%USERPROFILE%\.slnctrz-mcp` | `%APPDATA%\SlncTrZ-MCP` | `%LOCALAPPDATA%\SlncTrZ-MCP` |
+| Linux System | `/var/lib/slnctrz-mcp`       | `/etc/slnctrz-mcp`      | `/opt/slnctrz-mcp`           |
 
-```text
-~/.slnctrz-mcp
-```
+## What to include
 
-System default:
+Copy the whole state/config directories so related records stay coherent.
 
-```text
-/var/lib/slnctrz-mcp
-```
+| State item                                          | Why it matters                                              |
+| --------------------------------------------------- | ----------------------------------------------------------- |
+| `installation.json`                                 | Installation identity and absolute locations                |
+| `policy.json`, `command.json`                       | Authority, Paths and Commands                               |
+| `mcp/providers.json`, `mcp/credentials/`            | Provider configuration and private credentials              |
+| `secrets/owner-passphrase`                          | Owner login/recovery credential                             |
+| `oauth-clients.json`, `oauth-static-redirects.json` | Dynamic registrations and approved static redirect state    |
+| `oauth-grants.sqlite3`                              | Durable grants/token hashes and connection profiles/labels  |
+| `debate.sqlite3`                                    | Debate topics, messages, membership hashes and turn history |
+| `audit.sqlite3`                                     | Security/attribution metadata                               |
+| `usage.sqlite3`                                     | Usage charts; optional if you do not need their history     |
+| `harness/` including `.initialized`                 | Editable instructions, installed skills and seeding state   |
 
-Important state includes:
+Config contains `gateway.env` and the private static OAuth client file `client.env`.
+Back up a custom `SLNCTRZ_HARNESS_ROOT` separately if it is outside managed state.
 
-```text
-installation.json
-policy.json
-command.json
-mcp/providers.json
-mcp credential storage
-secrets/owner-passphrase
-OAuth client registration state
-audit.sqlite3
-usage.sqlite3
-```
+The program directory holds immutable versions, release metadata, `current.json`, the launcher
+and installation marker. You can normally reinstall verified releases; a program backup is
+useful for offline recovery and rollback.
 
-### Config root
+## Take a consistent backup
 
-User default:
+1. Record the installed version and run `slnctrz-mcp doctor`.
+2. Stop the gateway. For User Install, stop its foreground process gracefully. For Linux System Install:
+   ```bash
+   sudo systemctl stop slnctrz-mcp.service
+   ```
+3. Copy state and config to a protected backup destination. Copy any SQLite `-wal`/`-shm` sidecars
+   that remain with their database; do not selectively delete or omit live database files.
+4. Include the program directory if offline restore is needed.
+5. Restart using the printed User Install launch command or:
+   ```bash
+   sudo systemctl start slnctrz-mcp.service
+   ```
+6. Verify health and `slnctrz-mcp status`.
 
-```text
-~/.config/slnctrz-mcp
-```
+Do not copy a running SQLite database with an ordinary file copy and assume it is a consistent
+snapshot. If downtime is unavailable, use a database-aware backup process and coordinate all state
+changes; this product does not supply an automatic backup scheduler.
 
-System default:
-
-```text
-/etc/slnctrz-mcp
-```
-
-Important config includes:
-
-```text
-gateway.env
-```
-
-### Install root
-
-User default:
-
-```text
-~/.local/share/slnctrz-mcp
-```
-
-System default:
-
-```text
-/opt/slnctrz-mcp
-```
-
-The install root contains immutable program versions, release metadata, `current.json`, launcher, and installation marker.
-
-Normally the install root does **not** need to be treated as irreplaceable customer data because verified releases can be reinstalled. Backing it up can still be useful for offline rollback.
-
-## Secret handling
-
-The backup contains administrative/provider credentials.
-
-Requirements:
-
-- encrypt backup media or use an equivalently protected destination;
-- preserve restrictive file permissions;
-- do not attach raw backups to support tickets;
-- do not copy secrets into documentation/logs.
-
-The Owner Passphrase recovery file is especially sensitive.
-
-## Recommended backup procedure
-
-Before backup:
-
-```bash
-slnctrz-mcp status
-slnctrz-mcp doctor
-```
-
-For the most consistent snapshot, stop/quiesce the gateway before copying state, especially when including the SQLite audit and usage databases.
-
-Back up state + config together so installation identity and runtime configuration remain coherent.
-
-`usage.sqlite3` is operational telemetry, not authorization state. You may omit it if historical Usage charts do not matter to your recovery. `audit.sqlite3`, policy, credentials, Owner Passphrase, provider state, and harness files have different recovery/security roles and should not be treated as interchangeable.
-
-Managed Task Runtime state is intentionally in-memory in the current product. Runner/Coordinator task IDs and state are **not** backup material and do not survive stop/restart or restore. After recovery, clients must recreate/restart any unfinished task work.
-
-Example user-mode shape:
-
-```bash
-tar -C "$HOME" -czf slnctrz-backup.tgz \
-  .slnctrz-mcp \
-  .config/slnctrz-mcp
-```
-
-Protect the resulting archive as a secret-bearing backup.
+Managed Task Runtime state is **in-memory only**. Runner/Coordinator task IDs and context receipts
+are not backup material. Recreate unfinished tasks and call `context.bootstrap` after restart.
 
 ## Restore
 
-1. Stop the gateway/service.
-2. Restore state and config to their original absolute locations.
-3. Restore ownership and private permissions.
-4. Reinstall/restore the program release if necessary.
-5. Start the gateway.
-6. Run:
+1. Stop the gateway and preserve any current state before overwriting it.
+2. Restore state/config to the original absolute locations under the intended runtime OS account.
+3. Restore private permissions/ACLs, including the credential directories and files.
+4. Restore or reinstall a compatible program release and its installation marker.
+5. Start the gateway and run:
+   ```bash
+   slnctrz-mcp status
+   slnctrz-mcp doctor
+   ```
+6. Confirm installed/running identity, Owner login, Paths, Commands and provider availability.
+7. Refresh client tool discovery; bootstrap Full connections and recreate unfinished tasks.
 
-```bash
-slnctrz-mcp status
-slnctrz-mcp doctor
-```
-
-7. Confirm installed and running versions agree.
-8. Confirm Owner Console login and provider state.
+Installation metadata contains absolute locations and matching identities. Moving a backup to
+different roots/accounts requires a deliberate installation/migration plan; changing a directory
+name alone does not migrate the installation. Review release notes before restoring older binaries
+against newer persistent state.
 
 ## Owner Passphrase recovery
 
-If the gateway is stopped and the managed recovery file still exists, use that stored passphrase.
+If the recovery file exists, read it locally. Never attach it to a ticket or paste its value in chat.
 
-If the file is lost, ordinary `repair` does not generate a replacement because silently replacing an administrative credential would invalidate the existing security boundary.
-
-Restore the file from backup. Explicit rotation is for a valid managed installation where the owner deliberately chooses a new credential:
+If it was lost, restore it from backup or explicitly choose a new credential on a valid managed
+installation with local filesystem authority:
 
 ```bash
 slnctrz-mcp owner rotate-passphrase
 ```
 
-Restart the gateway after rotation.
+The command writes a new private recovery file and reports its location. It does not require the
+old passphrase; it requires discoverable installation metadata and permission to write the file.
+Restart the gateway and sign in with the new value. Ordinary `repair` never rotates it silently.
 
-## Update and rollback
+## Uninstall and recovery
 
-Update preserves prior verified release binaries and customer state.
+`slnctrz-mcp uninstall --yes` removes the program while preserving state/config.
+`--remove-config` also removes config; `--purge` removes managed state and credentials too.
+Make a protected backup first if recovery may be needed.
 
-Rollback switches the active release and preserves state. Before a future state-schema migration is introduced, the release process must define compatibility/backup behavior; rollback must fail closed rather than corrupt incompatible state.
-
-## Uninstall and backup
-
-Default:
-
-```bash
-slnctrz-mcp uninstall --yes
-```
-
-removes the program but preserves config and state.
-
-`--remove-config` also removes config.
-
-`--purge` removes program, config, state, and credentials. Back up first if you may need recovery.
-
-## Global instructions and skills
-
-Include `<stateRoot>/harness/` (including its `.initialized` seeding marker) in state backups.
-It contains editable AGENTS.md and installed skills. Back up a custom `SLNCTRZ_HARNESS_ROOT`
-separately if it is outside managed state. Updates and normal reinstall preserve these files;
-uninstall with managed-state purge deletes the default root. Receipts are intentionally not
-backed up: after restore/restart, clients call context.bootstrap again.
+A custom harness root outside managed state is not removed by managed-state purge.
+Keep backups private: they contain Owner/static-client/provider credentials, and Debate history
+contains the actual conversation content.

@@ -1,6 +1,10 @@
 # Release Acceptance Evidence
 
-This document defines the evidence format for a SlncTrZ-MCP public release. It is not a claim that every item below has already passed.
+This checklist is for maintainers and release testers. It defines evidence to collect; it is not
+an end-user setup guide or a claim that every item has passed. Record the exact artifact, platform,
+client, date and result for each claimed support level.
+
+For installation and daily operation, use [User Guide](USER_GUIDE.md).
 
 ## Release-signing custody gate
 
@@ -127,7 +131,7 @@ Record:
 ```text
 host image/version:
 tag/commit:
-service account created/reused:
+validated invoking runtime user/group (no auto-created service account):
 Initial Path runtime-account readability:
 service active:
 healthz:
@@ -185,6 +189,8 @@ Run against the installed release:
 
 ```text
 core.ping
+Full connection: context.bootstrap, then ordinary work calls
+Gateway-only: coding/context/task tools absent; provider calls work without harness receipt
 core.read
 core.search explicit-root + multiple configured Paths
 core.write dryRun:true
@@ -349,17 +355,17 @@ Record both release hashes and installed/running identity.
 
 At minimum:
 
-| Fault                           | Doctor expected                | Repair expectation                 |
-| ------------------------------- | ------------------------------ | ---------------------------------- |
-| active binary tamper            | FAIL integrity                 | no silent binary overwrite         |
-| invalid policy                  | FAIL policy                    | preserve customer policy           |
-| invalid command catalog         | FAIL catalog                   | preserve invalid existing file     |
-| missing minimal command catalog | FAIL catalog                   | repair may restore minimal catalog |
-| unsafe Owner Passphrase mode    | FAIL permissions               | repair may restore private mode    |
-| missing Owner Passphrase        | FAIL missing                   | repair must not regenerate         |
-| inaccessible Path               | FAIL OS permission             | explicit OS/path action            |
-| stopped service                 | FAIL/WARN reachability by mode | explicit restart action            |
-| installed/running mismatch      | FAIL mismatch                  | restart before lifecycle changes   |
+| Fault                        | Doctor expected                | Repair expectation                                                   |
+| ---------------------------- | ------------------------------ | -------------------------------------------------------------------- |
+| active binary tamper         | FAIL integrity                 | no silent binary overwrite                                           |
+| invalid policy               | FAIL policy                    | preserve customer policy                                             |
+| invalid command catalog      | FAIL catalog                   | preserve invalid existing file                                       |
+| missing command catalog      | FAIL catalog                   | repair filters platform candidates and compiles the available subset |
+| unsafe Owner Passphrase mode | FAIL permissions               | repair may restore private mode                                      |
+| missing Owner Passphrase     | FAIL missing                   | repair must not regenerate                                           |
+| inaccessible Path            | FAIL OS permission             | explicit OS/path action                                              |
+| stopped service              | FAIL/WARN reachability by mode | explicit restart action                                              |
+| installed/running mismatch   | FAIL mismatch                  | restart before lifecycle changes                                     |
 
 ## Uninstall/reinstall evidence
 
@@ -436,7 +442,7 @@ The v0.3.2 release does **not** claim generation-local activation for Owner-driv
 
 For **v0.3.6 and later**, the historical v0.3.2 sentence that a successful stale-session recovery fully resets lifetime incident pressure is superseded. Acceptance must also prove the current rolling `provider_session_invalid` incident budget: with a configured budget of two inside one rolling window, two incidents may recover, the third quarantines without replay, post-quarantine calls are not dispatched, and incidents older than the window expire instead of causing permanent quarantine.
 
-## Follow-up Opencode audit acceptance — 2026-09-25
+## Follow-up Opencode agent-review acceptance — 2026-09-25
 
 Before promoting the exact candidate that contains the follow-up hardening, verify:
 
