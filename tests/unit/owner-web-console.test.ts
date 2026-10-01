@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { managedStatePaths } from "../../src/owner/managed-state.js";
+import { createMcpProviderService } from "../../src/owner/mcp-provider-service.js";
+import { createMcpProviderStore } from "../../src/owner/mcp-provider-store.js";
+import type { PolicySnapshotStore } from "../../src/policy/policy-store.js";
 import { createOwnerWebConsole } from "../../src/owner/web-console.js";
 import { compilePolicyDocument } from "../../src/policy/policy-config.js";
 import { buildActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
@@ -151,29 +154,30 @@ describe("Owner Console product surface", () => {
     let commandReloadMode: "activated" | "failed" | "throw" | "recovery-fail" = "activated";
     let commandReloadGate: Promise<void> | undefined;
     let commandReloadCalls = 0;
+    const policyStore: Pick<PolicySnapshotStore, "capture" | "reload"> = {
+      capture: () => snapshot,
+      async reload() {
+        commandReloadCalls += 1;
+        if (commandReloadGate !== undefined) await commandReloadGate;
+        if (commandReloadMode === "throw") throw new Error("reload_boom");
+        if (commandReloadMode === "recovery-fail") {
+          await rm(root, { recursive: true, force: true });
+          await writeFile(root, "not-a-directory", "utf8");
+        }
+        const activated = commandReloadMode === "activated";
+        return {
+          activated,
+          previousVersion: snapshot.version,
+          activeVersion: snapshot.version,
+          riskIncrease: false,
+          result: activated ? ("activated" as const) : ("failed" as const),
+          ...(activated ? {} : { failureCode: "policy_invalid" as const })
+        };
+      }
+    };
     const web = createOwnerWebConsole({
       ownerSecretHash: createOwnerSecretHash("owner passphrase test value"),
-      policyStore: {
-        capture: () => snapshot,
-        async reload() {
-          commandReloadCalls += 1;
-          if (commandReloadGate !== undefined) await commandReloadGate;
-          if (commandReloadMode === "throw") throw new Error("reload_boom");
-          if (commandReloadMode === "recovery-fail") {
-            await rm(root, { recursive: true, force: true });
-            await writeFile(root, "not-a-directory", "utf8");
-          }
-          const activated = commandReloadMode === "activated";
-          return {
-            activated,
-            previousVersion: snapshot.version,
-            activeVersion: snapshot.version,
-            riskIncrease: false,
-            result: activated ? ("activated" as const) : ("failed" as const),
-            ...(activated ? {} : { failureCode: "policy_invalid" as const })
-          };
-        }
-      },
+      policyStore,
       statePaths: paths,
       mutation: {
         async apply(operation) {
@@ -547,14 +551,33 @@ describe("Owner Console product surface", () => {
       headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
       body: JSON.stringify({ content: secondConcurrentContent })
     });
+    const providerDisk = createMcpProviderStore(join(root, "providers.json"));
+    const providerChange = createMcpProviderService({
+      store: providerDisk,
+      policyStore,
+      isActiveProviderReady: () => true
+    }).addOrUpdate({
+      manifest: {
+        id: "probe",
+        version: "1",
+        transport: "streamable-http",
+        endpoint: "https://provider.example.test/mcp",
+        tools: [{ canonicalId: "probe.ping", riskClass: "read" }]
+      }
+    });
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
-    expect(commandReloadCalls).toBe(callsBeforeConcurrent + 1);
+    const callsWhileCommandPending = commandReloadCalls;
+    const providersWhileCommandPending = await providerDisk.list();
     commandReloadGate = undefined;
     releaseReload();
     const [firstConcurrentResponse, secondConcurrentResponse] = await Promise.all([
       firstConcurrent,
       secondConcurrent
     ]);
+    expect((await providerChange).reload.activated).toBe(true);
+    expect(callsWhileCommandPending).toBe(callsBeforeConcurrent + 1);
+    expect(providersWhileCommandPending).toEqual([]);
+    expect((await providerDisk.list()).map((record) => record.id)).toEqual(["probe"]);
     expect(firstConcurrentResponse.status).toBe(200);
     expect(secondConcurrentResponse.status).toBe(200);
     expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(secondConcurrentContent);

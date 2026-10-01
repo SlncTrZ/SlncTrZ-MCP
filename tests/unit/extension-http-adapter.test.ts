@@ -428,3 +428,269 @@ describe("streamable http adapter (integration against real fetch)", () => {
     });
   });
 });
+
+describe("HTTP lifecycle and incremental SSE regressions", () => {
+  it("aborts startup on stop and never becomes ready from a late response", async () => {
+    let respond!: (response: Response) => void;
+    let signal: AbortSignal | undefined;
+    let entered!: () => void;
+    const fetched = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      entered();
+      return new Promise<Response>((resolve) => {
+        respond = resolve;
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const manifest = await compileExtensionManifest(httpsManifest("https://provider.example.com"));
+    const adapter = createStreamableHttpAdapter(manifest);
+    const starting = adapter.start();
+    // Attach the rejection handler before cancelling so no unhandled rejection is possible.
+    const settled = starting.then(
+      () => "ready",
+      () => "cancelled"
+    );
+    await fetched;
+    await adapter.stop();
+    const abortedOnStop = signal?.aborted;
+    respond(okResponse({ supportedVersions: ["2026-07-28"] }));
+    expect(await settled).toBe("cancelled");
+    expect(abortedOnStop).toBe(true);
+    expect(adapter.health()).toBe("unavailable");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("bounds discovery and legacy fallback by one startup deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        async (_input: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("cancelled", "AbortError")),
+              { once: true }
+            );
+          })
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const manifest = await compileExtensionManifest({
+        ...httpsManifest("https://provider.example.com"),
+        startupTimeoutMs: 50,
+        requestTimeoutMs: 500
+      });
+      const adapter = createStreamableHttpAdapter(manifest);
+      const outcome = adapter.start().then(
+        () => "ready",
+        (error: AdapterError) => error.code
+      );
+      await vi.advanceTimersByTimeAsync(51);
+      const callsAtDeadline = fetchMock.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(await outcome).toBe("provider_timeout");
+      expect(callsAtDeadline).toBe(1);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(adapter.health()).toBe("unavailable");
+      await adapter.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns an SSE result before EOF across split UTF-8, CRLF and multiline data", async () => {
+    let cancelled = false;
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const payload = new TextEncoder().encode(
+      ': keepalive\r\nevent: message\r\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\r\n\r\n' +
+        'data: {"jsonrpc":"2.0","id":9,"result":{}}\r\n\r\n' +
+        'event: message\r\ndata: {"jsonrpc":"2.0","id":1,\r\ndata: "result":{"content":[{"type":"text","text":"đã xong"}]}}\r\n\r\n'
+    );
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => controller.error(new DOMException("cancelled", "AbortError")),
+          { once: true }
+        );
+        // Deliberately leave the stream open after the complete response.
+        for (let i = 0; i < payload.length; i += 3) controller.enqueue(payload.slice(i, i + 3));
+        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      })
+    );
+    const manifest = await compileExtensionManifest({
+      ...httpsManifest("https://provider.example.com"),
+      requestTimeoutMs: 100
+    });
+    const adapter = createStreamableHttpAdapter(manifest);
+    await expect(adapter.callTool("ping", {}, {})).resolves.toMatchObject({
+      text: "đã xong",
+      isError: false
+    });
+    expect(cancelled).toBe(true);
+    await adapter.stop();
+  });
+
+  it("rejects SSE EOF without the matching response and cancels its reader", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response('data: {"jsonrpc":"2.0","id":9,"result":{}}\n\n', {
+            headers: { "content-type": "text/event-stream" }
+          })
+      )
+    );
+    const manifest = await compileExtensionManifest(httpsManifest("https://provider.example.com"));
+    const adapter = createStreamableHttpAdapter(manifest);
+    await expect(adapter.callTool("ping", {}, {})).rejects.toMatchObject({
+      code: "provider_protocol_error"
+    });
+  });
+
+  it("keeps the streamed byte cap while skipping SSE notifications", async () => {
+    let cancelled = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: " + "x".repeat(1024) + "\n\n"));
+              },
+              cancel() {
+                cancelled = true;
+              }
+            }),
+            { headers: { "content-type": "text/event-stream" } }
+          )
+      )
+    );
+    const manifest = await compileExtensionManifest({
+      ...httpsManifest("https://provider.example.com"),
+      maxMessageBytes: 512
+    });
+    const adapter = createStreamableHttpAdapter(manifest);
+    await expect(adapter.callTool("ping", {}, {})).rejects.toMatchObject({
+      code: "provider_protocol_error"
+    });
+    expect(cancelled).toBe(true);
+  });
+  it("does not let an older startup change the newer ready generation", async () => {
+    let respond!: (response: Response) => void;
+    let entered!: () => void;
+    const firstFetch = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (++calls === 1) {
+          entered();
+          return new Promise<Response>((resolve) => {
+            respond = resolve;
+          });
+        }
+        return okResponse({ supportedVersions: ["2026-07-28"] });
+      })
+    );
+    const manifest = await compileExtensionManifest(httpsManifest("https://provider.example.com"));
+    const adapter = createStreamableHttpAdapter(manifest);
+    const old = adapter.start().then(
+      () => "ready",
+      () => "cancelled"
+    );
+    await firstFetch;
+    await adapter.start();
+    respond(new Response("late failure", { status: 404 }));
+    expect(await old).toBe("cancelled");
+    expect(adapter.health()).toBe("ready");
+    expect(calls).toBe(2);
+    await adapter.stop();
+  });
+
+  it("cancels an in-flight SSE tool reader on stop", async () => {
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull() {
+          entered();
+        },
+        cancel() {
+          cancelled = true;
+        }
+      },
+      { highWaterMark: 0 }
+    );
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        signal = init?.signal ?? undefined;
+        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      })
+    );
+    const adapter = createStreamableHttpAdapter(
+      await compileExtensionManifest(httpsManifest("https://provider.example.com"))
+    );
+    const outcome = adapter.callTool("ping", {}, {}).then(
+      () => "result",
+      (error: AdapterError) => error.failureClass
+    );
+    await reading;
+    await adapter.stop();
+    expect(await outcome).toBe("cancelled");
+    expect(signal?.aborted).toBe(true);
+    expect(cancelled).toBe(true);
+    expect(adapter.health()).toBe("unavailable");
+  });
+  it("returns a CR-delimited SSE response without waiting for the next byte", async () => {
+    let cancelled = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    'data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"complete"}]}}\r\r'
+                  )
+                );
+              },
+              cancel() {
+                cancelled = true;
+              }
+            }),
+            { headers: { "content-type": "text/event-stream" } }
+          )
+      )
+    );
+    const adapter = createStreamableHttpAdapter(
+      await compileExtensionManifest({
+        ...httpsManifest("https://provider.example.com"),
+        requestTimeoutMs: 100
+      })
+    );
+    await expect(adapter.callTool("ping", {}, {})).resolves.toMatchObject({ text: "complete" });
+    expect(cancelled).toBe(true);
+  });
+});

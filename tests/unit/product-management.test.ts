@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -110,6 +110,21 @@ async function rollbackCompatibilityFixture() {
 }
 
 describe("installed product management", () => {
+  it("keeps activation unchanged when client config preparation fails", async () => {
+    const f = await fixture();
+    const activationFile = join(f.installRoot, "current.json");
+    const before = await readFile(activationFile, "utf8");
+    await rm(join(f.configRoot, "client.env"));
+    await mkdir(join(f.configRoot, "client.env"));
+    await expect(
+      updateProduct(
+        { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+        { stateRoot: f.stateRoot, fetch: f.fetch, releaseTrustKeys: TEST_RELEASE_TRUST_KEYS }
+      )
+    ).rejects.toThrow();
+    expect(await readFile(activationFile, "utf8")).toBe(before);
+  });
+
   it("reports status and read-only diagnostics without exposing secrets", async () => {
     const f = await fixture();
     const management = {

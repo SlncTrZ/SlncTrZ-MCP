@@ -14,7 +14,7 @@ import { DebateError, type DebateService } from "../debate/index.js";
 import { compileCommandCatalog, parseCommandAllowlist } from "../kernel/command-catalog.js";
 import type { ExtensionManifestV1 } from "../extension/manifest.js";
 import { readBoundedJson } from "../shared/http-body.js";
-import type { PolicySnapshotStore } from "../policy/policy-store.js";
+import { withPolicyMutation, type PolicySnapshotStore } from "../policy/policy-store.js";
 import type { ManagedStatePaths } from "./managed-state.js";
 import type { PolicyMutationService } from "./policy-mutation.js";
 import type { McpCredentialStore } from "./mcp-credential-store.js";
@@ -313,15 +313,6 @@ export function createOwnerWebConsole(options: {
     for (const [token, session] of sessions) {
       if (session.idleExpiresAt <= at || session.absoluteExpiresAt <= at) sessions.delete(token);
     }
-  };
-  let commandMutationTail: Promise<void> = Promise.resolve();
-  const serializeCommandMutation = <T>(operation: () => Promise<T>): Promise<T> => {
-    const run = commandMutationTail.catch(() => undefined).then(operation);
-    commandMutationTail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
   };
   const sessionFor = (req: IncomingMessage): AuthenticatedSession | undefined => {
     const encodedToken = (req.headers.cookie ?? "")
@@ -895,7 +886,7 @@ export function createOwnerWebConsole(options: {
           });
           return true;
         }
-        const outcome = await serializeCommandMutation(async () => {
+        const outcome = await withPolicyMutation(options.policyStore, async (reload) => {
           const target = options.statePaths.commandCatalogFile;
           const priorRaw = await readFile(target, "utf8").catch((error: unknown) => {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -927,7 +918,7 @@ export function createOwnerWebConsole(options: {
             });
             await rename(temporary, target);
             try {
-              const result = await options.policyStore.reload();
+              const result = await reload();
               if (!result.activated) {
                 try {
                   await restorePrior();

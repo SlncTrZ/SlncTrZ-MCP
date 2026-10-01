@@ -87,6 +87,94 @@ async function readBoundedBody(
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
 }
 
+async function readSseMessage(
+  response: Response,
+  maxBytes: number,
+  controller: AbortController
+): Promise<HttpProviderMessage> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null && Number(declaredLength) > maxBytes) {
+    controller.abort();
+    throw new AdapterError("provider_protocol_error", "response exceeds message cap");
+  }
+  if (response.body === null)
+    throw new AdapterError("provider_protocol_error", "missing SSE response");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let pending = "";
+  let skipLf = false;
+  let data: string[] = [];
+  const abort = (): void => {
+    void reader.cancel().catch(() => undefined);
+  };
+  controller.signal.addEventListener("abort", abort, { once: true });
+  const event = (): HttpProviderMessage | undefined => {
+    const text = data.join("\n");
+    data = [];
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const message = parsed as HttpProviderMessage;
+        if (message.id === 1 && ("result" in message || "error" in message)) return message;
+      }
+    } catch {
+      /* Ignore comments, notifications and malformed unrelated events. */
+    }
+    return undefined;
+  };
+  const line = (value: string): HttpProviderMessage | undefined => {
+    if (value.length === 0) return event();
+    if (value === "data") data.push("");
+    else if (value.startsWith("data:")) {
+      const valueData = value.slice(5);
+      data.push(valueData.startsWith(" ") ? valueData.slice(1) : valueData);
+    }
+    return undefined;
+  };
+  try {
+    if (controller.signal.aborted) abort();
+    while (true) {
+      const item = await reader.read();
+      if (controller.signal.aborted)
+        throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
+      if (!item.done) {
+        bytes += item.value.byteLength;
+        if (bytes > maxBytes) {
+          controller.abort();
+          throw new AdapterError("provider_protocol_error", "response exceeds message cap");
+        }
+      }
+      pending += item.done ? decoder.decode() : decoder.decode(item.value, { stream: true });
+      while (true) {
+        if (skipLf && pending.length > 0) {
+          if (pending[0] === "\n") pending = pending.slice(1);
+          skipLf = false;
+        }
+        const index = pending.search(/[\r\n]/u);
+        if (index < 0) break;
+        // CR is a complete line ending by itself. Suppress an optional following LF,
+        // including when it arrives in a later chunk, without delaying a complete event.
+        skipLf = pending[index] === "\r";
+        const message = line(pending.slice(0, index));
+        pending = pending.slice(index + 1);
+        if (message !== undefined) return message;
+      }
+      if (item.done) {
+        const message = pending.length > 0 ? line(pending) : undefined;
+        const last = message ?? event();
+        if (last !== undefined) return last;
+        throw new AdapterError("provider_protocol_error", "missing matching SSE response");
+      }
+    }
+  } finally {
+    controller.signal.removeEventListener("abort", abort);
+    // Do not let a provider's stream cleanup hold an already-complete RPC result open.
+    void reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 async function fetchWithRedirectGuard(
   url: URL,
   init: RequestInit,
@@ -127,28 +215,7 @@ async function fetchWithRedirectGuard(
   }
 }
 
-function parseProviderMessage(text: string, contentType: string | null): HttpProviderMessage {
-  if (contentType?.toLowerCase().includes("text/event-stream")) {
-    let fallback: HttpProviderMessage | undefined;
-    for (const block of text.split(/\r?\n\r?\n/u)) {
-      const data = block
-        .split(/\r?\n/u)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice("data:".length).trimStart())
-        .join("\n");
-      if (data.length === 0) continue;
-      try {
-        const parsed = JSON.parse(data) as HttpProviderMessage;
-        fallback ??= parsed;
-        // Request responses carry id=1; skip progress/log notifications that may precede it.
-        if (parsed.id === 1) return parsed;
-      } catch {
-        continue;
-      }
-    }
-    if (fallback !== undefined) return fallback;
-    throw new AdapterError("provider_protocol_error", "invalid SSE response");
-  }
+function parseProviderMessage(text: string): HttpProviderMessage {
   try {
     return JSON.parse(text) as HttpProviderMessage;
   } catch {
@@ -242,6 +309,71 @@ export function createStreamableHttpAdapter(
   let era: ProtocolEra = "modern";
   let protocolVersion = MODERN_PROTOCOL;
   let sessionId: string | undefined;
+  let lifecycleEpoch = 0;
+  const controllers = new Set<AbortController>();
+  interface RequestContext {
+    readonly epoch: number;
+    readonly deadlineAt?: number;
+  }
+  const assertCurrent = (context: RequestContext): void => {
+    if (context.epoch !== lifecycleEpoch) {
+      throw new AdapterError("provider_unavailable", "provider request was cancelled", "cancelled");
+    }
+    if (context.deadlineAt !== undefined && Date.now() >= context.deadlineAt) {
+      throw new AdapterError("provider_timeout", "provider_timeout");
+    }
+  };
+  const cancelRequests = (): void => {
+    for (const controller of controllers) controller.abort();
+    controllers.clear();
+  };
+  const runRequest = async <T>(
+    context: RequestContext,
+    caller: AbortSignal | undefined,
+    operation: (controller: AbortController) => Promise<T>
+  ): Promise<T> => {
+    assertCurrent(context);
+    const controller = new AbortController();
+    controllers.add(controller);
+    let timedOut = false;
+    const linkAbort = (): void => controller.abort();
+    if (caller?.aborted === true) controller.abort();
+    caller?.addEventListener("abort", linkAbort, { once: true });
+    const timeoutMs = Math.min(
+      manifest.requestTimeoutMs,
+      context.deadlineAt === undefined ? manifest.requestTimeoutMs : context.deadlineAt - Date.now()
+    );
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        controller.abort();
+      },
+      Math.max(0, timeoutMs)
+    );
+    timer.unref();
+    try {
+      if (controller.signal.aborted)
+        throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
+      const result = await operation(controller);
+      assertCurrent(context);
+      if (controller.signal.aborted)
+        throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
+      return result;
+    } catch (error) {
+      assertCurrent(context);
+      if (timedOut) throw new AdapterError("provider_timeout", "provider_timeout");
+      // Byte/protocol guards abort their own transport; retain the original failure category.
+      if (error instanceof AdapterError && error.code === "provider_protocol_error") throw error;
+      if (controller.signal.aborted)
+        throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
+      if (error instanceof AdapterError) throw error;
+      throw new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure");
+    } finally {
+      clearTimeout(timer);
+      controllers.delete(controller);
+      caller?.removeEventListener("abort", linkAbort);
+    }
+  };
 
   const requestHeaders = (
     method: string,
@@ -282,7 +414,8 @@ export function createStreamableHttpAdapter(
     method: string,
     params: Record<string, unknown>,
     controller: AbortController,
-    requestEra: ProtocolEra
+    requestEra: ProtocolEra,
+    context: RequestContext
   ): Promise<HttpProviderMessage> => {
     const body = JSON.stringify({
       jsonrpc: "2.0",
@@ -304,6 +437,9 @@ export function createStreamableHttpAdapter(
       },
       controller
     );
+    assertCurrent(context);
+    if (controller.signal.aborted)
+      throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
     if (!response.ok) {
       if (response.status === 404 && hadLegacySession) {
         sessionId = undefined;
@@ -322,51 +458,27 @@ export function createStreamableHttpAdapter(
       const nextSessionId = response.headers.get("mcp-session-id");
       if (nextSessionId !== null && nextSessionId.length > 0) sessionId = nextSessionId;
     }
+    if (response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")) {
+      return readSseMessage(response, manifest.maxMessageBytes, controller);
+    }
     const text = await readBoundedBody(response, manifest.maxMessageBytes, controller);
-    return parseProviderMessage(text, response.headers.get("content-type"));
+    return parseProviderMessage(text);
   };
-
-  const post = async (
-    method: string,
-    params: Record<string, unknown>,
-    controller: AbortController,
-    requestEra: ProtocolEra = era
-  ): Promise<unknown> => asResult(await postMessage(method, params, controller, requestEra));
 
   const postWithTimeout = async (
     method: string,
     params: Record<string, unknown>,
     caller?: AbortSignal,
-    requestEra: ProtocolEra = era
-  ): Promise<unknown> => {
-    const controller = new AbortController();
-    let timedOut = false;
-    const linkAbort = (): void => controller.abort();
-    if (caller?.aborted === true) controller.abort();
-    caller?.addEventListener("abort", linkAbort, { once: true });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, manifest.requestTimeoutMs);
-    timer.unref();
-    try {
-      return await post(method, params, controller, requestEra);
-    } catch (error) {
-      if (timedOut) throw new AdapterError("provider_timeout", "provider_timeout");
-      if (error instanceof AdapterError) throw error;
-      throw new AdapterError("provider_unavailable", "provider_unavailable", "transport_failure");
-    } finally {
-      clearTimeout(timer);
-      caller?.removeEventListener("abort", linkAbort);
-    }
-  };
+    requestEra: ProtocolEra = era,
+    context: RequestContext = { epoch: lifecycleEpoch }
+  ): Promise<unknown> =>
+    runRequest(context, caller, async (controller) =>
+      asResult(await postMessage(method, params, controller, requestEra, context))
+    );
 
-  const sendLegacyInitialized = async (): Promise<void> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), manifest.requestTimeoutMs);
-    timer.unref();
-    const body = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
-    try {
+  const sendLegacyInitialized = async (context: RequestContext): Promise<void> =>
+    runRequest(context, undefined, async (controller) => {
+      const body = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
       const hadLegacySession = sessionId !== undefined;
       const response = await fetchWithRedirectGuard(
         base,
@@ -378,6 +490,9 @@ export function createStreamableHttpAdapter(
         },
         controller
       );
+      assertCurrent(context);
+      if (controller.signal.aborted)
+        throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
       if (!response.ok) {
         if (response.status === 404 && hadLegacySession) {
           sessionId = undefined;
@@ -392,12 +507,10 @@ export function createStreamableHttpAdapter(
             : "transport_failure"
         );
       }
-    } finally {
-      clearTimeout(timer);
-    }
-  };
+    });
 
-  const startLegacy = async (): Promise<void> => {
+  const startLegacy = async (context: RequestContext): Promise<void> => {
+    assertCurrent(context);
     era = "legacy";
     protocolVersion = LEGACY_PROTOCOL;
     sessionId = undefined;
@@ -409,8 +522,10 @@ export function createStreamableHttpAdapter(
         clientInfo: CLIENT_INFO
       },
       undefined,
-      "legacy"
+      "legacy",
+      context
     )) as { protocolVersion?: unknown };
+    assertCurrent(context);
     if (
       typeof initialized.protocolVersion !== "string" ||
       initialized.protocolVersion.length === 0 ||
@@ -419,31 +534,41 @@ export function createStreamableHttpAdapter(
       throw new AdapterError("provider_protocol_error", "invalid legacy protocol negotiation");
     }
     protocolVersion = initialized.protocolVersion;
-    await sendLegacyInitialized();
+    await sendLegacyInitialized(context);
   };
 
   return {
     async start(): Promise<void> {
+      const context: RequestContext = {
+        epoch: ++lifecycleEpoch,
+        deadlineAt: Date.now() + manifest.startupTimeoutMs
+      };
+      cancelRequests();
       ready = false;
       era = "modern";
       protocolVersion = MODERN_PROTOCOL;
       sessionId = undefined;
+      let discovery: DiscoverResult | undefined;
       try {
-        const discovery = (await postWithTimeout(
+        discovery = (await postWithTimeout(
           "server/discover",
           {},
           undefined,
-          "modern"
+          "modern",
+          context
         )) as DiscoverResult;
-        if (discovery.supportedVersions?.includes(MODERN_PROTOCOL) !== true) {
-          await startLegacy();
-        }
       } catch (error) {
-        // A reachable 2025-era server commonly rejects server/discover. Retry using the
-        // legacy handshake; actual network/protocol failure is still surfaced if that fails.
-        void error;
-        await startLegacy();
+        assertCurrent(context);
+        if (
+          error instanceof AdapterError &&
+          (error.code === "provider_timeout" || error.failureClass === "cancelled")
+        )
+          throw error;
+        // A reachable legacy server can reject discovery; fallback shares this startup deadline.
       }
+      if (discovery?.supportedVersions?.includes(MODERN_PROTOCOL) !== true)
+        await startLegacy(context);
+      assertCurrent(context);
       ready = true;
     },
 
@@ -475,6 +600,8 @@ export function createStreamableHttpAdapter(
     },
 
     async stop(): Promise<void> {
+      lifecycleEpoch += 1;
+      cancelRequests();
       ready = false;
       sessionId = undefined;
     },
