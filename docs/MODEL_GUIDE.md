@@ -28,7 +28,13 @@ authority mechanism. They cannot grant filesystem, command, task, media or provi
 
 ## Coding context and skills
 
-Call `context.bootstrap` before ordinary gateway tools. Its response includes product/global
+Check the connection surface reported by `core.ping`. On **Full** connections, call
+`context.bootstrap` before ordinary gateway work. **Gateway-only** hides coding/file/media/
+context/skills/task tools and retains ping, `connection.restrict`, Debate and enabled providers.
+Provider calls in Gateway-only do not require a harness receipt; do not call a hidden bootstrap.
+The Owner can restore Full; refresh discovery after the profile changes.
+
+For Full connections: Its response includes product/global
 instructions and a catalog of skill names/descriptions. A project AGENTS.md is not required.
 Supply an absolute `projectRoot` only when optional project context is desired and authorized.
 
@@ -226,7 +232,7 @@ If textual guidance conflicts, surface the conflict instead of silently averagin
 
 - Gateway help is delivered through `core.ping`; inspect `structuredContent.media` for actual
   image tool availability, limits and display guidance. The CLI `--help` points here.
-  A provider\'s `.help` describes only that provider, not built-in gateway media tools.
+  A provider's `.help` describes only that provider, not built-in gateway media tools.
   Older installed builds may lack both the `media` field and `media.read_image`.
 
 - Use `media.read_image(path)` for PNG/JPEG, under the existing `core.read` authority,
@@ -244,11 +250,8 @@ If textual guidance conflicts, surface the conflict instead of silently averagin
   and embed that actual attachment in the final answer. A sandbox-capable environment can use
   `![image](sandbox:/actual/local/path.png)`; never invent a sandbox path or use the gateway's
   remote filesystem path as though it were local to the chat.
-- On 2026-09-08, the owner confirmed final-answer display of `vmk_live_clean.png` and
-  `girl_model.png` in ChatGPT Work after a legacy `core.exec` base64 read and local attachment.
-  The earlier tool-output-only image was visible to the model but not the user. The new
-  `media.read_image` was tested separately in source, not on the live gateway in that session.
-  This does not establish compatibility with all ChatGPT modes or other MCP clients.
+- Verify model perception and user-visible attachment display separately on the actual client.
+  Source tests and a successful MCP read do not establish display support on every chat UI.
 - If the new tool is absent, an explicitly authorized `core.exec` binary read can be used
   with bounded output. Check exit status and truncation, decode the bytes, verify SHA-256,
   and follow the same local attachment workflow. Do not bypass command/path restrictions.

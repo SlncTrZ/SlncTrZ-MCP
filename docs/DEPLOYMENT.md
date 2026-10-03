@@ -1,10 +1,21 @@
 # Deployment
 
-This document describes the current deployment contract for SlncTrZ-MCP.
+This guide covers where the gateway runs, how to start it, and how to expose it to clients.
+For installation, start with [Quick start](../README.md#quick-start).
+Use the paths printed by setup if you selected custom locations.
 
-## Deployment modes
+## Choose an installation mode
 
-### User Install
+| Mode                 | Startup                      | Suitable for                    |
+| -------------------- | ---------------------------- | ------------------------------- |
+| Linux User Install   | Foreground launcher          | Local use and evaluation        |
+| Windows User Install | Native foreground executable | Windows workstations            |
+| Linux System Install | systemd service              | An always-running Linux gateway |
+
+Windows System Install/service mode is not currently supported. The standalone builds include
+their runtime; source/developer installs require Node `>=22.13.0 <25`.
+
+### Linux User Install
 
 Default locations:
 
@@ -14,24 +25,19 @@ state:   ~/.slnctrz-mcp
 config:  ~/.config/slnctrz-mcp
 ```
 
-User mode does not install a system service. The generated launcher is:
-
-```text
-<installRoot>/slnctrz-mcp-launcher
-```
-
-Start it with the generated config file:
+User mode does not create a service. Use the `Start:` command printed by setup:
 
 ```bash
 SLNCTRZ_CONFIG_FILE="$HOME/.config/slnctrz-mcp/gateway.env" \
   "$HOME/.local/share/slnctrz-mcp/slnctrz-mcp-launcher"
 ```
 
-### User Install — Windows x64
+Keep that process running. Stop it gracefully before a backup or restart.
 
-Windows x64 User Install uses Git Bash only for the bootstrap. The installed runtime is native Windows.
+### Windows User Install
 
-Default locations:
+Use Git Bash for `install.sh`; setup converts MSYS paths with `cygpath -w`.
+The installed gateway is native Windows and needs neither Git Bash nor system Node.js afterward.
 
 ```text
 install: %LOCALAPPDATA%\SlncTrZ-MCP
@@ -40,189 +46,153 @@ config:  %APPDATA%\SlncTrZ-MCP
 launcher: %LOCALAPPDATA%\SlncTrZ-MCP\slnctrz-mcp.exe
 ```
 
-Run the public `install.sh` from Git Bash. The bootstrap converts MSYS paths with `cygpath -w`, verifies the Windows artifact, and runs native setup. After setup, Git Bash, Node.js, npm, and a repository checkout are not required.
+For default locations, start it from PowerShell:
 
-Windows System Install/service mode is not currently supported.
+```powershell
+& "$env:LOCALAPPDATA\SlncTrZ-MCP\slnctrz-mcp.exe"
+```
 
-### System Install — Linux
+Keep the process running; setup does not install a Windows background service.
 
-Default locations:
+### Linux System Install
+
+Requires sudo/root for installation and an operational systemd service manager.
+The runtime account is the real non-root invoking user, resolved from validated `SUDO_USER`;
+setup does not create a dedicated service account.
 
 ```text
 install: /opt/slnctrz-mcp
 state:   /var/lib/slnctrz-mcp
 config:  /etc/slnctrz-mcp
 service: slnctrz-mcp.service
-account: invoking OS user (validated SUDO_USER when setup runs through sudo)
 ```
 
-System setup requires root/sudo and an operational systemd service manager, but privileged authority is used only for system installation operations. The runtime identity is the real non-root user that invoked setup; under `sudo`, setup validates and resolves `SUDO_USER`, renders that user/group into the systemd unit, verifies the user can read and write the Initial Path, installs the unit, enables/starts it, and health-checks the gateway. No dedicated `slnctrz` account is created. Linux hosts without operational systemd should use User Install/foreground mode instead of pretending System Install succeeded.
+Setup enables/starts the service and checks health. Verify it with:
 
-The runtime process must not run as root. The generated systemd unit also carries the runtime PATH used for command discovery so Restricted catalog provisioning and later strict runtime compilation resolve against the same command search path. Updating a legacy System Install re-renders the unit before restart, so an older `User=slnctrz` service is migrated to the validated invoking user without changing the persisted installation metadata schema or rewriting owner-managed `command.json`.
+```bash
+systemctl status slnctrz-mcp.service
+slnctrz-mcp status
+slnctrz-mcp doctor
+```
+
+For restart and logs:
+
+```bash
+sudo systemctl restart slnctrz-mcp.service
+journalctl -u slnctrz-mcp.service
+```
+
+The service runs the immutable SEA through its generated launcher. It does not depend on
+a source checkout, `dist/`, or `/usr/bin/node`. Hosts without systemd should use User Install.
+
+## Choose the initial Path and authority
+
+Setup requires an existing readable directory. Pass `--path` explicitly for predictable results.
+User setup otherwise defaults to its current working directory; System Install requires an
+explicit Path and checks read/write access as the resolved runtime user.
+
+Configured Paths do not override OS permissions. Use a project/workspace directory instead of
+granting an entire home directory by default.
+
+| Authority  | Files and commands                                                           |
+| ---------- | ---------------------------------------------------------------------------- |
+| Restricted | File tools use Paths; command starts use the compiled `command.json` catalog |
+| Autonomous | Tools follow the gateway account's OS permissions                            |
+
+Fresh Restricted setup filters the shipped Linux/Windows command candidates to executables
+available to the runtime account. Review the persisted Commands in the Owner Console.
+Neither mode silently elevates privileges; shells/interpreters can exercise the account's rights.
+See [Autonomy](AUTONOMY.md).
 
 ## Local mode
 
-Local mode is the default:
+Local mode is the default: listener `127.0.0.1:3100`, no public URL.
 
 ```text
-SLNCTRZ_HOST=127.0.0.1
-SLNCTRZ_PORT=3100
-no SLNCTRZ_PUBLIC_URL
+MCP:   http://127.0.0.1:3100/mcp
+Owner: http://127.0.0.1:3100/owner
+Usage: http://127.0.0.1:3100/usage
 ```
 
-Derived URLs:
+Loopback HTTP is allowed for local OAuth/Owner use. A cloud-hosted client cannot reach your
+machine's loopback address.
 
-```text
-http://127.0.0.1:3100/mcp
-http://127.0.0.1:3100/owner
-```
+## Public HTTPS mode
 
-Local loopback OAuth/Owner Console HTTP is allowed. This exception is only for loopback use.
+1. Configure a trusted HTTPS reverse proxy or tunnel to the gateway listener.
+2. Use the installer option `--public-url https://mcp.example.com/mcp`, or configure an existing installation:
+   ```bash
+   slnctrz-mcp config set public-url https://mcp.example.com/mcp
+   ```
+3. Check `slnctrz-mcp config show`, restart the gateway as instructed by the CLI, then connect
+   the client to the public endpoint.
+4. Check Host/Origin configuration if the proxy receives 403 responses.
 
-## Public mode
+The URL must use HTTPS and the exact path `/mcp`, with no userinfo, query or fragment.
+The public URL advertises MCP/OAuth identity; it does not force the listener to bind to a public
+interface. A proxy on the same host can forward to `127.0.0.1:3100`.
 
-Public mode is selected by setting a public URL such as:
+Forward the original public Host correctly. The public hostname must be accepted by
+`SLNCTRZ_ALLOWED_HOSTS`; a public Owner Console also needs its origin accepted by
+`SLNCTRZ_ALLOWED_ORIGINS`. Host/Origin checks run before Owner, OAuth and MCP dispatch.
+Do not bypass these checks with wildcards or by disabling verification.
 
-```text
-SLNCTRZ_PUBLIC_URL=https://mcp.example.com/mcp
-```
+The separate control plane is loopback-only (default port 3101). **Do not publish it through
+the proxy.** Use HTTPS for public Owner access and keep the passphrase private.
 
-Requirements:
+Failed Owner authentication is counted by direct socket peer, without trusting forwarded
+client-IP headers. Clients behind one proxy/tunnel can share a failure bucket; an exhausted
+bucket temporarily blocks that peer. Apply per-client abuse controls at a trusted edge if needed.
 
-- scheme must be HTTPS;
-- path must be exactly `/mcp`;
-- no userinfo, query, or fragment;
-- the reverse proxy/tunnel must forward to the configured local listener;
-- the public hostname must be present in the configured Host allowlist;
-- when the Owner Console is enabled publicly, the public hostname must also be present in the Origin allowlist.
+## Change runtime configuration
 
-Host and Origin validation run before Owner Console, OAuth, and MCP application dispatch. `/healthz` and `/readyz` are intentionally usable without the Origin gate.
-
-The gateway can still bind to `127.0.0.1:3100` behind a reverse proxy. Public URL describes the externally advertised MCP/OAuth identity; it does not force the process to bind directly to the public interface.
-
-## Reverse proxy
-
-Recommended shape:
-
-```text
-Internet client
-  -> HTTPS reverse proxy / tunnel
-  -> 127.0.0.1:3100
-  -> SlncTrZ-MCP
-```
-
-Forward the original Host correctly and terminate TLS at the trusted public edge. Do not expose the loopback control plane (default port 3101) through the proxy. Owner failed-authentication accounting intentionally uses the direct socket peer and does not trust forwarding headers. Behind a shared tunnel/proxy, multiple clients can therefore share one bounded failure bucket; once that bucket is exhausted, the peer fails closed until the window resets. This preserves the pre-KDF CPU-abuse cutoff. If per-client edge rate limiting is required, enforce it at a trusted proxy/edge rather than teaching the gateway to trust forwarded client-IP headers implicitly.
-
-Public routes include:
-
-```text
-/mcp
-/owner
-OAuth metadata/authorization routes
-/healthz
-/readyz
-```
-
-The control plane is separate and loopback-only.
-
-## Release/update trust boundary
-
-Fresh installation starts with a bootstrap trust problem: the installer/bootstrap binary must itself be obtained through a trusted HTTPS/release path. Once a signing-enabled standalone binary is active, setup/update requires `manifest.json` plus `manifest.json.sig`, verifies the Ed25519 publisher signature over the exact manifest bytes before parsing, and only then accepts artifacts whose declared size and SHA-256 match.
-
-The release-signing private key is **not** deployed to the gateway host. Official CI references the protected GitHub `release-signing` Environment; production acceptance must verify that this Environment was pre-created, restricted to `v*` tags, requires review with self-review/bypass protections, and owns the only `SLNCTRZ_RELEASE_SIGNING_PRIVATE_KEY_B64` secret. Runtime config/state must never contain that private key.
-
-## Initial Path
-
-Setup requires an existing readable Path.
-
-User mode defaults to the setup process current working directory if `--path` is omitted. For predictable installation, pass `--path` explicitly.
-
-System mode requires an explicit Path. Setup additionally checks read and write access as the resolved invoking runtime user before enabling the service.
-
-Gateway authorization does not replace OS permissions. A configured Path that the runtime account cannot traverse/read will still fail.
-
-## Authority modes
-
-### Restricted
-
-- built-in file tools stay within configured Paths;
-- `core.exec` requires an approved command catalog entry;
-- `task.start` uses the same command/Path authority as `core.exec`;
-- fresh setup loads the platform candidate template (`commands.json` on Linux, `commands.win32.json` on Windows), filters out executables unavailable to the runtime user, persists only the usable subset, and then compiles it strictly;
-
-### Autonomous
-
-- core tools may use any path/executable available to the gateway OS account;
-- `task.start` follows the same OS-user execution authority.
-
-Neither mode elevates the OS account by itself. Logical coordination tasks do not widen either mode; their instructions/results are context only.
-
-## Task Runtime lifecycle
-
-Managed Runner and Coordinator state is intentionally in-memory in the current product. It survives later MCP requests only while the same gateway process remains running. On graceful SIGTERM/SIGINT shutdown the application stops accepting new work, cancels active Runner process trees, retires provider generations and closes listeners/audit resources before exit. Restart, update, rollback or service replacement clears active task state; clients must not treat task IDs as durable recovery handles across a restart. Do not claim graceful cleanup for SIGKILL/TerminateProcess-style termination that prevents the shutdown handler from running.
-
-## Runtime config
-
-Normal product configuration should use:
+Use the installed CLI; use its absolute executable path if it is not on PATH.
 
 ```bash
 slnctrz-mcp config show
 slnctrz-mcp config set port 3200
 slnctrz-mcp config set host 127.0.0.1
-slnctrz-mcp config set public-url https://mcp.example.com/mcp
 slnctrz-mcp config set public-url local
 slnctrz-mcp config set owner-console true
 ```
 
-Generated `gateway.env` is private and contains only the supported runtime keys. Do not add arbitrary shell code; the launcher parses a strict allowlist and does not `source` or `eval` the file.
+These are examples of separate changes. Read the CLI's restart requirement before continuing.
+`gateway.env` uses a strict supported-key parser, not shell execution; do not add shell commands
+or source/eval it. The private static OAuth client configuration is in `client.env`.
 
-## Health endpoints
+## Check health
 
-```text
-GET /healthz
-GET /readyz
-```
+| Endpoint       | Meaning                                                     |
+| -------------- | ----------------------------------------------------------- |
+| `GET /healthz` | Process liveness                                            |
+| `GET /readyz`  | Active policy snapshot can be captured; failure returns 503 |
 
-`/healthz` is process liveness.
+Liveness/readiness intentionally do not require the Origin gate. They do not prove every provider
+is healthy or that an AI client has completed OAuth. Use `status`, `doctor` and `core.ping`
+for installed/running identity and capability checks.
 
-`/readyz` verifies that the active policy snapshot can be captured. A failure returns 503 rather than claiming readiness.
+## Task Runtime lifecycle
 
-## Owner Console exposure
+On graceful SIGTERM/SIGINT shutdown, the gateway stops accepting work, cancels active Runner
+process trees and closes owned resources. Forced termination may prevent that cleanup.
 
-The Owner Console is enabled by default for normal local setup.
+Runner/Coordinator tasks and context receipts are in memory and reset on restart/update/rollback.
+Debate history and turn state persist in `debate.sqlite3`; turn deadlines still apply.
+Full connections call `context.bootstrap` after restart; Gateway-only connections do not expose
+coding context. See [User Guide](USER_GUIDE.md).
 
-Treat the Owner Passphrase as an administrative secret. For public deployment:
+## Instructions, backups and updates
 
-- use HTTPS;
-- keep the passphrase private;
-- do not publish the loopback control port;
-- review `SECURITY.md` and `docs/THREAT_MODEL.md`.
+Editable global guidance is under `<stateRoot>/harness/`. Set `SLNCTRZ_HARNESS_ROOT` to an
+absolute accessible directory for a custom root; this does not grant Paths or Commands.
+Receipts expire after four hours or relevant changes. Refresh client discovery after upgrades.
 
-## Release runtime
+Back up state/config and custom harness roots before lifecycle changes:
+[Backup and Restore](BACKUP_RESTORE.md).
+Obtain the first installer/binary through a trusted release path; subsequent signing-enabled
+updates verify publisher-signed manifests before parsing and verify artifact size/SHA-256.
+Signing keys belong to release infrastructure, not a deployed gateway:
+[Security](../SECURITY.md), [Release Process](../RELEASE.md).
 
-The supported standalone model uses self-contained native SEA binaries for Linux x64 and Windows x64, immutable version directories, and an atomic `current.json` activation record.
-
-The production systemd service resolves the active SEA through the generated launcher. It does not depend on `dist/`, a repository checkout, or `/usr/bin/node`.
-
-## Developer runtime
-
-Source development is a separate deployment model:
-
-```bash
-npm ci
-npm run build
-npm start
-```
-
-It requires Node `>=22.13.0 <25`. Do not confuse developer/source deployment with the standalone end-user service contract.
-
-## Coding harness state
-
-Current releases discover `<stateRoot>/harness/AGENTS.md` and `<stateRoot>/harness/skills/` automatically.
-These are editable persistent files, separate from embedded product guidance and versioned
-release binaries. `SLNCTRZ_HARNESS_ROOT` in gateway.env can select another absolute root. Ensure
-that root is accessible to the existing runtime account; it does not change Paths or commands.
-
-Refresh client tool discovery after upgrading. Work calls require `context.bootstrap` receipts.
-Receipts are in-memory and expire after four hours; restart requires another bootstrap. Agent
-hosts retain their own conversation and model loop. See [CODING_AGENTS.md](CODING_AGENTS.md).
+For source development, use `npm ci`, `npm run build`, and `npm start` on supported Node.
+Keep that workflow separate from standalone deployment.

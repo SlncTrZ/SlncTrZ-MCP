@@ -1,83 +1,93 @@
-# Operational Files
+# Operational files
 
-This inventory classifies security-sensitive scripts, configuration templates, and workflows shipped in the repository. It is part of the release review surface.
+This reference is for contributors and release reviewers. It identifies which repository
+files are installer/runtime assets, release gates, developer helpers or legacy tools.
+Operators should start with [Deployment](DEPLOYMENT.md) and [Backup and Restore](BACKUP_RESTORE.md).
 
-## Production / end-user runtime
+## Installed runtime and provisioning
 
-| Path                                     | Classification                       | Purpose                                                                                       |
-| ---------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `scripts/install.sh`                     | production bootstrap                 | Public Linux x64 + Windows Git Bash bootstrap; target detection, checksum verification, setup |
-| `config/systemd/slnctrz-mcp-launcher.sh` | production launcher                  | Resolves active immutable SEA and parses strict non-secret runtime config keys                |
-| `config/systemd/slnctrz-mcp.service`     | production System Install template   | systemd service rendered for the real invoking runtime user                                   |
-| `config/systemd/gateway.env.example`     | production/admin example             | Advanced non-secret runtime configuration example                                             |
-| `config/commands.json`                   | production Linux candidate catalog   | Linux command candidates filtered to runtime-user-available executables during provisioning   |
-| `config/commands.win32.json`             | production Windows candidate catalog | Windows command candidates filtered to locally available executables during provisioning      |
+| Repository path                          | Role                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| `scripts/install.sh`                     | Linux/Windows Git Bash public bootstrap, target selection, checksum and native setup |
+| `config/systemd/slnctrz-mcp-launcher.sh` | Linux launcher resolving the active SEA and parsing supported runtime config         |
+| `config/systemd/slnctrz-mcp.service`     | System Install template rendered for the invoking runtime user                       |
+| `config/systemd/gateway.env.example`     | Non-secret advanced configuration example                                            |
+| `config/commands.json`                   | Linux command candidates filtered to locally available executables                   |
+| `config/commands.win32.json`             | Windows command candidates filtered to locally available executables                 |
+| `scripts/ensure-skills-dir.mjs`          | Source postinstall creates the repository skills directory                           |
 
-## Persistent runtime state
+Current Owner credential setup uses `<stateRoot>/secrets/owner-passphrase`.
+The private static OAuth client configuration is `<configRoot>/client.env`.
 
-| Path                        | Classification                 | Purpose                                                                          |
-| --------------------------- | ------------------------------ | -------------------------------------------------------------------------------- |
-| `<stateRoot>/audit.sqlite3` | security/attribution metadata  | Restart-safe privacy-reviewed audit projection                                   |
-| `<stateRoot>/usage.sqlite3` | product observability metadata | Bounded MCP traffic/context-efficiency aggregates; never an authorization source |
-| `<stateRoot>/harness/`      | owner-editable coding context  | Global AGENTS.md, Agent Skills and seeding marker                                |
+## Persistent data
 
-Usage history may be omitted from a backup when historical charts are not needed; it must not be confused with policy, credentials, or audit evidence.
+| Path under state root                               | Data and backup role                                       |
+| --------------------------------------------------- | ---------------------------------------------------------- |
+| `installation.json`                                 | Installation identity and locations                        |
+| `policy.json`, `command.json`                       | Owner-managed authority                                    |
+| `mcp/providers.json`, `mcp/credentials/`            | Provider definitions and private credentials               |
+| `secrets/owner-passphrase`                          | Owner credential                                           |
+| `oauth-clients.json`, `oauth-static-redirects.json` | Durable client and approved redirect state                 |
+| `oauth-grants.sqlite3`                              | Grants, token hashes, connection profiles and labels       |
+| `debate.sqlite3`                                    | Actual Debate content and membership/turn state            |
+| `audit.sqlite3`                                     | Security/attribution metadata                              |
+| `usage.sqlite3`                                     | Bounded traffic/context estimates; optional history backup |
+| `harness/`                                          | Owner-edited instructions, skills and seeding marker       |
+| `lifecycle-intent.json`                             | Managed lifecycle coordination when present                |
 
-## Release / CI
+Debate history intentionally stores conversation content. Audit and usage exclude raw payloads.
+None of these are interchangeable authorization/telemetry stores. Stop/quiesce before ordinary
+file-copy backups and retain any SQLite sidecars.
 
-| Path                                         | Classification                         | Purpose                                                                                                                      |
-| -------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/build-sea.mjs`                      | release build                          | Native Linux x64 / Windows x64 SEA build + target metadata                                                                   |
-| `scripts/release-gate.mjs`                   | release gate                           | Native target version/tag/build/hash/URL identity verification                                                               |
-| `scripts/aggregate-release-manifest.mjs`     | release build                          | Aggregate verified Linux/Windows target metadata into canonical release manifest                                             |
-| `scripts/clean-release-windows-user-e2e.ps1` | release acceptance                     | Exact public Git Bash → native Windows User Install lifecycle E2E, including Windows PowerShell 5.1 invocation compatibility |
-| `scripts/clean-release-user-e2e.sh`          | release acceptance                     | Exact public GitHub Release bootstrap/User Install E2E                                                                       |
-| `scripts/clean-release-system-e2e.sh`        | guarded destructive release acceptance | Disposable systemd-host System Install E2E; explicit opt-in required                                                         |
-| `scripts/docs-check.mjs`                     | release/CI                             | Public documentation contract checks                                                                                         |
-| `scripts/provenance-inventory.mjs`           | release/CI                             | Deterministic dependency/license inventory from lockfile                                                                     |
-| `.github/workflows/ci.yml`                   | CI                                     | Source quality/security/provenance matrix                                                                                    |
-| `.github/workflows/standalone.yml`           | release CI                             | SEA candidate → public User Install acceptance → release promotion                                                           |
+## Release and CI
 
-## Developer-only
+| Path                                         | Role                                                                         |
+| -------------------------------------------- | ---------------------------------------------------------------------------- |
+| `scripts/build-sea.mjs`                      | Native SEA build and embedded release identity/resources                     |
+| `scripts/smoke-sea.mjs`                      | Packaged runtime smoke                                                       |
+| `scripts/release-gate.mjs`                   | Binary/manifest/tag/build/hash identity gate                                 |
+| `scripts/aggregate-release-manifest.mjs`     | Multi-target manifest/checksum aggregation                                   |
+| `scripts/sign-release-file.mjs`              | Ed25519 release-file signing in protected CI                                 |
+| `scripts/clean-release-user-e2e.sh`          | Exact public Linux User Install acceptance                                   |
+| `scripts/clean-release-windows-user-e2e.ps1` | Native Windows lifecycle and Windows PowerShell 5.1 invocation compatibility |
+| `scripts/clean-release-system-e2e.sh`        | Guarded destructive acceptance on a disposable systemd host                  |
+| `scripts/clean-release-usage-browser-e2e.sh` | Install exact public candidate for browser acceptance                        |
+| `scripts/usage-browser-e2e.mjs`              | Chromium Owner/Usage dashboard checks                                        |
+| `scripts/release-workstation-preflight.ps1`  | Windows release workstation prerequisites                                    |
+| `scripts/docs-check.mjs`                     | Documentation/CLI contract checks                                            |
+| `scripts/provenance-inventory.mjs`           | Locked dependency/license inventory                                          |
+| `.github/workflows/ci.yml`                   | Source quality/provenance matrix                                             |
+| `.github/workflows/standalone.yml`           | Native builds, signed candidate, clean installs/browser gates, promotion     |
+| `.github/workflows/release-metadata.yml`     | Synchronize canonical release-note content                                   |
 
-| Path                                              | Classification | Purpose                           |
-| ------------------------------------------------- | -------------- | --------------------------------- |
-| `scripts/check.mjs`                               | developer/CI   | Type/lint/format/test gate        |
-| `scripts/benchmark.mjs`                           | developer      | Performance baseline              |
-| `scripts/test-runner.mjs`                         | developer/CI   | Test orchestration                |
-| `scripts/test-wrapper.mjs`                        | developer/CI   | Test wrapper                      |
-| `scripts/validate-wrapper.mjs`                    | developer/CI   | Validation wrapper                |
-| `scripts/verify-windows-native.mjs`               | developer/CI   | Native Windows verification       |
-| `scripts/scan-reference-provenance.mjs`           | developer/CI   | Provenance/source hygiene scan    |
-| `scripts/verify-no-derivative-implementation.mjs` | developer/CI   | Clean-room source hygiene check   |
-| `scripts/verify-architecture.mjs`                 | developer/CI   | Architecture source hygiene check |
-| `scripts/verify-spdx.mjs`                         | developer/CI   | License/SPDX checks               |
+Signing private keys are CI-only secrets; never include them in runtime state or release assets.
+Do not run the destructive system acceptance script on a production gateway.
 
-## Legacy migration / compatibility only
+## Developer helpers
 
-| Path                                  | Classification                | Purpose                                                                                                                                                                    |
-| ------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/generate-owner-verifier.mjs` | **legacy compatibility only** | Generates pre-recovery-file `SLNCTRZ_OWNER_SECRET_HASH` verifier state. It is not the current owner credential setup path and prints a legacy warning on every invocation. |
-| `config/commands.minimal.json`        | **legacy compatibility only** | Historical empty Restricted catalog template. Current setup/runtime bootstrap/repair use platform candidate discovery and do not embed or consume this file.               |
+| Path                            | Role                                 |
+| ------------------------------- | ------------------------------------ |
+| `scripts/check.mjs`             | Typecheck, lint, format and tests    |
+| `scripts/benchmark.mjs`         | Runtime cold-start/readiness samples |
+| `scripts/benchmark-harness.mjs` | Harness workload measurements        |
+| `scripts/bump-version.mjs`      | Version update workflow              |
+| `scripts/version.mjs`           | Shared version/release-line helpers  |
 
-Current deployments use the managed Owner Passphrase recovery file:
+## Legacy compatibility
 
-```text
-<stateRoot>/secrets/owner-passphrase
-```
+| Path                                  | Role                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| `scripts/generate-owner-verifier.mjs` | Legacy pre-recovery-file verifier generation; not current setup/recovery |
+| `config/commands.minimal.json`        | Historical empty catalog; current setup/repair use platform discovery    |
 
-The legacy verifier script must not appear in Quick Start, System Install, or ordinary recovery instructions.
+Legacy tools must not appear as ordinary installation/recovery instructions.
 
-## Obsolete
+## Release review
 
-No known obsolete operational file is intentionally shipped in the current release line. If a file no longer has a production, release, developer, or migration role, remove it rather than leaving an unclassified alternate security path.
+When adding or changing files under `scripts/`, `config/` or `.github/workflows/`:
 
-## Release review rule
-
-Before each public release:
-
-1. review every new/changed file under `scripts/`, `config/`, and `.github/workflows/`;
-2. assign one of the classifications above;
-3. ensure public docs reference only current production paths;
-4. ensure legacy tooling cannot be mistaken for normal setup;
-5. run `npm run docs:check`, source gates, standalone release gate, and the acceptance appropriate to the claimed support level.
+1. Classify their role here and verify referenced paths exist.
+2. Keep operator guides on supported production paths.
+3. Check secret handling and distinguish legacy/developer tools from installed product actions.
+4. Run `npm run docs:check` plus source/release gates appropriate to the change.
+5. Record acceptance for the actual artifact; a listed gate is not a passing result.

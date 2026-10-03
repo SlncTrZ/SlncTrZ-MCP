@@ -1,218 +1,135 @@
-# MCP Servers — Chuẩn đấu nối MCP cho SlncTrZ-MCP Gateway
-
-> Chuẩn chung cho việc **đấu nối (connect) một MCP server** vào gateway, và **chuẩn tối thiểu**
-> mà một MCP server phải thoả để được đấu nối. Tài liệu này dùng cho cả người **vận hành MCP
-> server** (phía cung cấp) lẫn người **đấu nối** (phía dùng gateway). Không gắn với server cụ thể
-> nào; mọi ví dụ đều dùng host `mcp.example.com` / `my-mcp` làm mẫu chung.
-
----
-
-## 1. Cách thêm MCP server
-
-Dùng **Owner Console → MCP Servers → Add MCP**. Điền các field, bấm **Probe & Add**. Gateway
-sẽ: probe server → khám phá tools → lưu cấu hình → bật provider → nạp lại catalog tool.
-
----
-
-## 2. Khung chung — các field
-
-| Field           | Giải thích                                                                 | Quy tắc                                                                                |
-| --------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **Name**        | Nhãn hiển thị, vd `Filesystem`, `GitHub`                                   | Tuỳ chọn, dễ nhớ                                                                       |
-| **Provider ID** | id ổn định, viết thường                                                    | **Bắt buộc**: chỉ `a-z`, `0-9`, `-`, độ dài ≤ 64 — vì nó tạo namespace `provider.tool` |
-| **Description** | Ghi chú ngắn                                                               | Tuỳ chọn                                                                               |
-| **Transport**   | `Remote URL` (streamable-http) / `Local command` (stdio)                   | Chọn theo dạng server                                                                  |
-| **Target**      | Remote: URL endpoint đầy đủ; Local: **absolute path** executable           | Xem quy tắc từng case                                                                  |
-| **Args**        | Chỉ khai khi stdio; tham số truyền cho executable, cách nhau bằng dấu cách | Không dùng cho Remote URL                                                              |
-| **Auth**        | `No auth` / `Bearer` / `HTTP header`                                       | Normal Owner Console flow; xem mục 6                                                   |
-| **Header name** | Chỉ cần cho `HTTP header`                                                  | Tên custom header                                                                      |
-| **Credential**  | Giá trị bí mật                                                             | **Không bao giờ** đặt trong URL / command / args / description                         |
-
----
-
-## 3. Chuẩn tối thiểu để đấu nối được
-
-Đấu nối không thể "chỉ điền một cái URL" là xong. Phải khớp **3 tầng**: transport đúng + xác
-thực đúng + protocol/discovery đúng. Nếu thiếu xác thực, server từ chối; nếu hai bên không khớp
-auth mode, probe fail.
-
-### 3a. Bắt buộc phía SERVER (người cung cấp MCP)
-
-Điều kiện tối thiểu để một MCP server "có thể đấu nối được":
-
-1. **Transport phù hợp** — Remote: endpoint **HTTPS**; Local: executable/script đọc/write stdio.
-2. **Protocol MCP đúng** — JSON-RPC 2.0; hỗ trợ `server/discover` (bản `2026-07-28`) hoặc fallback
-   `initialize` (bản `2025-11-25`). Gateway tự negotiate.
-3. **Discovery** — `tools/list` phải trả danh sách tool với **tên bare** (vd `knowledge_search`).
-   Gateway tự namespaced thành `provider.knowledge_search` (ADR-026).
-4. **Xác thực** (trừ khi server thực sự public) — server **bắt buộc** nhận và validate credential
-   mà gateway chèn (mục 6). Thuộc **Bearer** hoặc **HTTP header**.
-5. **Endpoint sạch** — URL không mang token / user / pass / query / fragment.
-6. **Bounded output** — gateway cắt response ở `maxOutputBytes` (mặc định 1 MB) và mỗi message
-   ở `maxMessageBytes` (mặc định 64 KB); tool list + kết quả nên nằm trong cap này.
-
-### 3b. Bắt buộc phía GATEWAY (người đấu nối)
-
-1. **Chọn đúng transport** theo dạng server (Remote URL vs Local command).
-2. **Target không mang credential** — secret chỉ nằm trong credential store (opaque ref).
-3. **Auth đúng** — khớp chính xác cơ chế server đang dùng (mục 6).
-4. **Probe phải PASS** — gateway chỉ persist khi probe thật sự trả `tools/list`; fail thì rollback sạch.
-5. **Credential rotate phải activate thật** — secret mới được stage bằng opaque ref mới; chỉ báo committed sau khi generation active dùng credential mới. Ref cũ chỉ bị xóa khi không còn provider nào tham chiếu.
-6. **Verify sau khi thêm** — qua `core.ping` (mục 9) và Refresh/Scan tools phía client.
-
----
-
-## 4. Bảng quyết định nhanh — trường hợp ↔ đấu nối
-
-| #   | Trường hợp           | Transport     | Target                                       | Auth                           | Quy tắc bắt buộc                                                                     |
-| --- | -------------------- | ------------- | -------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------ |
-| 1   | **Remote HTTPS**     | Remote URL    | `https://mcp.example.com/mcp`                | No auth / Bearer / HTTP header | **Chỉ `https://`**; cấm token/query/user/pass/fragment trong URL                     |
-| 2   | **Local executable** | Local command | `/usr/local/bin/my-mcp`                      | thường No auth                 | **Target = absolute path**; cấm shell expression (`pipe`, `&&`, `;`, `$()`)          |
-| 3   | **Node / JS script** | Local command | `/usr/bin/node`                              | No auth                        | Script nằm ở **Args**; không nhét `node /path` vào Target                            |
-| 4   | **Python script**    | Local command | `/usr/bin/python3` (hoặc `.venv/bin/python`) | No auth                        | Script nằm ở Args; venv thì trỏ Target thẳng vào python của venv                     |
-| 5   | **Loopback HTTP**    | Remote URL    | `http://127.0.0.1:3003/mcp`                  | thường No auth                 | **Chỉ** `127.0.0.0/8`, `localhost`, `.localhost`, `::1`; cấm host thật / `192.168.x` |
-
----
-
-## 5. Từng trường hợp
-
-### 5.1 Remote MCP URL (HTTPS)
-
-Dùng khi MCP server chạy ở host khác / qua HTTPS.
-
-- Target: `https://mcp.example.com/mcp`
-- Auth: `No auth`, `Bearer`, hoặc `HTTP header`
-
-Quy tắc:
-
-- `https://` cho host thật.
-- `http://` **chỉ** được phép cho loopback (`127.0.0.1`, `localhost`) — xem case 5.
-- Không đặt token / query string / tài khoản / mật khẩu / fragment trong URL.
-
-Ví dụ Bearer:
-
-- Auth: `Bearer`, Credential: `<token>`, Header/env name: bỏ trống.
-
-Ví dụ HTTP header:
-
-- Auth: `HTTP header`, Header/env name: `X-API-Key`, Credential: `<api-key>`.
-
-### 5.2 Local executable
-
-Dùng khi MCP server đã là một file executable.
-
-- Target: `/usr/local/bin/my-mcp`
-- Args: `--stdio` (nếu cần)
-- Auth: thường `No auth`
-
-Quan trọng: **Target phải là absolute path executable**. Không điền shell expression như
-`|`, `&&`, `;`, `$(...)`.
-
-### 5.3 Node / JavaScript MCP script
-
-Dùng khi MCP server là script Node. Command = Node executable; đường dẫn script nằm ở **Args**.
-
-- Target: `/usr/bin/node`
-- Args: `/opt/my-mcp/server.js` (thêm `--mode production` nếu cần)
-- Auth: `No auth`
-
-Không nhét `node /path/server.js` vào Target — Target chỉ là executable path.
-
-### 5.4 Python MCP script
-
-Dùng khi MCP server là script Python. Command = Python executable; script nằm ở **Args**.
-
-- Target: `/usr/bin/python3`
-- Args: `/opt/my-mcp/server.py`
-- Auth: `No auth`
-
-Với venv: trỏ Target thẳng vào python của venv:
-
-- Target: `/opt/my-mcp/.venv/bin/python`
-- Args: `/opt/my-mcp/server.py`
-
-### 5.5 Loopback HTTP (nội bộ)
-
-Trường hợp đặc biệt cho MCP server chạy ngay trên máy gateway, qua HTTP loopback
-(ADR-025). Cho phép `http://` **chỉ khi** host là loopback.
-
-- Target: `http://127.0.0.1:3003/mcp`
-- Auth: thường `No auth`
-
-Quy tắc fail-closed:
-
-- Chỉ nhận `127.0.0.0/8`, `localhost`, `.localhost`, `::1` (và dạng IPv4-mapped `::ffff:127.0.0.1`).
-- **Cấm** `192.168.x.x`, `10.x`, host domain thật (`.truongcongdinh.org`, v.v.) qua `http://` — những
-  host đó bắt buộc HTTPS.
-- Redirect chỉ được **same-origin** (scheme + host + port); không cho đổi port/host/giảm HTTPS.
-- Probe phải hoàn tất handshake + khám phá tool mới được persist; non-MCP service fail → rollback.
-
----
-
-## 6. Xác thực (trọng tâm)
-
-Credentials được lưu tách riêng trong **secret store** (opaque ref), không bao giờ nằm trong
-manifest / URL / args / description / audit. Khi rotate, gateway stage credential mới dưới ref mới, probe/activate candidate generation trước rồi mới cleanup ref cũ nếu không còn được tham chiếu; không overwrite/xóa secret đang active rồi gọi đó là rollback. Gateway chèn credential vào request khi gọi server.
-Đây là cách server nhận credential:
-
-| Auth mode                | Gateway gửi                                           | Khi nào dùng                                                                             |
-| ------------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Bearer**               | `Authorization: Bearer <value>`                       | Server dùng token chuẩn Bearer                                                           |
-| **HTTP header**          | `Header: <value>` (vd `X-API-Key: <value>`)           | Server dùng API key / custom header                                                      |
-| **No auth**              | (không gửi credential)                                | Server thực sự public, không cần xác thực                                                |
-| **Environment variable** | Biến env (chỉ stdio, advanced/internal manifest path) | Chỉ dùng khi manifest có `envAllowlist`; normal Owner Console hiện không expose mode này |
-
-> **Environment variable auth is not part of the normal Owner Console flow.** It remains an advanced/internal manifest capability and requires a valid `envAllowlist`; do not instruct ordinary users to select it in the UI.
-
-Quy tắc với "HTTP header": tên header **không** được là `accept`, `content-type`,
-`content-length`, `host`, `mcp-session-id`, `mcp-protocol-version`, `mcp-method`, `mcp-name`,
-và **không** được trùng `authorization`. Tên env với mode `env` phải có dạng
-`/^[A-Z][A-Z0-9_]*$/` và nằm trong `envAllowlist` của manifest.
-
----
-
-## 7. Namespacing tool id
-
-Gateway exposes tool dưới dạng **canonical id** `provider.tool` (vd `my-provider.knowledge_search`).
-Client (model) luôn gọi tool bằng canonical id này; khi proxy về MCP server, gateway đổi lại thành
-tên bare (`knowledge_search`). Nếu bạn thấy tool có tiền tố `provider.` thì đó là chuẩn — không
-phải tool lạ.
-
----
-
-## 8. Sau khi thêm
-
-Danh sách MCP Servers trong console cung cấp:
-
-- **Test** — probe server + xem tools đang khám phá.
-- **Sync** — nhận danh sách tools hiện tại của server và nạp lại gateway.
-- **Disable / Enable** — thêm/bớt tools của provider khỏi gateway **mà không xoá cấu hình**.
-- **Remove** — xoá cấu hình provider.
-
----
-
-## 9. Troubleshooting
-
-Nếu provider đã cấu hình nhưng tool không xuất hiện, kiểm tra `core.ping`:
-
-- `configuredProviders`
-- `readyProviders`
-- `advertisedTools`
-- `catalogFingerprint`
-
-Provider phải **ready** trước khi tool được advertise. Một provider chưa ready thường do:
-probe fail, discovery lệch (drift), thiếu credential, hoặc không khớp auth mode.
-
-**Client (ChatGPT)**: thỉnh thoảng cần bấm **Refresh / Scan Tools** sau khi catalog thay đổi.
-
----
-
-## 10. Quy tắc an toàn (tóm tắt từ ADR-020/025/026)
-
-- Không có secret trong URL/command/args/description/audit.
-- Không shell expression trong Target; shell string bị từ chối.
-- Provider ID lowercase, ≤ 64 ký tự; tool id tạo namespace `provider.tool`.
-- Credential ref là **tên opaque**, không được giống chuỗi bí mật thật (không `sk_live…`, `AKIA…`, `BEGIN RSA…`).
-- `http://` chỉ cho loopback; host thật bắt buộc HTTPS.
-- Redirect cross-origin bị từ chối; chỉ same-origin.
-- Probe là gate: fail → rollback, không lưu cấu hình nửa vời.
+# Add MCP servers
+
+Use this guide to connect an additional MCP server to your gateway through the Owner Console.
+A provider runs its own tools; the gateway handles discovery, namespacing and lifecycle.
+For provider authors, see [Provider Standard](MCP_PROVIDER_STANDARD.md).
+
+## Choose a transport
+
+| Server                                 | Transport     | Target example                                        |
+| -------------------------------------- | ------------- | ----------------------------------------------------- |
+| Remote MCP over HTTPS                  | Remote URL    | `https://mcp.example.com/mcp`                         |
+| MCP HTTP server on the gateway machine | Remote URL    | `http://127.0.0.1:3003/mcp`                           |
+| Local executable                       | Local command | `/usr/local/bin/my-mcp`                               |
+| Node script                            | Local command | Node executable as Target; script path in Args        |
+| Python script                          | Local command | Python/venv executable as Target; script path in Args |
+
+A local command runs with the gateway account's OS permissions. It is not OS-sandboxed
+by the gateway. Install and review the server before adding it.
+
+## Fill in the Owner Console
+
+Open **MCP Servers → Add MCP**, enter the fields below, then select **Probe & Add**.
+
+| Field       | What to enter                                                                                        |
+| ----------- | ---------------------------------------------------------------------------------------------------- |
+| Name        | Optional human-readable label                                                                        |
+| Provider ID | Stable lowercase ID, starting with a letter; remaining characters `a-z`, `0-9`, `-`; 1–64 characters |
+| Description | Optional short explanation                                                                           |
+| Transport   | Remote URL or Local command                                                                          |
+| Target      | Full MCP URL, or absolute executable path on the gateway                                             |
+| Args        | Local command arguments; the normal UI splits them on whitespace                                     |
+| Auth        | No auth, Bearer or HTTP header                                                                       |
+| Header name | Custom header name for HTTP header auth                                                              |
+| Credential  | Secret value; use this field instead of URL, Args or Description                                     |
+
+The Args field is **not a shell parser**: quotes do not group paths containing spaces.
+For example, a Windows executable Target may contain spaces, but a script path in Args cannot
+be quoted into one argument through this UI. Use a script path without spaces or an owner-managed
+advanced manifest with an explicit `args` array.
+
+The gateway probes the server and discovers tools before saving/enabling it. A failed probe
+must not be treated as a completed addition. After success, refresh your AI client's tool discovery.
+
+## Common examples
+
+### HTTPS provider
+
+```text
+Provider ID: research
+Transport:  Remote URL
+Target:     https://mcp.example.com/mcp
+Auth:       Bearer, HTTP header, or No auth as required by the server
+```
+
+Enter the credential only in the private Credential field. HTTP header auth also requires
+the exact supported header name, such as `X-API-Key`.
+
+Remote URLs must use HTTPS. HTTP is allowed only for loopback hosts on the gateway machine
+(`localhost`, `.localhost`, `127.0.0.0/8`, `::1`, and supported IPv4-mapped loopback).
+Private LAN addresses such as `192.168.x.x` still require HTTPS.
+URLs must not contain credentials, query parameters or fragments.
+Redirects must stay on the same origin, including port.
+
+### Local Node or Python server
+
+```text
+Provider ID: my-mcp
+Transport:  Local command
+Target:     /usr/bin/node
+Args:       /opt/my-mcp/server.js --stdio
+Auth:       No auth
+```
+
+For Python, choose the absolute interpreter path, for example
+`/opt/my-mcp/.venv/bin/python`, and put the script path in Args.
+On Windows, use native executable/script paths, such as
+`C:\Program Files\nodejs\node.exe` and `C:\mcp\server.js`.
+
+Target is one executable path, not `node script.js` or a shell expression.
+Pipes, `&&`, `;`, and command substitution do not belong in Target.
+The process must speak MCP on stdin/stdout; send diagnostic logs to stderr.
+
+Normal local-command setup uses No auth. HTTP Bearer/header credentials are for HTTP
+providers, not stdio. An environment-variable credential is an advanced manifest capability,
+requires `envAllowlist`, and is not offered by the normal Owner Console.
+
+## Manage an existing provider
+
+| Action           | Result                                                    |
+| ---------------- | --------------------------------------------------------- |
+| Test             | Probe availability and inspect discovered tools           |
+| Sync             | Accept the current tool catalog and activate it           |
+| Disable / Enable | Hide/restore tools while retaining provider configuration |
+| Remove           | Remove the provider configuration                         |
+
+Tool names are exposed as `<provider-id>.<tool-name>`, for example
+`research.search`. The gateway maps the call to the provider's advertised name.
+An upstream provider can advertise bare tool names; a SlncTrZ-specific `help` tool is
+recommended for first-class providers, not required for generic MCP compatibility.
+
+Credentials stay in separate private storage and are referenced by opaque IDs.
+**Credential rotation must activate the new credential**: rotation is complete only when the active provider
+generation uses the new credential. A failed candidate must preserve usable prior state;
+do not manually overwrite/delete active credential files as a troubleshooting shortcut.
+
+## Diagnose missing or failing tools
+
+1. Use **Test** and inspect the provider's status in the console.
+2. Ask the agent to call `core.ping` and inspect `configuredProviders`, `readyProviders`,
+   `advertisedTools` and `catalogFingerprint` in the provider summary.
+3. Confirm URL/transport/authentication and that the gateway can reach the server.
+4. If discovery changed, use **Sync**, then refresh/reconnect the client.
+5. After a temporary provider failure, wait for bounded recovery before retrying a safe call.
+
+The failed tool call is not automatically replayed. Before retrying a write, check whether
+the upstream operation committed. Repeated invalid sessions can quarantine a flapping provider.
+
+## Compatibility and bounds
+
+The adapters probe modern MCP `server/discover` (`2026-07-28`) and support legacy
+`initialize` (`2025-11-25`). Discovery must return valid tool schemas; invalid or drifting
+catalogs do not become ready silently.
+
+Provider message/output limits default to **8 MiB**, with a **16 MiB hard ceiling**.
+Startup defaults to 10 seconds and tool requests to 30 seconds.
+Oversized responses and timeouts are errors; do not expect silent truncation to make
+an oversized MCP message valid. Advanced limits live in the provider manifest.
+
+## Keep credentials private
+
+- Never put secrets in Target, Args, labels, descriptions, URLs, logs or issue reports.
+- Custom auth headers cannot replace reserved transport/protocol headers such as
+  `Host`, `Content-Type`, `Authorization`, or `Mcp-Protocol-Version`.
+- Provider instructions and tool descriptions do not grant gateway authority.
+- Read [Security](SECURITY.md) before exposing a network provider.

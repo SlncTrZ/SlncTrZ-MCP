@@ -26,5 +26,5 @@ explicitly out of scope.>
 
 ## Verification
 
-<npm run check — the acceptance criteria that prove this decision holds.
-Tests, benchmarks, or runtime evidence that must be recorded before this is done.>
+Describe the acceptance criteria that prove this decision holds: applicable tests,
+benchmarks and runtime evidence. Record which checks have run and which remain requirements.

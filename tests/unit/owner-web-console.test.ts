@@ -1,10 +1,14 @@
 import { createServer } from "node:http";
+import { createContext, runInContext } from "node:vm";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
 import { managedStatePaths } from "../../src/owner/managed-state.js";
+import { createMcpProviderService } from "../../src/owner/mcp-provider-service.js";
+import { createMcpProviderStore } from "../../src/owner/mcp-provider-store.js";
+import type { PolicySnapshotStore } from "../../src/policy/policy-store.js";
 import { createOwnerWebConsole } from "../../src/owner/web-console.js";
 import { compilePolicyDocument } from "../../src/policy/policy-config.js";
 import { buildActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
@@ -15,6 +19,120 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((fn) => fn()));
 });
+
+class ConsoleElement {
+  textContent = "";
+  disabled = false;
+  className = "";
+  children: ConsoleElement[] = [];
+  onclick?: () => Promise<void>;
+  private hidden = new Set<string>();
+  classList = {
+    add: (name: string) => this.hidden.add(name),
+    remove: (name: string) => this.hidden.delete(name),
+    contains: (name: string) => this.hidden.has(name)
+  };
+  append(...children: ConsoleElement[]) {
+    this.children.push(...children);
+  }
+  appendChild(child: ConsoleElement) {
+    this.children.push(child);
+  }
+  replaceChildren() {
+    this.children = [];
+  }
+  setAttribute() {
+    // Attribute layout is outside this isolated Delete interaction.
+  }
+  addEventListener() {
+    // Rename keyboard interactions are outside this Delete regression.
+  }
+}
+
+async function verifyConnectionDeleteFailures(page: string): Promise<void> {
+  // Execute the delivered script and real Delete handler; network/DOM boundaries are isolated.
+  const script = page.split("<script>")[1]?.split("</script>")[0];
+  if (script === undefined) throw new Error("Owner script is missing");
+  expect(page).toContain('id="connections-error" class="error hidden" role="alert"');
+  const rendering = script.slice(0, script.indexOf("async function refresh()"));
+  for (const failure of [
+    "stale",
+    "server",
+    "network",
+    "refresh",
+    "success-refresh",
+    "success"
+  ] as const) {
+    const list = new ConsoleElement();
+    const error = new ConsoleElement();
+    error.classList.add("hidden");
+    let refreshes = 0;
+    let deletes = 0;
+    let confirmed = true;
+    const context = createContext({
+      document: {
+        getElementById: (id: string) => {
+          if (id === "connections") return list;
+          if (id === "connections-error") return error;
+          throw new Error(`Unexpected element: ${id}`);
+        },
+        createElement: () => new ConsoleElement()
+      },
+      window: { confirm: () => confirmed },
+      fetch: async (
+        _path: string,
+        options: { method?: string; headers?: Record<string, string> }
+      ) => {
+        expect(options.method).toBe("DELETE");
+        expect(options.headers?.["x-slnctrz-csrf"]).toBe("test-csrf");
+        deletes += 1;
+        if (failure === "network") throw new Error("sensitive transport detail");
+        return {
+          ok: failure === "success" || failure === "success-refresh",
+          status: failure === "stale" ? 404 : 500,
+          json: async () => ({ error: { message: "sensitive backend detail" } })
+        };
+      },
+      refresh: async () => {
+        refreshes += 1;
+        if (failure === "refresh" || failure === "success-refresh")
+          throw new Error("sensitive refresh detail");
+        runInContext("renderConnections([])", context);
+      }
+    });
+    runInContext(
+      rendering + ";csrf='test-csrf';renderConnections([{grantId:'grant-a',label:'Agent'}]);",
+      context
+    );
+    const button = list.children[0]?.children[1]?.children[2];
+    expect(button?.textContent).toBe("Delete");
+    confirmed = false;
+    await button?.onclick?.();
+    expect(deletes).toBe(0);
+    confirmed = true;
+    const deleting = button?.onclick?.();
+    await expect(button?.onclick?.()).resolves.toBeUndefined();
+    await expect(deleting).resolves.toBeUndefined();
+    expect(deletes).toBe(1);
+    expect(refreshes).toBe(1);
+    expect(button?.disabled).toBe(false);
+    if (failure === "success") {
+      expect(error.classList.contains("hidden")).toBe(true);
+    } else {
+      expect(error.classList.contains("hidden")).toBe(false);
+      expect(error.textContent).toContain(
+        failure === "success-refresh" ? "Connection deleted" : "Could not confirm"
+      );
+      expect(error.textContent).not.toContain("sensitive");
+    }
+    if (failure === "refresh" || failure === "success-refresh") {
+      expect(error.textContent).toContain("could not refresh");
+      expect(list.children[0]?.children[1]?.children[2]).toBe(button);
+    } else {
+      expect(list.children[0]?.textContent).toBe("No active OAuth connections.");
+    }
+  }
+}
 
 describe("Owner Console product surface", () => {
   it("supports local HTTP session cookies, product state, CSRF and typed Autonomy mutation", async () => {
@@ -36,29 +154,30 @@ describe("Owner Console product surface", () => {
     let commandReloadMode: "activated" | "failed" | "throw" | "recovery-fail" = "activated";
     let commandReloadGate: Promise<void> | undefined;
     let commandReloadCalls = 0;
+    const policyStore: Pick<PolicySnapshotStore, "capture" | "reload"> = {
+      capture: () => snapshot,
+      async reload() {
+        commandReloadCalls += 1;
+        if (commandReloadGate !== undefined) await commandReloadGate;
+        if (commandReloadMode === "throw") throw new Error("reload_boom");
+        if (commandReloadMode === "recovery-fail") {
+          await rm(root, { recursive: true, force: true });
+          await writeFile(root, "not-a-directory", "utf8");
+        }
+        const activated = commandReloadMode === "activated";
+        return {
+          activated,
+          previousVersion: snapshot.version,
+          activeVersion: snapshot.version,
+          riskIncrease: false,
+          result: activated ? ("activated" as const) : ("failed" as const),
+          ...(activated ? {} : { failureCode: "policy_invalid" as const })
+        };
+      }
+    };
     const web = createOwnerWebConsole({
       ownerSecretHash: createOwnerSecretHash("owner passphrase test value"),
-      policyStore: {
-        capture: () => snapshot,
-        async reload() {
-          commandReloadCalls += 1;
-          if (commandReloadGate !== undefined) await commandReloadGate;
-          if (commandReloadMode === "throw") throw new Error("reload_boom");
-          if (commandReloadMode === "recovery-fail") {
-            await rm(root, { recursive: true, force: true });
-            await writeFile(root, "not-a-directory", "utf8");
-          }
-          const activated = commandReloadMode === "activated";
-          return {
-            activated,
-            previousVersion: snapshot.version,
-            activeVersion: snapshot.version,
-            riskIncrease: false,
-            result: activated ? ("activated" as const) : ("failed" as const),
-            ...(activated ? {} : { failureCode: "policy_invalid" as const })
-          };
-        }
-      },
+      policyStore,
       statePaths: paths,
       mutation: {
         async apply(operation) {
@@ -326,6 +445,7 @@ describe("Owner Console product surface", () => {
     });
 
     const ownerPage = await (await fetch(`${origin}/owner`)).text();
+    await verifyConnectionDeleteFailures(ownerPage);
     expect(ownerPage).toContain("x.title='Remove '+name");
     expect(ownerPage).not.toContain("el.appendChild(e);return}const risky");
     expect(ownerPage).toContain('id="overview-command-count"');
@@ -431,14 +551,33 @@ describe("Owner Console product surface", () => {
       headers: { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf },
       body: JSON.stringify({ content: secondConcurrentContent })
     });
+    const providerDisk = createMcpProviderStore(join(root, "providers.json"));
+    const providerChange = createMcpProviderService({
+      store: providerDisk,
+      policyStore,
+      isActiveProviderReady: () => true
+    }).addOrUpdate({
+      manifest: {
+        id: "probe",
+        version: "1",
+        transport: "streamable-http",
+        endpoint: "https://provider.example.test/mcp",
+        tools: [{ canonicalId: "probe.ping", riskClass: "read" }]
+      }
+    });
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
-    expect(commandReloadCalls).toBe(callsBeforeConcurrent + 1);
+    const callsWhileCommandPending = commandReloadCalls;
+    const providersWhileCommandPending = await providerDisk.list();
     commandReloadGate = undefined;
     releaseReload();
     const [firstConcurrentResponse, secondConcurrentResponse] = await Promise.all([
       firstConcurrent,
       secondConcurrent
     ]);
+    expect((await providerChange).reload.activated).toBe(true);
+    expect(callsWhileCommandPending).toBe(callsBeforeConcurrent + 1);
+    expect(providersWhileCommandPending).toEqual([]);
+    expect((await providerDisk.list()).map((record) => record.id)).toEqual(["probe"]);
     expect(firstConcurrentResponse.status).toBe(200);
     expect(secondConcurrentResponse.status).toBe(200);
     expect(await readFile(paths.commandCatalogFile, "utf8")).toBe(secondConcurrentContent);

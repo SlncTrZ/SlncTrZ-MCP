@@ -3,7 +3,7 @@
 Thanks for contributing. This project is an **independent, clean-room implementation**
 of a coding harness and MCP capability gateway. Please read this before opening an issue or pull request.
 
-## Clean-room rule (PLAN §2.1)
+## Independent implementation
 
 - Do not copy source code, comments, documentation, UI text, naming conventions, or
   test fixtures from reference implementations (including `aki-mcp-sv` and research
@@ -19,7 +19,7 @@ of a coding harness and MCP capability gateway. Please read this before opening 
 
 - Node.js `>=22.13.0 <25` (see `package.json` and `ENGINEERING.md`)
 - npm `11.x`
-- Git, with commits signed and authored as `SlncTrZ`/your own identity
+- Git, with commits authored under your own identity
 
 ## Workflow
 
@@ -53,10 +53,13 @@ handling are **security-sensitive**. They require:
 
 ## Documentation
 
-Update `PLAN.md`/`ARCHITECTURE.md`/`README.md` only when behaviour or scope actually
-changes. Keep documentation in sync with behaviour (definition of done, PLAN §9).
+Update the guide that serves the affected reader. Keep everyday setup/operation in README and
+User Guide, developer detail in Architecture/Engineering, and historical decisions in ADRs.
+Check commands against the implementation and run `npm run docs:check`. Improve confusing
+wording even when behavior stays unchanged; do not turn a historical test result into a current
+support claim.
 
 ## Code of conduct
 
 Be respectful, evidence-based, and patient. No permission or capability can be granted
-by instructions alone (PLAN §2.3).
+by instructions alone.

@@ -10,7 +10,11 @@ import {
   type ExtensionManifestV1,
   type ExtensionToolSchemaRecord
 } from "../extension/manifest.js";
-import type { PolicySnapshotStore, ReloadResult } from "../policy/policy-store.js";
+import {
+  withPolicyMutation,
+  type PolicySnapshotStore,
+  type ReloadResult
+} from "../policy/policy-store.js";
 import type { ManagedMcpProvider, McpProviderStore } from "./mcp-provider-store.js";
 import {
   diffProviderTools,
@@ -96,17 +100,9 @@ export function createMcpProviderService(options: {
   readonly isActiveProviderReady: (providerId: string, activeVersion: string) => boolean;
   readonly resolveCredentials?: (refs: readonly string[]) => Promise<readonly ProviderCredential[]>;
 }): McpProviderService {
-  const activate = async (): Promise<ReloadResult> => options.policyStore.reload();
-
-  let mutationTail: Promise<void> = Promise.resolve();
-  const serializeMutation = <T>(operation: () => Promise<T>): Promise<T> => {
-    const run = mutationTail.catch(() => undefined).then(operation);
-    mutationTail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
-  };
+  const serializeMutation = <T>(
+    operation: (activate: () => Promise<ReloadResult>) => Promise<T>
+  ): Promise<T> => withPolicyMutation(options.policyStore, operation);
 
   const lastDiscovered = new Map<string, McpDiscoveredSnapshot>();
 
@@ -224,7 +220,8 @@ export function createMcpProviderService(options: {
 
   const recoverActivatedCandidate = async (
     prior: ManagedMcpProvider | undefined,
-    providerId: string
+    providerId: string,
+    activate: () => Promise<ReloadResult>
   ): Promise<void> => {
     try {
       await restoreProvider(prior, providerId);
@@ -246,11 +243,12 @@ export function createMcpProviderService(options: {
   const assertActivatedProviderReady = async (
     provider: ManagedMcpProvider,
     reload: ReloadResult,
-    prior: ManagedMcpProvider | undefined
+    prior: ManagedMcpProvider | undefined,
+    activate: () => Promise<ReloadResult>
   ): Promise<void> => {
     if (!provider.enabled || options.isActiveProviderReady(provider.id, reload.activeVersion))
       return;
-    await recoverActivatedCandidate(prior, provider.id);
+    await recoverActivatedCandidate(prior, provider.id, activate);
     throw new McpProviderMutationError({
       code: "mcp_provider_activation_unavailable",
       providerId: provider.id,
@@ -258,11 +256,14 @@ export function createMcpProviderService(options: {
     });
   };
 
-  const addOrUpdateUnsafe = async (input: {
-    readonly manifest: ExtensionManifestV1;
-    readonly name?: string;
-    readonly enabled?: boolean;
-  }): Promise<McpProviderMutationResult> => {
+  const addOrUpdateUnsafe = async (
+    input: {
+      readonly manifest: ExtensionManifestV1;
+      readonly name?: string;
+      readonly enabled?: boolean;
+    },
+    activate: () => Promise<ReloadResult>
+  ): Promise<McpProviderMutationResult> => {
     const prior = await options.store.get(input.manifest.id);
     const manifest = withNamespacedTools(input.manifest);
     const provider = await options.store.upsert({ ...input, manifest });
@@ -278,7 +279,7 @@ export function createMcpProviderService(options: {
       throw error;
     }
     if (reload.activated) {
-      await assertActivatedProviderReady(provider, reload, prior);
+      await assertActivatedProviderReady(provider, reload, prior, activate);
       return { provider, reload };
     }
     try {
@@ -293,21 +294,25 @@ export function createMcpProviderService(options: {
     readonly manifest: ExtensionManifestV1;
     readonly name?: string;
     readonly enabled?: boolean;
-  }): Promise<McpProviderMutationResult> => serializeMutation(() => addOrUpdateUnsafe(input));
+  }): Promise<McpProviderMutationResult> =>
+    serializeMutation((activate) => addOrUpdateUnsafe(input, activate));
 
   const acceptTools = (
     providerId: string,
     tools: readonly ExtensionToolSchemaRecord[]
   ): Promise<McpProviderMutationResult> =>
-    serializeMutation(async () => {
+    serializeMutation(async (activate) => {
       const provider = await options.store.get(providerId);
       if (provider === undefined) throw new Error("mcp_provider_not_found");
       if (tools.length === 0) throw new Error("mcp_provider_tools_required");
-      return addOrUpdateUnsafe({
-        manifest: { ...provider.manifest, tools: [...tools] },
-        ...(provider.name === undefined ? {} : { name: provider.name }),
-        enabled: provider.enabled
-      });
+      return addOrUpdateUnsafe(
+        {
+          manifest: { ...provider.manifest, tools: [...tools] },
+          ...(provider.name === undefined ? {} : { name: provider.name }),
+          enabled: provider.enabled
+        },
+        activate
+      );
     });
 
   return Object.freeze({
@@ -316,7 +321,7 @@ export function createMcpProviderService(options: {
     },
     addOrUpdate,
     setEnabled(providerId: string, enabled: boolean) {
-      return serializeMutation(async () => {
+      return serializeMutation(async (activate) => {
         const prior = await options.store.get(providerId);
         if (prior === undefined) throw new Error("mcp_provider_not_found");
         const provider = await options.store.upsert({
@@ -336,7 +341,7 @@ export function createMcpProviderService(options: {
           throw error;
         }
         if (reload.activated) {
-          await assertActivatedProviderReady(provider, reload, prior);
+          await assertActivatedProviderReady(provider, reload, prior, activate);
           return { provider, reload };
         }
         try {
@@ -348,7 +353,7 @@ export function createMcpProviderService(options: {
       });
     },
     remove(providerId: string) {
-      return serializeMutation(async () => {
+      return serializeMutation(async (activate) => {
         const prior = await options.store.get(providerId);
         if (prior === undefined) throw new Error("mcp_provider_not_found");
         await options.store.remove(providerId);

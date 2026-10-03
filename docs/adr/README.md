@@ -22,12 +22,12 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-011 | Embedded owner-only OAuth for Phase 1 dogfood                       | Accepted                                                         |
 | ADR-012 | Grant-family token revocation and redacted authentication audit     | Accepted                                                         |
 | ADR-013 | Bound ephemeral OAuth allocations                                   | Accepted                                                         |
-| ADR-014 | Non-overridable secret-path denial in the kernel                    | Accepted                                                         |
+| ADR-014 | Non-overridable secret-path denial in the kernel                    | Applies to current Restricted mode                               |
 | ADR-015 | Policy-bound atomic filesystem writes                               | Accepted; dry-run default superseded                             |
 | ADR-016 | Deterministic exact-match filesystem edits                          | Accepted; dry-run default superseded                             |
 | ADR-017 | Policy-bound direct process execution                               | Superseded by ADR-024                                            |
 | ADR-018 | Versioned immutable policy snapshots and atomic activation          | Accepted                                                         |
-| ADR-019 | Scoped developer access and sandbox escalation criteria             | Accepted                                                         |
+| ADR-019 | Scoped developer access and sandbox escalation criteria             | Partially superseded by schema-v2 authority                      |
 | ADR-020 | Bounded isolated MCP extension transports                           | Partially superseded by schema-v2/provider recovery contract     |
 | ADR-021 | Separate loopback owner control plane and bounded telemetry         | Accepted                                                         |
 | ADR-022 | Owner managed state write path under systemd hardening              | Partially superseded                                             |
@@ -40,13 +40,14 @@ components. Routine choices belong in code comments or commit messages, not here
 
 ## How to add an ADR
 
-1. Copy `_template.md` to the next number, e.g. `adr-028-title.md`.
+1. Copy `_template.md` to the next unused number, e.g. `adr-029-title.md`.
 2. Fill in Status, Context, Decision, Consequences.
 3. Add the row to the register above.
 4. Keep it short and decision-focused.
 
-> ADRs are tracked alongside the code. For the full rationale behind the accepted
-> decisions, see PLAN §5 (Architecture decision records) and ARCHITECTURE.md.
+> ADRs record decisions at their original dates. Use [Architecture](../../ARCHITECTURE.md)
+> and [Security](../../SECURITY.md) for current behavior; supersession notes identify changed
+> contracts. Early register-only decisions do not all have separate retained files.
 
 ## Coding harness update
 

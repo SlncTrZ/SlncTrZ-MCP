@@ -4,6 +4,11 @@
 > Date: 2026-08-26  
 > Owners: SlncTrZ
 
+> Current-contract note (2026-10-01): v0.3.6 also bounds pending authorizations globally
+> (default 1,024 after expired entries are purged). Dynamic registrations and acknowledged
+> grants/token hashes are now durable; only pending transactions/codes remain ephemeral.
+> The historical alternative that deferred persistence below is no longer current.
+
 ## Context
 
 PLAN Phase 2 requires registration and brute-force abuse controls. Per-peer rate limits

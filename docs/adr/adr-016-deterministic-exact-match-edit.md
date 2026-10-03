@@ -42,7 +42,8 @@ operations resolve against one immutable snapshot of the original content.
   content, or diff.
 - **Positive:** No new dependency and no reimplementation of the shared boundary, atomic
   writer, or target serialization.
-- **Negative:** Multi-hunk and complex edits must be composed from several calls.
+- **Negative:** Changes must be expressible as exact, unique, non-overlapping replacements.
+  Multiple such replacements can be submitted in one atomic call against the same base snapshot.
 - **Risk and mitigation:** Exact matching rejects legitimate repeated substrings; callers
   must supply enough surrounding context to disambiguate.
 

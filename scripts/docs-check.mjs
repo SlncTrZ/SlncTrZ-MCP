@@ -365,7 +365,7 @@ requireText(backup, "Task Runtime state", "BACKUP_RESTORE");
 requireText(projectContextAdr, "Superseded by ADR-027", "ADR-009");
 requireText(projectContextAdr, "Product Agent Harness", "ADR-009");
 requireText(mcpServers, "server/discover", "MCP_SERVERS");
-requireText(mcpServers, "Credential rotate phải activate thật", "MCP_SERVERS");
+requireText(mcpServers, "Credential rotation must activate the new credential", "MCP_SERVERS");
 
 for (const [text, label] of [
   [readme, "README"],

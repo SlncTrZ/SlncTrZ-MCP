@@ -982,13 +982,15 @@ export async function updateProduct(
     // service identity, unit content, or state ownership under the still-running old process.
     await preflightInstalledSystemService(context, dependencies);
   }
+  // Prepare client config before publishing a new activation. Config I/O failure must leave
+  // the selected release and the running service untouched.
+  await ensureClientEnvFile(context.installation.configRoot, {});
   const activation = await installStandaloneRelease({
     installRoot: context.installation.installRoot,
     manifest,
     target: currentReleaseTarget(),
     ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch })
   });
-  await ensureClientEnvFile(context.installation.configRoot, {});
   if (context.installation.installMode === "system") {
     await activateInstalledSystemService(context, activation, rollbackActivation, dependencies);
     return { activation, restartRequired: false };

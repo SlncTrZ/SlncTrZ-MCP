@@ -7,7 +7,19 @@ slnctrz-mcp status
 slnctrz-mcp doctor
 ```
 
-Use `--json` when collecting machine-readable evidence.
+Use the installed launcher/executable path if `slnctrz-mcp` is not on PATH.
+Use `--json` for structured diagnostics; review them before sharing.
+
+| Symptom                            | First check                                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Owner page does not open           | User Install needs its foreground process running; System Install needs its service active                       |
+| File/skills/task tools disappeared | Check Full/Gateway-only profile and refresh client tool discovery                                                |
+| MCP provider tools are missing     | Provider readiness/Test/Sync, then client discovery                                                              |
+| OAuth fails after a restart        | Start a new unfinished authorization flow; do not reuse a callback URL                                           |
+| Debate Delete returns CSRF error   | Verify running build, reload the Owner page and sign in again; stable v0.3.6 includes the CSRF-header correction |
+| DELETE fails or a list looks stale | Refresh the page, check whether the item still exists, and inspect the running version before retrying           |
+
+See [User Guide](USER_GUIDE.md) for ordinary setup and connection steps.
 
 `doctor` is read-only. It does not repair or delete state.
 
@@ -138,11 +150,15 @@ The Owner Passphrase recovery file is unavailable.
 
 Ordinary repair deliberately does **not** regenerate an existing installation credential.
 
-Restore it from backup. If deliberately rotating a valid credential, use:
+Restore it from backup, or explicitly generate a replacement on a valid managed installation
+with local filesystem write authority (the old passphrase is not required):
 
 ```bash
 slnctrz-mcp owner rotate-passphrase
 ```
+
+The CLI reports the new recovery-file path. Read it locally and restart the gateway;
+ordinary repair never rotates a missing passphrase automatically.
 
 ### owner_secret_permissions_unsafe
 
@@ -238,6 +254,23 @@ Dynamic client registrations and acknowledged OAuth grant/token-family state are
 
 Pending authorization transactions and authorization codes remain bounded process-memory state. If the gateway restarts while a browser authorization flow is in progress, restart that authorization flow rather than reusing the old code/state URL. A reconnect may also be required for revoked/expired grants or for legacy pre-durable grants created before the durable OAuth contract shipped.
 
+## Connection profile and missing coding tools
+
+Gateway-only deliberately hides file, execution, media, context, skills and task tools while
+keeping enabled providers, Debate, ping and self-restriction. Ask the Owner to restore Full
+if coding is needed, then refresh client discovery. Gateway-only provider calls do not require
+`context.bootstrap`; that tool is hidden in this profile.
+
+## Debate waits and pauses
+
+`debate.wait` defaults to and accepts at most 20 seconds per request. Longer waits repeat calls
+with the last seen sequence until an overall client-selected deadline. `timedOut:true` ends a
+request, not the turn. The default pickup/response deadlines are two/fifteen minutes; a missed
+turn deadline pauses the Debate. The Owner can resume or stop it in the Debate page.
+
+History survives a gateway restart in `debate.sqlite3`. Protect this file as conversation content,
+not metadata-only telemetry. Active Debates must be stopped before deletion.
+
 ## Managed tasks after restart
 
 Task Runtime state is intentionally process-memory state in the current product. A gateway restart/update/rollback clears active Runner and Coordinator task IDs/state. This is expected and is separate from durable OAuth client registration, policy/provider state and audit history.
@@ -257,7 +290,9 @@ Update is fail-closed around:
 
 A failed manifest/signature/artifact verification does not replace the active release. Missing, malformed, unknown-key, or tampered `manifest.json.sig` failures should be treated as a release trust failure, not worked around by disabling signature verification.
 
-For official release CI, the signing job must run only for a `v*` tag on `main` history and must reference the protected GitHub `release-signing` Environment. If signing is unexpectedly skipped or cannot access its key, verify the Environment/tag/reviewer/secret configuration in `RELEASE.md` and `docs/RELEASE_ACCEPTANCE.md` rather than copying a private key into repository variables or source.
+For maintainers diagnosing official signing jobs, use [Release Process](../RELEASE.md) and
+[Release Acceptance](RELEASE_ACCEPTANCE.md). Signing configuration belongs to CI, not the
+deployed gateway; do not copy a release private key into runtime state.
 
 For System Install, service restart/health failure is surfaced. Inspect service logs before retrying.
 
@@ -324,16 +359,16 @@ Do not publish:
 | Model cannot consume image content                    | Verify the client preserves `content[]` image blocks and the active model accepts image input. Metadata alone is not an image.                                                                                                       |
 
 `media.read_image` checks container headers and dimensions, not a full pixel decode.
-The initial version preserves original bytes and EXIF without orientation normalization.
+The reader preserves original bytes and EXIF without orientation normalization.
 Do not claim that every corrupt image is detected or that user-visible rendering is guaranteed.
 
 See [Images in chat](IMAGES.md) for the verified attachment workflow and release boundaries.
-An audio attachment playing for the user is also not proof that the model can hear it;
-the tested session explicitly rejected audio input.
+An audio attachment playing for the user does not prove model audio input support;
+`media.read_image` does not supply audio reading or transcription.
 
 ## Coding context and skills
 
-If tools return `context_required`, refresh the MCP tool catalog and call `context.bootstrap`.
+On Full connections, if tools return `context_required`, refresh the MCP tool catalog and call `context.bootstrap`.
 Pass its `contextToken` as `slnctrzContext` with work calls. `context_stale` means instructions,
 skills, policy or the receipt lifetime changed: bootstrap again and load relevant skills again.
 Preflight rejection means the requested operation was not executed; do not apply that assumption

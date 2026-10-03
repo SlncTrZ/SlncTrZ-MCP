@@ -239,6 +239,7 @@ export async function restoreStandaloneActivation(
   if (installed === undefined || !sameRelease(installed, activation)) {
     throw new Error("Standalone rollback activation is unavailable");
   }
+  await verifyInstalledReleaseBytes(installRoot, installed);
   await writeActivation(installRoot, activation, NODE_INSTALLER_MUTATIONS);
 }
 

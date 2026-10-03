@@ -8,7 +8,11 @@ import {
   loadPolicyDocument,
   type PolicyDocument
 } from "../policy/policy-config.js";
-import type { PolicySnapshotStore, ReloadResult } from "../policy/policy-store.js";
+import {
+  withPolicyMutation,
+  type PolicySnapshotStore,
+  type ReloadResult
+} from "../policy/policy-store.js";
 
 export type OwnerPolicyOperation =
   | { readonly kind: "add-path"; readonly path: string }
@@ -91,15 +95,6 @@ export function createPolicyMutationService(options: {
 }): PolicyMutationService {
   if (!isAbsolute(options.policyFile)) throw new Error("Owner policy file must be absolute");
   const rollbackFile = `${options.policyFile}.previous`;
-  let mutationTail: Promise<void> = Promise.resolve();
-  const serializeMutation = <T>(operation: () => Promise<T>): Promise<T> => {
-    const run = mutationTail.catch(() => undefined).then(operation);
-    mutationTail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
-  };
   return Object.freeze({
     async validate() {
       const document = await loadPolicyDocument(options.policyFile);
@@ -107,7 +102,7 @@ export function createPolicyMutationService(options: {
       return { valid: true as const, pathCount: document.paths.length };
     },
     apply(operation: OwnerPolicyOperation) {
-      return serializeMutation(async () => {
+      return withPolicyMutation(options.policyStore, async (reload) => {
         const priorRaw = await readFile(options.policyFile, "utf8");
         const previousRaw = await readOptionalFile(rollbackFile);
         let nextRaw: string;
@@ -144,7 +139,7 @@ export function createPolicyMutationService(options: {
 
         let result: ReloadResult;
         try {
-          result = await options.policyStore.reload();
+          result = await reload();
         } catch (error) {
           await restorePriorState();
           throw error;
