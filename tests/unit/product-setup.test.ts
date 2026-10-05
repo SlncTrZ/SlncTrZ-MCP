@@ -71,7 +71,7 @@ describe("product setup", () => {
       releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
     });
     expect(first.mcpEndpoint).toBe("http://127.0.0.1:9123/mcp");
-    expect(first.ownerConsoleUrl).toBe("http://127.0.0.1:9123/owner");
+    expect(first.ownerConsoleUrl).toBe("http://127.0.0.1:9123/");
     expect(first.runtimeAccount).toBe(userInfo().username);
     expect(first.runtimeIdentity.home).toBe(userInfo().homedir);
     expect(first.ownerPassphraseState).toBe("created");

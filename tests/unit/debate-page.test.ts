@@ -112,7 +112,7 @@ describe("Debate owner page foundation", () => {
     expect(DEBATE_OWNER_API_BASE).toBe("/owner/api/debates");
     expect(html).toContain('font-family:"SlncHertine"');
     expect(html).toContain("max-width:76rem");
-    expect(html).toContain('href="/owner"');
+    expect(html).toContain('href="/"');
     expect(html).toContain('href="/usage"');
     expect(html).toContain('href="/debate" aria-current="page"');
     expect(html).toContain("@media(prefers-color-scheme:dark)");

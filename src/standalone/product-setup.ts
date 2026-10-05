@@ -1,5 +1,5 @@
 /** Product setup orchestration: verified release + managed state + runtime config + installation identity.
- * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-09-09
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-05 12:49
  */
 
 import { ensureHarnessLayout } from "../context/provisioning.js";
@@ -441,7 +441,7 @@ export async function prepareProductSetup(
     gatewayConfigFile,
     launcherFile,
     mcpEndpoint,
-    ownerConsoleUrl: `${runtimeConfig.publicMcpUrl.origin}/owner`,
+    ownerConsoleUrl: `${runtimeConfig.publicMcpUrl.origin}/`,
     runtimeAccount: runtimeIdentity.username,
     runtimeIdentity,
     staticClientId: staticClient.clientId,

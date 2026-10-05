@@ -110,7 +110,7 @@ Local mode is the default: listener `127.0.0.1:3100`, no public URL.
 
 ```text
 MCP:   http://127.0.0.1:3100/mcp
-Owner: http://127.0.0.1:3100/owner
+Owner: http://127.0.0.1:3100/
 Usage: http://127.0.0.1:3100/usage
 ```
 

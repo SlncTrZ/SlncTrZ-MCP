@@ -1,6 +1,7 @@
 /** Isolated Owner Debate page shell. Shared route/auth wiring belongs to the integration owner. */
 
 import type { ServerResponse } from "node:http";
+import { dashboardChrome, dashboardCss, dashboardEnd, dashboardScript } from "./dashboard-shell.js";
 
 export const DEBATE_OWNER_API_BASE = "/owner/api/debates";
 
@@ -27,15 +28,16 @@ button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid col
 @media(max-width:820px){.workspace{grid-template-columns:1fr}.sidebar{border-right:0;border-bottom:1px solid var(--line)}.debate-list{max-height:13rem}.fact-row{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{align-items:start;flex-direction:column}}
 @media(max-width:560px){.shell{padding-top:1rem}.topbar{align-items:flex-start}.brand{font-size:1.6rem}.nav{flex-wrap:wrap;justify-content:flex-end}.title-row{flex-direction:column}.actions{justify-content:flex-start}.fact-row{grid-template-columns:1fr 1fr}.state-pane,.conversation{min-height:28rem}.message-head{align-items:flex-start;flex-direction:column;gap:.1rem}}
 @media(prefers-reduced-motion:reduce){.nav a,.action{transition:none}.nav a:active,.action:active{transform:none}}
-</style></head><body><div class="shell">
-<header class="topbar"><div class="brand">SlncTrZ</div><nav class="nav"><a href="/owner">Owner Console</a><a href="/usage">Usage</a><a href="/debate" aria-current="page">Debate</a></nav></header>
-<section id="auth-required" class="notice hidden"><strong>Owner sign-in required.</strong> Debate history stays private to the Owner Console session. <a href="/owner">Sign in at /owner</a>, then return here.</section>
+${dashboardCss}
+</style></head><body>${dashboardChrome("debate")}<div class="shell">
+
+<section id="auth-required" class="notice hidden"><strong>Owner sign-in required.</strong> Debate history stays private to the Owner Console session. <a href="/">Sign in at the homepage</a>, then return here.</section>
 <div id="app" class="hidden">
-<section class="hero"><div><h1>Debate</h1><p>Live and historical two-participant discussions with durable turn state and explicit deadlines.</p></div></section>
+<section class="hero"><div><div class="eyebrow">COLLABORATION</div><h1>Debate</h1><p>Live and historical two-participant discussions with durable turn state and explicit deadlines.</p></div></section>
 <section id="page-error" class="notice error hidden" role="alert"></section>
 <section class="workspace" aria-label="Debate workspace">
 <aside class="sidebar"><div class="sidebar-head"><h2>Conversations</h2><p>Active and historical debates</p></div><div id="debate-list" class="debate-list" aria-label="Debate history"></div></aside>
-<main class="main" aria-live="polite">
+<div class="main" aria-live="polite">
 <section id="loading-state" class="state-pane" data-state="loading"><div class="skeleton" aria-label="Loading debates"><i></i><i></i><i></i></div></section>
 <section id="empty-state" class="state-pane hidden" data-state="empty"><div class="state-copy"><h2>No debates yet</h2><p>New debates will appear here after they are created through the Debate tools.</p></div></section>
 <section id="conversation" class="conversation hidden" data-state="active">
@@ -44,7 +46,7 @@ button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid col
 <ol id="transcript" class="transcript" aria-label="Debate transcript"></ol>
 <div id="turn-note" class="turn-note"><strong>waiting</strong> for debate activity.</div>
 </section>
-</main></section>
+</div></section>
 <span class="hidden" aria-hidden="true">paused_timeout stopped completed error</span>
 </div></div>
 <script>
@@ -148,7 +150,7 @@ async function boot(){
   catch(error){if(error?.status===401){q('auth-required').classList.remove('hidden')}else{q('app').classList.remove('hidden');q('loading-state').classList.add('hidden');showError(error)}}
 }
 boot();
-</script></body></html>`;
+</script>${dashboardEnd}${dashboardScript}</body></html>`;
 }
 
 export function sendDebatePage(res: ServerResponse): void {

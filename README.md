@@ -87,9 +87,12 @@ Once the gateway is running, local defaults are:
 
 | Surface         | URL                           |
 | --------------- | ----------------------------- |
-| Owner Console   | `http://127.0.0.1:3100/owner` |
+| Owner Console   | `http://127.0.0.1:3100/`      |
 | MCP endpoint    | `http://127.0.0.1:3100/mcp`   |
 | Usage dashboard | `http://127.0.0.1:3100/usage` |
+
+The gateway homepage opens the Owner Console. Existing links such as
+`http://127.0.0.1:3100/owner` remain supported.
 
 Setup prints the installed version, URLs, locations, and paths to the private credential files.
 Read the Owner Passphrase from the indicated file to sign in; keep credential values private.

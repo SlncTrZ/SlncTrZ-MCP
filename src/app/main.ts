@@ -1,6 +1,6 @@
 /**
  * Application Bootstrap — composes and starts the public MCP data plane.
- * Wing: app | Topic: process-bootstrap | Updated: 2026-09-09
+ * Wing: app | Topic: process-bootstrap | Updated: 2026-10-05 12:49
  *
  * Provenance: PLAN Phases 1-3, Phase 8, ADR-012, ADR-015, and ADR-008.
  */
@@ -361,7 +361,7 @@ export async function bootstrap(
   const server = createGatewayServer({
     oauthService,
     policyStore,
-    ...(config.ownerWebEnabled ? { ownerConsoleUrl: `${config.publicMcpUrl.origin}/owner` } : {}),
+    ...(config.ownerWebEnabled ? { ownerConsoleUrl: `${config.publicMcpUrl.origin}/` } : {}),
     gatewayInfo: {
       version: APP_VERSION,
       buildCommit: BUILD_COMMIT,

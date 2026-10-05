@@ -1,5 +1,5 @@
 /** Installed product status, diagnostics, configuration, update, recovery and uninstall.
- * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-09-11
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-05 12:49
  */
 
 import { ensureHarnessLayout } from "../context/provisioning.js";
@@ -433,7 +433,7 @@ export async function readProductStatus(
     installedIntegrity: integrityRecord === undefined ? "failed" : "ok",
     gateway: running ? "running" : "unreachable",
     mcpEndpoint: runtime.publicMcpUrl.href,
-    ownerConsoleUrl: `${runtime.publicMcpUrl.origin}/owner`,
+    ownerConsoleUrl: `${runtime.publicMcpUrl.origin}/`,
     ownerPassphraseFile: context.statePaths.ownerPassphraseFile
   };
 }

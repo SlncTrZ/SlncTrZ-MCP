@@ -1,9 +1,10 @@
 /**
  * Usage Dashboard - read-only owner view for gateway traffic and harness efficiency.
- * Wing: owner | Topic: usage-dashboard | Updated: 2026-09-11
+ * Wing: owner | Topic: usage-dashboard | Updated: 2026-10-05 12:49
  */
 
 import type { ServerResponse } from "node:http";
+import { dashboardChrome, dashboardCss, dashboardEnd, dashboardScript } from "./dashboard-shell.js";
 
 function page(): string {
   return `<!doctype html>
@@ -17,12 +18,13 @@ a{color:inherit}.shell{max-width:76rem;margin:auto;padding:2rem 1rem 4rem}.topba
 @media(prefers-color-scheme:dark){:root{--bg:#0f1115;--surface:#171a20;--surface2:#20242c;--text:#e6e8eb;--muted:#9aa4b2;--line:#2c323b;--accent:#6b9af4;--accent2:#a78bfa;--good:#6ee7b7}.card,.nav a,.range button{box-shadow:none}}
 @media(max-width:900px){.metric{grid-column:span 6}.wide,.side{grid-column:1/-1}.hero{align-items:start;flex-direction:column}.chart-wrap{height:15rem}}
 @media(max-width:560px){.metric{grid-column:1/-1}.shell{padding-top:1rem}.topbar{align-items:flex-start}.brand{font-size:1.6rem}.tool{grid-template-columns:1fr 4rem}.tool .tokens{display:none}.saving-box{grid-template-columns:1fr}.nav{flex-direction:column;align-items:stretch}}
-</style></head><body><div class="shell">
-<header class="topbar"><div class="brand">SlncTrZ</div><nav class="nav"><a href="/owner">Owner Console</a><a href="/usage" aria-current="page">Usage</a></nav></header>
-<section id="auth-required" class="notice hidden"><strong>Owner sign-in required.</strong> Usage data stays private to the Owner Console session. <a href="/owner">Sign in at /owner</a>, then return here.</section>
+${dashboardCss}
+</style></head><body>${dashboardChrome("usage")}<div class="shell">
+
+<section id="auth-required" class="notice hidden"><strong>Owner sign-in required.</strong> Usage data stays private to the Owner Console session. <a href="/">Sign in at the homepage</a>, then return here.</section>
 <div id="dashboard" class="hidden">
-<section class="hero"><div><h1>Usage &amp; context efficiency</h1><p>Observed MCP traffic and estimated context avoided by progressive Agent Skills. Webchat prompts, normal model replies, and provider billing are not measured.</p></div><div class="range" id="range"><button data-range="24h" class="active">24h</button><button data-range="7d">7 days</button><button data-range="30d">30 days</button><button data-range="all">All</button></div></section>
-<section id="usage-error" class="notice error hidden"></section>
+<section class="hero"><div><div class="eyebrow">ANALYTICS</div><h1>Usage &amp; context efficiency</h1><p>Observed MCP traffic and estimated context avoided by progressive Agent Skills. Webchat prompts, normal model replies, and provider billing are not measured.</p></div><div class="range" id="range"><button data-range="24h" class="active">24h</button><button data-range="7d">7 days</button><button data-range="30d">30 days</button><button data-range="all">All</button></div></section>
+<section id="usage-error" class="notice error hidden" role="alert"></section>
 <div class="grid">
 <section class="card metric"><div class="label">Gateway traffic</div><div id="total-tokens" class="value">0</div><div id="calls" class="detail">0 MCP exchanges</div></section>
 <section class="card metric"><div class="label">Gateway → client</div><div id="output-tokens" class="value">0</div><div class="detail">Estimated context delivered</div></section>
@@ -45,7 +47,7 @@ function updateCost(){const price=Math.max(0,Number(q('price').value)||0);savePr
 async function load(){q('usage-error').classList.add('hidden');try{const [s,t,tools,save,health]=await Promise.all([api('/owner/api/usage/summary?range='+encodeURIComponent(range)),api('/owner/api/usage/timeseries?range='+encodeURIComponent(range)),api('/owner/api/usage/tools?range='+encodeURIComponent(range)),api('/owner/api/usage/savings?range='+encodeURIComponent(range)),api('/owner/api/usage/health')]);lastSavings=save;q('total-tokens').textContent=fmt(s.estimatedTotalTokens);q('output-tokens').textContent=fmt(s.estimatedOutputTokens);q('calls').textContent=full.format(s.calls)+' MCP exchanges';q('avoided-tokens').textContent=fmt(save.avoidedEstimatedTokens);q('reduction').textContent=save.reductionPercent.toFixed(1)+'% estimated reduction';q('potential').textContent=fmt(save.potentialEagerEstimatedTokens);q('disclosed').textContent=fmt(save.disclosedEstimatedTokens);q('avoided-small').textContent=fmt(save.avoidedEstimatedTokens);q('contexts').textContent=full.format(save.contexts);q('estimator').textContent=s.estimatorId;renderChart(t);renderTools(tools);updateCost();if(health.degraded){q('usage-error').textContent='Usage telemetry is degraded: '+full.format(health.droppedEvents)+' event(s) dropped; last failure '+(health.lastFailureClass||'unknown')+'.';q('usage-error').classList.remove('hidden')}}catch(e){q('usage-error').textContent='Usage telemetry unavailable: '+(e.message||String(e));q('usage-error').classList.remove('hidden')}}
 async function boot(){try{await api('/owner/api/session');q('dashboard').classList.remove('hidden');const saved=savedPrice();if(saved!==null)q('price').value=saved;q('price').addEventListener('input',updateCost);q('range').addEventListener('click',e=>{const b=e.target.closest('button[data-range]');if(!b)return;range=b.dataset.range;q('range').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));load()});await load()}catch{q('auth-required').classList.remove('hidden')}}
 boot();
-</script></body></html>`;
+</script>${dashboardEnd}${dashboardScript}</body></html>`;
 }
 
 export function sendUsagePage(res: ServerResponse): void {
