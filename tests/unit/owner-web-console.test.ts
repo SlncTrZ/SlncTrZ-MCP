@@ -444,13 +444,20 @@ describe("Owner Console product surface", () => {
       commands: [["node"], [missingBinary]]
     });
 
+    const homepage = await fetch(`${origin}/`);
+    expect(homepage.status).toBe(200);
     const ownerPage = await (await fetch(`${origin}/owner`)).text();
+    expect(await homepage.text()).toBe(ownerPage);
+    expect(ownerPage).toContain('href="/#connections"');
+    expect(ownerPage).toContain('href="/#mcp"');
+    expect((await fetch(`${origin}/owner/api/session`)).status).toBe(401);
     await verifyConnectionDeleteFailures(ownerPage);
     expect(ownerPage).toContain("x.title='Remove '+name");
     expect(ownerPage).not.toContain("el.appendChild(e);return}const risky");
     expect(ownerPage).toContain('id="overview-command-count"');
     expect(ownerPage).toContain('id="overview-mcp-count"');
-    expect(ownerPage).toContain('class="btn-deny button-link"');
+    expect(ownerPage).toContain('class="dashboard-nav"');
+    expect(ownerPage).toContain('data-owner-panel="mcp"');
     expect(ownerPage).toContain('id="advanced-content" class="collapsible collapsed"');
     expect(ownerPage).toContain('id="toggle-advanced"');
     expect(ownerPage).toContain('id="paths-body" class="collapsible"');

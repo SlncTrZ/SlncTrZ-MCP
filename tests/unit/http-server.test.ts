@@ -862,7 +862,7 @@ describe("gateway HTTP surface", () => {
       allowedOriginHostnames: ["trusted.example"],
       ownerWeb: {
         async handle(_req, res, pathname) {
-          if (pathname !== "/owner") return false;
+          if (pathname !== "/" && pathname !== "/owner") return false;
           res.writeHead(200);
           res.end("owner");
           return true;
@@ -873,11 +873,15 @@ describe("gateway HTTP surface", () => {
     const address = await listenGateway(server, { host: "127.0.0.1", port: 0 });
     const origin = `http://127.0.0.1:${address.port}`;
 
-    const response = await fetch(`${origin}/owner`, {
-      headers: { origin: "https://attacker.example" }
-    });
-
-    expect(response.status).toBe(403);
+    for (const pathname of ["/", "/owner"]) {
+      const response = await fetch(`${origin}${pathname}`, {
+        headers: { origin: "https://attacker.example" }
+      });
+      expect(response.status).toBe(403);
+      const allowed = await fetch(`${origin}${pathname}`);
+      expect(allowed.status).toBe(200);
+      expect(await allowed.text()).toBe("owner");
+    }
   });
 
   it("rejects hostile Host headers before MCP dispatch", async () => {

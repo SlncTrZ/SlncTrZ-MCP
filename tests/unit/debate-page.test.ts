@@ -112,7 +112,7 @@ describe("Debate owner page foundation", () => {
     expect(DEBATE_OWNER_API_BASE).toBe("/owner/api/debates");
     expect(html).toContain('font-family:"SlncHertine"');
     expect(html).toContain("max-width:76rem");
-    expect(html).toContain('href="/owner"');
+    expect(html).toContain('href="/"');
     expect(html).toContain('href="/usage"');
     expect(html).toContain('href="/debate" aria-current="page"');
     expect(html).toContain("@media(prefers-color-scheme:dark)");
@@ -237,24 +237,30 @@ describe("Debate owner page foundation", () => {
       }
       return found;
     };
-    runInNewContext(script?.replace("boot();", "csrf='csrf-test';currentId='debate-1';") ?? "", {
-      document: { getElementById: element, createElement: fakeElement },
-      fetch: async (
-        path: string,
-        options?: { method?: string; headers?: Record<string, string> }
-      ) => {
-        calls.push({ path, method: options?.method, headers: options?.headers });
-        return { ok: true, json: async () => ({ debates: [] }) };
-      },
-      confirm: () => true,
-      setTimeout: () => 0,
-      encodeURIComponent,
-      Date,
-      Error,
-      String,
-      Number,
-      Math
-    });
+    runInNewContext(
+      script?.replace(
+        "boot();",
+        "csrf='csrf-test';currentId='debate-1';currentSnapshot={debateId:'debate-1'};"
+      ) ?? "",
+      {
+        document: { getElementById: element, createElement: fakeElement },
+        fetch: async (
+          path: string,
+          options?: { method?: string; headers?: Record<string, string> }
+        ) => {
+          calls.push({ path, method: options?.method, headers: options?.headers });
+          return { ok: true, json: async () => ({ debates: [] }) };
+        },
+        confirm: () => true,
+        setTimeout: () => 0,
+        encodeURIComponent,
+        Date,
+        Error,
+        String,
+        Number,
+        Math
+      }
+    );
 
     await handlers.get("delete-action")?.();
     expect(calls.find((call) => call.method === "DELETE")).toMatchObject({

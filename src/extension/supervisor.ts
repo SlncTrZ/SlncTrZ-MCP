@@ -304,8 +304,28 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       timeoutTimer.unref();
     });
 
-    const providerOutcome = adapter
-      .callTool(entry.toolId, entry.args, { signal: controller.signal })
+    const invokeOnceWithRecovery = async (): Promise<ExtensionCallResult> => {
+      try {
+        return await adapter.callTool(entry.toolId, entry.args, { signal: controller.signal });
+      } catch (error) {
+        if (
+          !(error instanceof AdapterError) ||
+          error.code !== "provider_session_invalid" ||
+          !error.requestNotExecuted ||
+          controller.signal.aborted
+        )
+          throw error;
+        // Keep the active slot and original request deadline while recovery runs.
+        // Replay once only after a definitive pre-dispatch HTTP session rejection.
+        await scheduleRestart(error.code, error.failureClass);
+        if (controller.signal.aborted || stopped) {
+          throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
+        }
+        if (!isRunnable(state)) throw error;
+        return adapter.callTool(entry.toolId, entry.args, { signal: controller.signal });
+      }
+    };
+    const providerOutcome = invokeOnceWithRecovery()
       .then((result) => ({ kind: "ok", result }) as CallOutcome)
       .catch((error: unknown) =>
         error instanceof AdapterError
@@ -336,6 +356,8 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
           recovery === undefined ? outcome.result : { ...outcome.result, diagnostic: recovery }
         );
         if (recovery !== undefined) incident = undefined;
+      } else if (outcome.kind === "adapter" && outcome.code === "provider_request_error") {
+        entry.resolve({ isError: true, truncated: false, text: "provider_request_error" });
       } else if (outcome.kind === "adapter") {
         const callerCode =
           outcome.code === "provider_session_invalid" ? "provider_unavailable" : outcome.code;

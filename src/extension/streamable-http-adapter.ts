@@ -225,6 +225,9 @@ function parseProviderMessage(text: string): HttpProviderMessage {
 
 function asResult(message: HttpProviderMessage): ProviderResult {
   if (message.error !== undefined) {
+    if (message.error.code === -32601 || message.error.code === -32602) {
+      throw new AdapterError("provider_request_error", "provider_request_error");
+    }
     throw new AdapterError("provider_unavailable", "provider_unavailable");
   }
   return message.result as ProviderResult;
@@ -444,7 +447,13 @@ export function createStreamableHttpAdapter(
       if (response.status === 404 && hadLegacySession) {
         sessionId = undefined;
         ready = false;
-        throw new AdapterError("provider_session_invalid", "provider_session_invalid");
+        throw new AdapterError(
+          "provider_session_invalid",
+          "provider_session_invalid",
+          "session_invalid",
+          undefined,
+          true
+        );
       }
       throw new AdapterError(
         "provider_unavailable",
@@ -497,7 +506,13 @@ export function createStreamableHttpAdapter(
         if (response.status === 404 && hadLegacySession) {
           sessionId = undefined;
           ready = false;
-          throw new AdapterError("provider_session_invalid", "provider_session_invalid");
+          throw new AdapterError(
+            "provider_session_invalid",
+            "provider_session_invalid",
+            "session_invalid",
+            undefined,
+            true
+          );
         }
         throw new AdapterError(
           "provider_unavailable",

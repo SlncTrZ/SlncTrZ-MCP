@@ -2,6 +2,22 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.3.7
+
+Date: 2026-10-05
+
+### Added
+
+- Shared dashboard navigation for Owner, Debate and Usage, with responsive sidebar, startup logo animation and reduced-motion support.
+- The site root `/` opens the Owner homepage; `/owner` remains compatible.
+
+### Fixed
+
+- Update locked Hono and brace-expansion dependencies to patched compatible versions.
+- Recover a rejected MCP HTTP session once instead of incorrectly leaving a running provider unavailable.
+- Keep invalid MCP arguments from restarting a healthy provider.
+- Guard Debate asynchronous selection and report Connections Apply failures.
+
 ## Unreleased
 
 ## 0.3.6

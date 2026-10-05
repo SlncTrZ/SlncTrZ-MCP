@@ -1,6 +1,7 @@
 /** Isolated Owner Debate page shell. Shared route/auth wiring belongs to the integration owner. */
 
 import type { ServerResponse } from "node:http";
+import { dashboardChrome, dashboardCss, dashboardEnd, dashboardScript } from "./dashboard-shell.js";
 
 export const DEBATE_OWNER_API_BASE = "/owner/api/debates";
 
@@ -27,15 +28,16 @@ button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid col
 @media(max-width:820px){.workspace{grid-template-columns:1fr}.sidebar{border-right:0;border-bottom:1px solid var(--line)}.debate-list{max-height:13rem}.fact-row{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{align-items:start;flex-direction:column}}
 @media(max-width:560px){.shell{padding-top:1rem}.topbar{align-items:flex-start}.brand{font-size:1.6rem}.nav{flex-wrap:wrap;justify-content:flex-end}.title-row{flex-direction:column}.actions{justify-content:flex-start}.fact-row{grid-template-columns:1fr 1fr}.state-pane,.conversation{min-height:28rem}.message-head{align-items:flex-start;flex-direction:column;gap:.1rem}}
 @media(prefers-reduced-motion:reduce){.nav a,.action{transition:none}.nav a:active,.action:active{transform:none}}
-</style></head><body><div class="shell">
-<header class="topbar"><div class="brand">SlncTrZ</div><nav class="nav"><a href="/owner">Owner Console</a><a href="/usage">Usage</a><a href="/debate" aria-current="page">Debate</a></nav></header>
-<section id="auth-required" class="notice hidden"><strong>Owner sign-in required.</strong> Debate history stays private to the Owner Console session. <a href="/owner">Sign in at /owner</a>, then return here.</section>
+${dashboardCss}
+</style></head><body>${dashboardChrome("debate")}<div class="shell">
+
+<section id="auth-required" class="notice hidden"><strong>Owner sign-in required.</strong> Debate history stays private to the Owner Console session. <a href="/">Sign in at the homepage</a>, then return here.</section>
 <div id="app" class="hidden">
-<section class="hero"><div><h1>Debate</h1><p>Live and historical two-participant discussions with durable turn state and explicit deadlines.</p></div></section>
+<section class="hero"><div><div class="eyebrow">COLLABORATION</div><h1>Debate</h1><p>Live and historical two-participant discussions with durable turn state and explicit deadlines.</p></div></section>
 <section id="page-error" class="notice error hidden" role="alert"></section>
 <section class="workspace" aria-label="Debate workspace">
 <aside class="sidebar"><div class="sidebar-head"><h2>Conversations</h2><p>Active and historical debates</p></div><div id="debate-list" class="debate-list" aria-label="Debate history"></div></aside>
-<main class="main" aria-live="polite">
+<div class="main" aria-live="polite">
 <section id="loading-state" class="state-pane" data-state="loading"><div class="skeleton" aria-label="Loading debates"><i></i><i></i><i></i></div></section>
 <section id="empty-state" class="state-pane hidden" data-state="empty"><div class="state-copy"><h2>No debates yet</h2><p>New debates will appear here after they are created through the Debate tools.</p></div></section>
 <section id="conversation" class="conversation hidden" data-state="active">
@@ -44,7 +46,7 @@ button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid col
 <ol id="transcript" class="transcript" aria-label="Debate transcript"></ol>
 <div id="turn-note" class="turn-note"><strong>waiting</strong> for debate activity.</div>
 </section>
-</main></section>
+</div></section>
 <span class="hidden" aria-hidden="true">paused_timeout stopped completed error</span>
 </div></div>
 <script>
@@ -93,6 +95,7 @@ function renderSnapshot(snapshot,resetTranscript){
   q('turns').textContent=String(snapshot.completedTurns||0)+' / '+String(snapshot.maxTurns||0);
   q('speaker').textContent=participantLabel(snapshot,snapshot.currentParticipantId);
   q('deadline').textContent=deadlineText(snapshot);
+  q('resume-action').disabled=false;q('delete-action').disabled=false;
   q('resume-action').classList.toggle('hidden',snapshot.status!=='paused_timeout');
   q('stop-action').disabled=snapshot.status==='stopped'||snapshot.status==='completed';
   q('delete-action').classList.toggle('hidden',snapshot.status==='active');
@@ -106,23 +109,31 @@ function renderSnapshot(snapshot,resetTranscript){
   else{note.replaceChildren();const strong=document.createElement('strong');strong.textContent='waiting';note.append(strong,document.createTextNode(' for the second participant.'))}
 }
 async function loadList(){
+  const generation=selectionGeneration;
   const payload=await api(API);const rows=Array.isArray(payload)?payload:(payload.debates||[]);
+  if(generation!==selectionGeneration)return rows;
   renderList(rows);
   if(!rows.length){q('loading-state').classList.add('hidden');q('conversation').classList.add('hidden');q('empty-state').classList.remove('hidden');currentId=null;lastSequence=0;return rows}
   if(!currentId||!rows.some(x=>x.debateId===currentId)){await openDebate(rows[0].debateId,true)}
   return rows
 }
+let selectionGeneration=0;
 async function openDebate(id,reset){
-  currentId=id;if(reset)lastSequence=0;
+  const generation=++selectionGeneration;
+  currentId=id;currentSnapshot=null;if(reset)lastSequence=0;
+  q('stop-action').disabled=true;q('resume-action').disabled=true;q('delete-action').disabled=true;
   const suffix=reset?'':'?afterSequence='+encodeURIComponent(String(lastSequence));
   const snapshot=await api(API+'/'+encodeURIComponent(id)+suffix);
-  renderSnapshot(snapshot,reset);renderList(await listOnly())
+  if(generation!==selectionGeneration||currentId!==id)return;
+  renderSnapshot(snapshot,reset);
+  const rows=await listOnly();if(generation===selectionGeneration&&currentId===id)renderList(rows)
 }
 async function listOnly(){const payload=await api(API);return Array.isArray(payload)?payload:(payload.debates||[])}
 async function refreshCurrent(){
-  if(!currentId)return;
-  const snapshot=await api(API+'/'+encodeURIComponent(currentId)+'?afterSequence='+encodeURIComponent(String(lastSequence)));
-  renderSnapshot(snapshot,false)
+  if(!currentId||!currentSnapshot)return;
+  const id=currentId,generation=selectionGeneration;
+  const snapshot=await api(API+'/'+encodeURIComponent(id)+'?afterSequence='+encodeURIComponent(String(lastSequence)));
+  if(generation===selectionGeneration&&currentId===id)renderSnapshot(snapshot,false)
 }
 async function scheduleRefresh(){
   try{if(!document.hidden){await loadList();await refreshCurrent();clearError()}}catch(error){showError(error)}
@@ -130,15 +141,16 @@ async function scheduleRefresh(){
 }
 q('debate-list').addEventListener('click',async event=>{const b=event.target.closest('button[data-id]');if(!b)return;try{clearError();await openDebate(b.dataset.id,true)}catch(error){showError(error)}});
 q('copy-id-action').addEventListener('click',async()=>{if(!currentId)return;try{await navigator.clipboard.writeText(currentId);q('copy-id-action').textContent='Copied';setTimeout(()=>{q('copy-id-action').textContent='Copy ID'},1200)}catch(error){showError(error)}});
-q('stop-action').addEventListener('click',async()=>{if(!currentId)return;try{const snapshot=await api(API+'/'+encodeURIComponent(currentId)+'/stop',{method:'POST',body:'{}'});renderSnapshot(snapshot,false);clearError()}catch(error){showError(error)}});
-q('resume-action').addEventListener('click',async()=>{if(!currentId)return;try{const snapshot=await api(API+'/'+encodeURIComponent(currentId)+'/resume',{method:'POST',body:'{}'});renderSnapshot(snapshot,false);clearError()}catch(error){showError(error)}});
-q('delete-action').addEventListener('click',async()=>{if(!currentId)return;if(!confirm('Delete this debate and its transcript? This cannot be undone.'))return;try{await api(API+'/'+encodeURIComponent(currentId),{method:'DELETE'});currentId=null;lastSequence=0;currentSnapshot=null;q('transcript').replaceChildren();await loadList();clearError()}catch(error){showError(error)}});
+q('stop-action').addEventListener('click',()=>mutateCurrent('/stop'));
+async function mutateCurrent(action){if(!currentId||currentSnapshot?.debateId!==currentId)return;const id=currentId,generation=selectionGeneration;try{const snapshot=await api(API+'/'+encodeURIComponent(id)+action,{method:'POST',body:'{}'});if(generation===selectionGeneration&&currentId===id){renderSnapshot(snapshot,false);clearError()}}catch(error){if(generation===selectionGeneration&&currentId===id)showError(error)}}
+q('resume-action').addEventListener('click',()=>mutateCurrent('/resume'));
+q('delete-action').addEventListener('click',async()=>{if(!currentId||currentSnapshot?.debateId!==currentId)return;if(!confirm('Delete this debate and its transcript? This cannot be undone.'))return;const id=currentId,generation=selectionGeneration;try{await api(API+'/'+encodeURIComponent(id),{method:'DELETE'});if(generation===selectionGeneration&&currentId===id){selectionGeneration++;currentId=null;lastSequence=0;currentSnapshot=null;q('transcript').replaceChildren();await loadList();clearError()}}catch(error){if(generation===selectionGeneration&&currentId===id)showError(error)}});
 async function boot(){
   try{const session=await api('/owner/api/session');csrf=session.csrf||'';q('app').classList.remove('hidden');await loadList();pollTimer=setTimeout(scheduleRefresh,POLL_MS)}
   catch(error){if(error?.status===401){q('auth-required').classList.remove('hidden')}else{q('app').classList.remove('hidden');q('loading-state').classList.add('hidden');showError(error)}}
 }
 boot();
-</script></body></html>`;
+</script>${dashboardEnd}${dashboardScript}</body></html>`;
 }
 
 export function sendDebatePage(res: ServerResponse): void {

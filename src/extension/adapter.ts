@@ -17,6 +17,7 @@ export type AdapterErrorCode =
   | "provider_unavailable"
   | "provider_timeout"
   | "provider_protocol_error"
+  | "provider_request_error"
   | "provider_session_invalid"
   | "queue_overflow";
 
@@ -49,17 +50,21 @@ export class AdapterError extends Error {
   readonly code: AdapterErrorCode;
   readonly failureClass: ProviderFailureClass;
   readonly diagnostic?: ProviderDiagnostic;
+  /** Only an explicit transport rejection before dispatch permits one automatic replay. */
+  readonly requestNotExecuted: boolean;
 
   constructor(
     code: AdapterErrorCode,
     message: string,
     failureClass: ProviderFailureClass = defaultFailureClass(code),
-    diagnostic?: ProviderDiagnostic
+    diagnostic?: ProviderDiagnostic,
+    requestNotExecuted = false
   ) {
     super(message);
     this.name = "AdapterError";
     this.code = code;
     this.failureClass = failureClass;
+    this.requestNotExecuted = requestNotExecuted;
     if (diagnostic !== undefined) this.diagnostic = diagnostic;
   }
 }

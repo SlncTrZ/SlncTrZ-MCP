@@ -87,9 +87,12 @@ Once the gateway is running, local defaults are:
 
 | Surface         | URL                           |
 | --------------- | ----------------------------- |
-| Owner Console   | `http://127.0.0.1:3100/owner` |
+| Owner Console   | `http://127.0.0.1:3100/`      |
 | MCP endpoint    | `http://127.0.0.1:3100/mcp`   |
 | Usage dashboard | `http://127.0.0.1:3100/usage` |
+
+The gateway homepage opens the Owner Console. Existing links such as
+`http://127.0.0.1:3100/owner` remain supported.
 
 Setup prints the installed version, URLs, locations, and paths to the private credential files.
 Read the Owner Passphrase from the indicated file to sign in; keep credential values private.
@@ -204,8 +207,9 @@ See [Troubleshooting](docs/TROUBLESHOOTING.md) and [Backup and Restore](docs/BAC
 
 ## Release and platform status
 
-The v0.3.6 line includes safer OAuth failure handling, bounded provider recovery, durable
-diagnostics, usage health, and publisher-authenticated update manifests.
+The v0.3.7 line includes the root homepage, shared Owner/Debate/Usage dashboard, bounded
+MCP session recovery, safer asynchronous controls, and patched dependencies. It retains
+durable diagnostics, usage health, and publisher-authenticated update manifests.
 Release status is determined by the published GitHub release and its acceptance evidence.
 
 | Target                                  | Status                                                          |
@@ -218,7 +222,7 @@ Release status is determined by the published GitHub release and its acceptance 
 
 The project welcomes real-client testing and independent review. Automated gates do not
 establish that every deployment or client has been independently verified.
-See [Release Notes](docs/releases/v0.3.6.md), [Release Process](RELEASE.md), and
+See [Release Notes](docs/releases/v0.3.7.md), [Release Process](RELEASE.md), and
 [Release Acceptance](docs/RELEASE_ACCEPTANCE.md).
 
 ## Documentation and contribution

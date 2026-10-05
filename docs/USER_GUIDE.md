@@ -12,7 +12,7 @@ See [Deployment](DEPLOYMENT.md) for launch commands and default locations.
 Open the Owner Console URL printed by setup. The local default is:
 
 ```text
-http://127.0.0.1:3100/owner
+http://127.0.0.1:3100/
 ```
 
 Setup prints the path of the private Owner Passphrase file, not the passphrase value.
