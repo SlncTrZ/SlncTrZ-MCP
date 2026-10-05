@@ -167,12 +167,18 @@ describe("extension runtime catalog attestation", () => {
     expect(initializeCounts.get("pi-core")).toBe(1);
     expect(initializeCounts.get("aux")).toBe(1);
 
-    const failed = await runtime.provider("pi-core")?.invoke("run_pipeline", {});
-    expect(failed).toMatchObject({ isError: true, text: "provider_unavailable" });
-    const deadline = Date.now() + 1_000;
-    while (!runtime.isReady("pi-core") && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 15));
-    }
+    const recovered = await runtime.provider("pi-core")?.invoke("run_pipeline", {});
+    expect(recovered).toMatchObject({
+      isError: false,
+      text: "pi-core-ok",
+      diagnostic: { recoveryState: "recovered" }
+    });
+    const attempts = fetchMock.mock.calls.filter(
+      ([input, init]) =>
+        new URL(String(input)).port === "3003" &&
+        JSON.parse(String(init?.body ?? "{}")).method === "tools/call"
+    );
+    expect(attempts).toHaveLength(2); // rejection before dispatch, then exactly one replay
     expect(runtime.isReady("pi-core")).toBe(true);
     expect(initializeCounts.get("pi-core")).toBe(2);
     expect(initializeCounts.get("aux")).toBe(1);

@@ -237,24 +237,30 @@ describe("Debate owner page foundation", () => {
       }
       return found;
     };
-    runInNewContext(script?.replace("boot();", "csrf='csrf-test';currentId='debate-1';") ?? "", {
-      document: { getElementById: element, createElement: fakeElement },
-      fetch: async (
-        path: string,
-        options?: { method?: string; headers?: Record<string, string> }
-      ) => {
-        calls.push({ path, method: options?.method, headers: options?.headers });
-        return { ok: true, json: async () => ({ debates: [] }) };
-      },
-      confirm: () => true,
-      setTimeout: () => 0,
-      encodeURIComponent,
-      Date,
-      Error,
-      String,
-      Number,
-      Math
-    });
+    runInNewContext(
+      script?.replace(
+        "boot();",
+        "csrf='csrf-test';currentId='debate-1';currentSnapshot={debateId:'debate-1'};"
+      ) ?? "",
+      {
+        document: { getElementById: element, createElement: fakeElement },
+        fetch: async (
+          path: string,
+          options?: { method?: string; headers?: Record<string, string> }
+        ) => {
+          calls.push({ path, method: options?.method, headers: options?.headers });
+          return { ok: true, json: async () => ({ debates: [] }) };
+        },
+        confirm: () => true,
+        setTimeout: () => 0,
+        encodeURIComponent,
+        Date,
+        Error,
+        String,
+        Number,
+        Math
+      }
+    );
 
     await handlers.get("delete-action")?.();
     expect(calls.find((call) => call.method === "DELETE")).toMatchObject({
