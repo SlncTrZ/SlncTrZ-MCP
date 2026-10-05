@@ -13,6 +13,7 @@ Date: 2026-10-05
 
 ### Fixed
 
+- Update locked Hono and brace-expansion dependencies to patched compatible versions.
 - Recover a rejected MCP HTTP session once instead of incorrectly leaving a running provider unavailable.
 - Keep invalid MCP arguments from restarting a healthy provider.
 - Guard Debate asynchronous selection and report Connections Apply failures.
