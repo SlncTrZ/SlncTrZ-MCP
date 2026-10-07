@@ -102,6 +102,7 @@ async function fixture() {
           resource: "https://gateway.test/mcp",
           scopes: ["mcp:tools"],
           surfaceProfile: "full" as const,
+          profileCeiling: "full" as const,
           label: "Agent 1",
           createdAt: 1,
           lastSeenAt: 2

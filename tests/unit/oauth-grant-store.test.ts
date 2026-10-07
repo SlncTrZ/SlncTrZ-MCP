@@ -63,7 +63,7 @@ function fixture(options: { maxTokens?: number } = {}) {
 function register(service: OAuthService) {
   return service.registerClient({ redirect_uris: [REDIRECT] }).client_id;
 }
-function issue(service: OAuthService, clientId: string) {
+function issue(service: OAuthService, clientId: string, profile?: "full" | "gateway-only") {
   const verifier = "a".repeat(43);
   const pending = service.beginAuthorization({
     response_type: "code",
@@ -73,7 +73,7 @@ function issue(service: OAuthService, clientId: string) {
     code_challenge_method: "S256",
     resource: RESOURCE.href
   });
-  const redirect = service.approveAuthorization(pending.transactionId, OWNER);
+  const redirect = service.approveAuthorization(pending.transactionId, OWNER, profile);
   return service.exchangeAuthorizationCode({
     grant_type: "authorization_code",
     code: redirect.searchParams.get("code") ?? "",
@@ -368,12 +368,14 @@ describe("connection display labels", () => {
     const reopened = f.open();
     expect(reopened.owner.listConnections().map((c) => c.label)).toEqual(["Web chat", "Agent 2"]);
   });
-  it("migrates v1 databases by backfilling Agent N names in creation order", () => {
-    const directory = mkdtempSync(join(tmpdir(), "oauth-migrate-"));
-    directories.push(directory);
-    const path = join(directory, "oauth-grants.sqlite3");
-    const legacy = new DatabaseSync(path);
-    legacy.exec(`
+  it.each([1, 2])(
+    "migrates schema v%s without changing existing profiles or token expiry",
+    (version) => {
+      const directory = mkdtempSync(join(tmpdir(), "oauth-migrate-"));
+      directories.push(directory);
+      const path = join(directory, "oauth-grants.sqlite3");
+      const legacy = new DatabaseSync(path);
+      legacy.exec(`
       CREATE TABLE client_defaults (
         clientId TEXT PRIMARY KEY, surfaceProfile TEXT NOT NULL CHECK(surfaceProfile IN ('full','gateway-only'))
       ) STRICT;
@@ -390,36 +392,54 @@ describe("connection display labels", () => {
       ) STRICT;
       PRAGMA user_version=1;
     `);
-    // Insert newest first to prove backfill follows createdAt, not row order.
-    legacy
-      .prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?)")
-      .run("newer", "client-1", RESOURCE.href, `["mcp:tools"]`, "full", 200, 200);
-    legacy
-      .prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?)")
-      .run("older", "client-1", RESOURCE.href, `["mcp:tools"]`, "gateway-only", 100, 100);
-    legacy
-      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
-      .run("a".repeat(64), "access", "newer", 9000);
-    legacy
-      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
-      .run("b".repeat(64), "refresh", "newer", 9000);
-    legacy
-      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
-      .run("c".repeat(64), "access", "older", 9000);
-    legacy
-      .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
-      .run("d".repeat(64), "refresh", "older", 9000);
-    legacy.close();
-    const store = createSqliteOAuthGrantStore(path);
-    stores.push(store);
-    const owner = new OwnerConnectionService(store, () => 1000);
-    expect(owner.listConnections().map((c) => [c.grantId, c.label, c.surfaceProfile])).toEqual([
-      ["older", "Agent 1", "gateway-only"],
-      ["newer", "Agent 2", "full"]
-    ]);
-    owner.setConnectionLabel("older", "Legacy Pi");
-    expect(owner.listConnections()[0]?.label).toBe("Legacy Pi");
-  });
+      // Insert newest first to prove backfill follows createdAt, not row order.
+      legacy
+        .prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?)")
+        .run("newer", "client-1", RESOURCE.href, `["mcp:tools"]`, "full", 200, 200);
+      legacy
+        .prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?)")
+        .run("older", "client-1", RESOURCE.href, `["mcp:tools"]`, "gateway-only", 100, 100);
+      legacy
+        .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+        .run("a".repeat(64), "access", "newer", 9000);
+      legacy
+        .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+        .run("b".repeat(64), "refresh", "newer", 9000);
+      legacy
+        .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+        .run("c".repeat(64), "access", "older", 9000);
+      legacy
+        .prepare("INSERT INTO tokens VALUES(?,?,?,?)")
+        .run("d".repeat(64), "refresh", "older", 9000);
+      if (version === 2) {
+        legacy.exec(
+          "ALTER TABLE grants ADD COLUMN label TEXT NOT NULL DEFAULT 'Retained'; PRAGMA user_version=2;"
+        );
+        legacy.prepare("UPDATE grants SET label=? WHERE grantId=?").run("Named grant", "older");
+      }
+      legacy.close();
+      const store = createSqliteOAuthGrantStore(path);
+      stores.push(store);
+      const owner = new OwnerConnectionService(store, () => 1000);
+      expect(owner.listConnections().map((c) => [c.grantId, c.label, c.surfaceProfile])).toEqual([
+        ["older", version === 1 ? "Agent 1" : "Named grant", "gateway-only"],
+        ["newer", version === 1 ? "Agent 2" : "Retained", "full"]
+      ]);
+      expect(store.findToken("d".repeat(64), "refresh", 1000)).toMatchObject({
+        surfaceProfile: "gateway-only",
+        profileCeiling: "full",
+        expiresAt: 9000
+      });
+      const migrated = new DatabaseSync(path, { readOnly: true });
+      expect(migrated.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
+      expect(migrated.prepare("SELECT count(*) AS n FROM tokens").get()?.n).toBe(4);
+      migrated.close();
+      owner.setGrantProfile("older", "full");
+      expect(owner.listConnections()[0]?.surfaceProfile).toBe("full");
+      owner.setConnectionLabel("older", "Legacy Pi");
+      expect(owner.listConnections()[0]?.label).toBe("Legacy Pi");
+    }
+  );
 });
 
 describe("surface foundation", () => {
@@ -464,5 +484,103 @@ describe("surface foundation", () => {
     expect(() =>
       isToolVisibleForProfile("bad" as "full", { name: "core.ping", source: "builtin" })
     ).toThrow();
+  });
+});
+
+describe("gateway-only onboarding", () => {
+  it("never grants Full, survives a year offline and reopen, rotates and remains revocable", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client, "gateway-only");
+    const original = await f.service.authenticateConnection(token.access_token);
+    expect(original.surfaceProfile).toBe("gateway-only");
+    expect(f.owner.listConnections()[0]?.profileCeiling).toBe("gateway-only");
+    expect(() => f.owner.setGrantProfile(original.grantId, "full")).toThrow("cannot_be_promoted");
+    f.advance(365 * 24 * 60 * 60);
+    await expect(f.service.verifyAccessToken(token.access_token)).rejects.toThrow();
+    expect(f.owner.listConnections()).toHaveLength(1);
+    expect(f.store.hasClient(client, 1000 + 365 * 24 * 60 * 60)).toBe(true);
+    f.store.close();
+    const reopened = f.open();
+    const rotated = refresh(reopened.service, client, token.refresh_token);
+    expect(await reopened.service.authenticateConnection(rotated.access_token)).toMatchObject({
+      grantId: original.grantId,
+      surfaceProfile: "gateway-only"
+    });
+    expect(() => refresh(reopened.service, client, token.refresh_token)).toThrow();
+    const db = new DatabaseSync(f.path);
+    expect(
+      db.prepare("SELECT expiresAt FROM tokens WHERE kind='refresh'").get()?.expiresAt
+    ).toBeNull();
+    db.close();
+    for (const name of readdirSync(f.directory).filter((n) => n.startsWith("oauth-grants"))) {
+      const bytes = readFileSync(join(f.directory, name));
+      expect(bytes.includes(Buffer.from(rotated.refresh_token))).toBe(false);
+    }
+    reopened.owner.revokeGrant(original.grantId);
+    await expect(reopened.service.verifyAccessToken(rotated.access_token)).rejects.toThrow();
+    expect(() => refresh(reopened.service, client, rotated.refresh_token)).toThrow();
+  });
+
+  it("cannot store an everlasting Full refresh or a non-expiring access token", () => {
+    const f = fixture();
+    const grant = {
+      grantId: "bad",
+      clientId: "client",
+      resource: RESOURCE.href,
+      scopes: ["mcp:tools"]
+    };
+    expect(() =>
+      f.store.issue(
+        grant,
+        [
+          { tokenHash: "a".repeat(64), kind: "access", expiresAt: 2000 },
+          { tokenHash: "b".repeat(64), kind: "refresh", expiresAt: null }
+        ],
+        1000
+      )
+    ).toThrow("invalid_tokens");
+    expect(() =>
+      f.store.issue(
+        { ...grant, profileCeiling: "gateway-only" },
+        [
+          { tokenHash: "a".repeat(64), kind: "access", expiresAt: null },
+          { tokenHash: "b".repeat(64), kind: "refresh", expiresAt: null }
+        ],
+        1000
+      )
+    ).toThrow("invalid_tokens");
+    expect(f.owner.listConnections()).toHaveLength(0);
+  });
+
+  it("retains requested gateway-only even if a consent caller attempts Full", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const verifier = "g".repeat(43);
+    const pending = f.service.beginAuthorization({
+      response_type: "code",
+      client_id: client,
+      redirect_uri: REDIRECT,
+      code_challenge: f.service.pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      surface_profile: "gateway-only"
+    });
+    expect(f.service.authorizationDetails(pending.transactionId).requestedProfile).toBe(
+      "gateway-only"
+    );
+    const callback = f.service.approveAuthorization(pending.transactionId, OWNER, "full");
+    const token = f.service.exchangeAuthorizationCode({
+      grant_type: "authorization_code",
+      code: callback.searchParams.get("code") ?? "",
+      client_id: client,
+      redirect_uri: REDIRECT,
+      resource: RESOURCE.href,
+      code_verifier: verifier
+    });
+    expect((await f.service.authenticateConnection(token.access_token)).surfaceProfile).toBe(
+      "gateway-only"
+    );
+    expect(f.owner.listConnections()[0]?.profileCeiling).toBe("gateway-only");
   });
 });

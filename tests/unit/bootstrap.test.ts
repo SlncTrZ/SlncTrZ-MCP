@@ -96,7 +96,7 @@ describe("bootstrap lifecycle", () => {
     await lifecycle.shutdown();
 
     for (const [path, user_version] of [
-      [oauthPath, 2],
+      [oauthPath, 3],
       [debatePath, 1]
     ] as const) {
       const database = new DatabaseSync(path, { readOnly: true });

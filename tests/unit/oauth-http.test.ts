@@ -864,3 +864,115 @@ describe("OAuth HTTP flow", () => {
     );
   }, 10_000);
 });
+
+describe("Gateway-only OAuth consent", () => {
+  it("selects durable Gateway-only at first consent and rejects unknown choices", async () => {
+    const { origin, service } = await startOAuthServer();
+    const client = service.registerClient({
+      redirect_uris: ["http://127.0.0.1:49152/callback"],
+      token_endpoint_auth_method: "none"
+    });
+    async function begin() {
+      const url = new URL("/authorize", origin);
+      url.search = new URLSearchParams({
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: "http://127.0.0.1:49152/callback",
+        code_challenge: service.pkceChallenge("g".repeat(43)),
+        code_challenge_method: "S256",
+        resource: RESOURCE,
+        scope: "mcp:tools"
+      }).toString();
+      const html = await (await fetch(url)).text();
+      expect(html).toContain("stay connected until revoked");
+      return transactionFromHtml(html);
+    }
+    const invalid = await fetch(new URL("/authorize", origin), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: await begin(),
+        owner_secret: OWNER_SECRET,
+        decision: "approve",
+        surface_profile: "unknown"
+      }),
+      redirect: "manual"
+    });
+    expect(invalid.status).toBe(400);
+    const transaction = await begin();
+    const retry = await fetch(new URL("/authorize", origin), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: transaction,
+        owner_secret: "incorrect passphrase",
+        decision: "approve",
+        surface_profile: "gateway-only"
+      }),
+      redirect: "manual"
+    });
+    expect(retry.status).toBe(200);
+    expect(await retry.text()).toContain('<option value="gateway-only" selected>');
+    const approval = await fetch(new URL("/authorize", origin), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: transaction,
+        owner_secret: OWNER_SECRET,
+        decision: "approve",
+        surface_profile: "gateway-only"
+      }),
+      redirect: "manual"
+    });
+    expect(approval.status).toBe(303);
+    const callback = new URL(approval.headers.get("location") ?? "");
+    const token = await fetch(new URL("/token", origin), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: callback.searchParams.get("code") ?? "",
+        client_id: client.client_id,
+        redirect_uri: "http://127.0.0.1:49152/callback",
+        code_verifier: "g".repeat(43),
+        resource: RESOURCE
+      })
+    });
+    expect(token.status).toBe(200);
+    const body = (await token.json()) as { access_token: string };
+    expect((await service.authenticateConnection(body.access_token)).surfaceProfile).toBe(
+      "gateway-only"
+    );
+  });
+});
+
+describe("Pinned Gateway-only consent", () => {
+  it("keeps the requested ceiling visible after a tampered choice and wrong passphrase", async () => {
+    const { origin, service } = await startOAuthServer();
+    const client = service.registerClient({ redirect_uris: ["http://127.0.0.1:49000/callback"] });
+    const url = new URL("/authorize", origin);
+    url.search = new URLSearchParams({
+      response_type: "code",
+      client_id: client.client_id,
+      redirect_uri: "http://127.0.0.1:49000/callback",
+      code_challenge: service.pkceChallenge("p".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE,
+      surface_profile: "gateway-only"
+    }).toString();
+    const transaction = transactionFromHtml(await (await fetch(url)).text());
+    const retry = await fetch(new URL("/authorize", origin), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: transaction,
+        owner_secret: "wrong owner passphrase",
+        decision: "approve",
+        surface_profile: "full"
+      }),
+      redirect: "manual"
+    });
+    expect(retry.status).toBe(200);
+    expect(await retry.text()).toContain('<option value="gateway-only" selected>');
+  });
+});

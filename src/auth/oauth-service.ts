@@ -1,6 +1,6 @@
 /**
  * OAuth Service — OAuth 2.1 authorization-code, PKCE, DCR, and opaque tokens.
- * Wing: auth | Topic: oauth-authorization-server | Updated: 2026-08-26
+ * Wing: auth | Topic: oauth-authorization-server | Updated: 2026-10-07 16:12
  *
  * Provenance: MCP authorization specification 2026-07-28, RFC 7009, RFC 7591,
  * RFC 7636, RFC 8707, RFC 9207, RFC 9728, SECURITY invariant 1,
@@ -60,6 +60,7 @@ interface PendingAuthorization {
   readonly state?: string;
   readonly expiresAt: number;
   readonly pendingRedirectRegistration?: PendingRedirectRegistration;
+  readonly requestedProfile?: SurfaceProfile;
 }
 
 interface AuthorizationCodeRecord {
@@ -70,6 +71,7 @@ interface AuthorizationCodeRecord {
   readonly resource: string;
   readonly scopes: readonly string[];
   readonly expiresAt: number;
+  readonly surfaceProfile: SurfaceProfile;
 }
 
 export interface OAuthServiceOptions {
@@ -134,6 +136,7 @@ export interface PendingAuthorizationResponse {
   readonly pendingRedirectRegistration?: {
     readonly provider: "gemini";
   };
+  readonly requestedProfile?: SurfaceProfile;
 }
 
 export interface OAuthTokenResponse {
@@ -543,6 +546,10 @@ export class OAuthService implements OAuthTokenVerifier {
 
     const resource = exactResource(requiredString(parameters.resource, "resource"), this.#resource);
     const scopes = this.#parseScopes(parameters.scope);
+    if (parameters.surface_profile !== undefined && parameters.surface_profile !== "gateway-only")
+      throw new OAuthError(OAuthErrorCode.InvalidRequest, "Unsupported surface_profile");
+    const requestedProfile =
+      parameters.surface_profile === "gateway-only" ? "gateway-only" : undefined;
     const transactionId = randomIdentifier("auth");
     const expiresAt = this.#now() + PENDING_AUTHORIZATION_TTL_SECONDS;
     const pending: PendingAuthorization = {
@@ -553,6 +560,7 @@ export class OAuthService implements OAuthTokenVerifier {
       resource,
       scopes,
       expiresAt,
+      ...(requestedProfile === undefined ? {} : { requestedProfile }),
       ...(parameters.state === undefined ? {} : { state: parameters.state }),
       ...(pendingRedirectRegistration === undefined ? {} : { pendingRedirectRegistration })
     };
@@ -566,6 +574,7 @@ export class OAuthService implements OAuthTokenVerifier {
       redirectUri,
       scopes,
       expiresAt,
+      ...(requestedProfile === undefined ? {} : { requestedProfile }),
       ...(pendingRedirectRegistration === undefined
         ? {}
         : { pendingRedirectRegistration: { provider: pendingRedirectRegistration.provider } })
@@ -587,6 +596,9 @@ export class OAuthService implements OAuthTokenVerifier {
       redirectUri: pending.redirectUri,
       scopes: [...pending.scopes],
       expiresAt: pending.expiresAt,
+      ...(pending.requestedProfile === undefined
+        ? {}
+        : { requestedProfile: pending.requestedProfile }),
       ...(pending.pendingRedirectRegistration === undefined
         ? {}
         : {
@@ -597,7 +609,7 @@ export class OAuthService implements OAuthTokenVerifier {
     };
   }
 
-  approveAuthorization(transactionId: string, ownerSecret: string): URL {
+  approveAuthorization(transactionId: string, ownerSecret: string, profile?: SurfaceProfile): URL {
     this.#purgeExpired();
     const pending = this.#pending.get(transactionId);
     if (pending === undefined) {
@@ -608,6 +620,9 @@ export class OAuthService implements OAuthTokenVerifier {
       throw new OAuthError(OAuthErrorCode.AccessDenied, "Owner authentication failed");
     }
 
+    const surfaceProfile = pending.requestedProfile ?? profile ?? "full";
+    if (surfaceProfile !== "full" && surfaceProfile !== "gateway-only")
+      throw new OAuthError(OAuthErrorCode.InvalidRequest, "Unsupported surface profile");
     const registration = pending.pendingRedirectRegistration;
     if (registration !== undefined) {
       const client = this.#clients.get(registration.clientId);
@@ -657,6 +672,7 @@ export class OAuthService implements OAuthTokenVerifier {
       codeChallenge: pending.codeChallenge,
       resource: pending.resource,
       scopes: pending.scopes,
+      surfaceProfile,
       expiresAt: this.#now() + AUTHORIZATION_CODE_TTL_SECONDS
     });
 
@@ -783,6 +799,7 @@ export class OAuthService implements OAuthTokenVerifier {
 
     try {
       return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.issued", {
+        surfaceProfile: record.surfaceProfile,
         onCommitted: () => {
           this.#codes.delete(code);
         }
@@ -854,6 +871,7 @@ export class OAuthService implements OAuthTokenVerifier {
     try {
       return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.refreshed", {
         existingGrantId: record.grantId,
+        surfaceProfile: record.profileCeiling,
         refreshHash: hashToken(token)
       });
     } catch (error) {
@@ -1002,17 +1020,18 @@ export class OAuthService implements OAuthTokenVerifier {
     if (this.#ownsGrantStore) this.#grants.close();
   }
 
-  #accessRecord(token: string): VerifiedGrantToken {
+  #accessRecord(token: string): VerifiedGrantToken & { readonly expiresAt: number } {
     const record = this.#grants.findToken(hashToken(token), "access", this.#now());
     if (
       record === undefined ||
+      record.expiresAt === null ||
       record.resource !== this.#resource.href ||
       !this.#clients.has(record.clientId)
     ) {
       this.#emit("token.rejected", "failure", undefined, "invalid_token");
       throw new OAuthError(OAuthErrorCode.InvalidToken, "Invalid or expired access token");
     }
-    return record;
+    return { ...record, expiresAt: record.expiresAt };
   }
 
   #verifyClientSecret(clientId: string, clientSecret: string | undefined): void {
@@ -1047,6 +1066,7 @@ export class OAuthService implements OAuthTokenVerifier {
     auditType: "token.issued" | "token.refreshed",
     options: {
       readonly existingGrantId?: string;
+      readonly surfaceProfile?: SurfaceProfile;
       readonly refreshHash?: string;
       readonly onCommitted?: () => void;
     } = {}
@@ -1064,11 +1084,23 @@ export class OAuthService implements OAuthTokenVerifier {
       {
         tokenHash: hashToken(refreshToken),
         kind: "refresh" as const,
-        expiresAt: now + REFRESH_TOKEN_TTL_SECONDS
+        expiresAt:
+          options.surfaceProfile === "gateway-only" ? null : now + REFRESH_TOKEN_TTL_SECONDS
       }
     ];
     if (options.refreshHash === undefined) {
-      this.#grants.issue({ grantId, clientId, resource, scopes }, tokens, now);
+      this.#grants.issue(
+        {
+          grantId,
+          clientId,
+          resource,
+          scopes,
+          requestedProfile: options.surfaceProfile ?? "full",
+          profileCeiling: options.surfaceProfile ?? "full"
+        },
+        tokens,
+        now
+      );
     } else if (!this.#grants.rotate(options.refreshHash, clientId, resource, tokens, now)) {
       throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
     }

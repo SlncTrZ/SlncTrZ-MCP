@@ -13,7 +13,7 @@ import {
   type SurfaceProfile
 } from "./connection-profile.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const idSchema = z.string().min(1).max(256);
 const timeSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const profileSchema = z.enum(["full", "gateway-only"]);
@@ -31,16 +31,21 @@ const grantSchema = z.object({
   resource: z.string().url().max(2048),
   scopes: z.array(z.string().min(1).max(256)).min(1).max(32),
   surfaceProfile: profileSchema,
+  profileCeiling: profileSchema,
   label: labelSchema,
   createdAt: timeSchema,
   lastSeenAt: timeSchema
 });
-const tokenSchema = z.object({
-  tokenHash: z.string().regex(/^[a-f0-9]{64}$/u),
-  kind: z.enum(["access", "refresh"]),
-  expiresAt: timeSchema
-});
+const tokenSchema = z
+  .object({
+    tokenHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    kind: z.enum(["access", "refresh"]),
+    expiresAt: timeSchema.nullable()
+  })
+  .refine((token) => token.kind === "refresh" || token.expiresAt !== null);
 export interface GrantRecord extends AuthenticatedConnection {
+  /** Immutable authorization ceiling selected during consent. */
+  readonly profileCeiling: SurfaceProfile;
   readonly label: string;
   readonly createdAt: number;
   readonly lastSeenAt: number;
@@ -48,10 +53,10 @@ export interface GrantRecord extends AuthenticatedConnection {
 export interface StoredToken {
   readonly tokenHash: string;
   readonly kind: "access" | "refresh";
-  readonly expiresAt: number;
+  readonly expiresAt: number | null;
 }
 export interface VerifiedGrantToken extends GrantRecord {
-  readonly expiresAt: number;
+  readonly expiresAt: number | null;
 }
 export interface NewGrant {
   readonly grantId: string;
@@ -60,6 +65,7 @@ export interface NewGrant {
   readonly scopes: readonly string[];
   /** Client request is a reduction only, intersected with the owner default. */
   readonly requestedProfile?: SurfaceProfile;
+  readonly profileCeiling?: SurfaceProfile;
   /** Optional initial display label; defaults to the next free "Agent N" name. */
   readonly label?: string;
 }
@@ -100,6 +106,8 @@ function validTime(now: number): void {
 function grantFromRow(row: Record<string, unknown>): GrantRecord {
   try {
     const parsed = grantSchema.parse({ ...row, scopes: JSON.parse(String(row.scopes)) as unknown });
+    if (parsed.profileCeiling === "gateway-only" && parsed.surfaceProfile !== "gateway-only")
+      throw new Error("invalid_profile_ceiling");
     return { ...parsed, connectionId: parsed.grantId };
   } catch {
     throw new Error("oauth_grant_store_invalid_record");
@@ -148,7 +156,7 @@ export function createSqliteOAuthGrantStore(
   }
   try {
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
-    if (version !== 0 && version !== 1 && version !== SCHEMA_VERSION)
+    if (version !== 0 && version !== 1 && version !== 2 && version !== SCHEMA_VERSION)
       throw new Error("unsupported_schema");
     db.exec(
       "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"
@@ -170,18 +178,19 @@ export function createSqliteOAuthGrantStore(
         CREATE TABLE grants (
           grantId TEXT PRIMARY KEY, clientId TEXT NOT NULL, resource TEXT NOT NULL,
           scopes TEXT NOT NULL, surfaceProfile TEXT NOT NULL CHECK(surfaceProfile IN ('full','gateway-only')),
-          label TEXT NOT NULL, createdAt INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL
+          label TEXT NOT NULL, createdAt INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL,
+          profileCeiling TEXT NOT NULL DEFAULT 'full' CHECK(profileCeiling IN ('full','gateway-only'))
         ) STRICT;
         CREATE TABLE tokens (
           tokenHash TEXT PRIMARY KEY CHECK(length(tokenHash)=64),
           kind TEXT NOT NULL CHECK(kind IN ('access','refresh')),
           grantId TEXT NOT NULL REFERENCES grants(grantId) ON DELETE CASCADE,
-          expiresAt INTEGER NOT NULL
+          expiresAt INTEGER CHECK(expiresAt IS NOT NULL OR kind='refresh')
         ) STRICT;
         CREATE INDEX tokens_expiry ON tokens(expiresAt);
         CREATE INDEX tokens_grant ON tokens(grantId);
         CREATE INDEX grants_client ON grants(clientId);
-        PRAGMA user_version=2;
+        PRAGMA user_version=3;
         COMMIT;
       `);
     }
@@ -197,6 +206,29 @@ export function createSqliteOAuthGrantStore(
         db.exec("PRAGMA user_version=2");
       });
     }
+    if (version === 1 || version === 2) {
+      // Preserve existing grants and their finite token lifetimes. Only new consent opts in.
+      transaction(() => {
+        db.exec(`
+          ALTER TABLE grants ADD COLUMN profileCeiling TEXT NOT NULL DEFAULT 'full'
+            CHECK(profileCeiling IN ('full','gateway-only'));
+          ALTER TABLE tokens RENAME TO tokens_v2;
+          DROP INDEX IF EXISTS tokens_expiry;
+          DROP INDEX IF EXISTS tokens_grant;
+          CREATE TABLE tokens (
+            tokenHash TEXT PRIMARY KEY CHECK(length(tokenHash)=64),
+            kind TEXT NOT NULL CHECK(kind IN ('access','refresh')),
+            grantId TEXT NOT NULL REFERENCES grants(grantId) ON DELETE CASCADE,
+            expiresAt INTEGER CHECK(expiresAt IS NOT NULL OR kind='refresh')
+          ) STRICT;
+          INSERT INTO tokens SELECT * FROM tokens_v2;
+          DROP TABLE tokens_v2;
+          CREATE INDEX tokens_expiry ON tokens(expiresAt);
+          CREATE INDEX tokens_grant ON tokens(grantId);
+          PRAGMA user_version=3;
+        `);
+      });
+    }
     if (
       db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok" ||
       db.prepare("PRAGMA foreign_key_check").get() !== undefined
@@ -205,7 +237,7 @@ export function createSqliteOAuthGrantStore(
     // Verify required tables/columns even for a versioned but malformed file.
     db.prepare("SELECT clientId, surfaceProfile FROM client_defaults LIMIT 0").all();
     db.prepare(
-      "SELECT grantId, clientId, resource, scopes, surfaceProfile, label, createdAt, lastSeenAt FROM grants LIMIT 0"
+      "SELECT grantId, clientId, resource, scopes, surfaceProfile, profileCeiling, label, createdAt, lastSeenAt FROM grants LIMIT 0"
     ).all();
     db.prepare("SELECT tokenHash, kind, grantId, expiresAt FROM tokens LIMIT 0").all();
     if (path !== ":memory:") {
@@ -252,14 +284,17 @@ export function createSqliteOAuthGrantStore(
       .prepare(
         `
       SELECT g.*, t.expiresAt FROM tokens t JOIN grants g ON g.grantId=t.grantId
-      WHERE t.tokenHash=? AND t.kind=? AND t.expiresAt>?
+      WHERE t.tokenHash=? AND t.kind=? AND (t.expiresAt>? OR (t.expiresAt IS NULL AND t.kind='refresh'))
     `
       )
       .get(hash, kind, now);
     if (row === undefined) return undefined;
-    const expiresAt = timeSchema.safeParse(row.expiresAt);
+    const expiresAt = timeSchema.nullable().safeParse(row.expiresAt);
     if (!expiresAt.success) throw new Error("oauth_grant_store_invalid_record");
-    return { ...grantFromRow(row), expiresAt: expiresAt.data };
+    const grant = grantFromRow(row);
+    if (expiresAt.data === null && (kind !== "refresh" || grant.profileCeiling !== "gateway-only"))
+      throw new Error("oauth_grant_store_invalid_record");
+    return { ...grant, expiresAt: expiresAt.data };
   }
   function insertTokens(grantId: string, tokens: readonly StoredToken[], now: number): void {
     if (tokens.length !== 2 || tokens[0]?.kind !== "access" || tokens[1]?.kind !== "refresh") {
@@ -267,8 +302,14 @@ export function createSqliteOAuthGrantStore(
     }
     const count = Number(db.prepare("SELECT count(*) AS n FROM tokens").get()?.n);
     if (count + tokens.length > maxTokens) throw new Error("oauth_grant_store_capacity");
+    const ceiling = db
+      .prepare("SELECT profileCeiling FROM grants WHERE grantId=?")
+      .get(grantId)?.profileCeiling;
     for (const token of tokens) {
-      if (!tokenSchema.safeParse(token).success || token.expiresAt <= now) {
+      if (
+        !tokenSchema.safeParse(token).success ||
+        (token.expiresAt === null ? ceiling !== "gateway-only" : token.expiresAt <= now)
+      ) {
         throw new Error("oauth_grant_store_invalid_tokens");
       }
       db.prepare("INSERT INTO tokens(tokenHash, kind, grantId, expiresAt) VALUES(?,?,?,?)").run(
@@ -284,10 +325,13 @@ export function createSqliteOAuthGrantStore(
       transaction(() => {
         prune(now);
         const defaultProfile = resolveSurfaceProfile(undefined, getDefault(grant.clientId));
+        const ceiling = validateSurfaceProfile(grant.profileCeiling ?? "full");
         const requested = grant.requestedProfile;
         if (requested !== undefined) validateSurfaceProfile(requested);
         const surfaceProfile =
-          defaultProfile === "gateway-only" || requested === "gateway-only"
+          ceiling === "gateway-only" ||
+          defaultProfile === "gateway-only" ||
+          requested === "gateway-only"
             ? "gateway-only"
             : "full";
         const existing = db.prepare("SELECT label FROM grants").all() as {
@@ -305,12 +349,15 @@ export function createSqliteOAuthGrantStore(
         const parsed = grantSchema.safeParse({
           ...grant,
           surfaceProfile,
+          profileCeiling: ceiling,
           label,
           createdAt: now,
           lastSeenAt: now
         });
         if (!parsed.success) throw new Error("oauth_grant_store_invalid_grant");
-        db.prepare("INSERT INTO grants VALUES(?,?,?,?,?,?,?,?)").run(
+        db.prepare(
+          "INSERT INTO grants (grantId,clientId,resource,scopes,surfaceProfile,label,createdAt,lastSeenAt,profileCeiling) VALUES(?,?,?,?,?,?,?,?,?)"
+        ).run(
           grant.grantId,
           grant.clientId,
           grant.resource,
@@ -318,7 +365,8 @@ export function createSqliteOAuthGrantStore(
           surfaceProfile,
           label,
           now,
-          now
+          now,
+          ceiling
         );
         insertTokens(grant.grantId, tokens, now);
       });
@@ -396,6 +444,9 @@ export function createSqliteOAuthGrantStore(
       validateSurfaceProfile(profile);
       transaction(() => {
         prune(now);
+        const grant = db.prepare("SELECT profileCeiling FROM grants WHERE grantId=?").get(grantId);
+        if (profile === "full" && grant?.profileCeiling === "gateway-only")
+          throw new Error("gateway_only_grant_cannot_be_promoted");
         if (
           db.prepare("UPDATE grants SET surfaceProfile=? WHERE grantId=?").run(profile, grantId)
             .changes === 0
@@ -434,7 +485,7 @@ export function createSqliteOAuthGrantStore(
       return (
         db
           .prepare(
-            "SELECT 1 FROM grants g JOIN tokens t ON t.grantId=g.grantId WHERE g.clientId=? AND t.expiresAt>? LIMIT 1"
+            "SELECT 1 FROM grants g JOIN tokens t ON t.grantId=g.grantId WHERE g.clientId=? AND (t.expiresAt>? OR (t.expiresAt IS NULL AND t.kind='refresh')) LIMIT 1"
           )
           .get(clientId, now) !== undefined
       );

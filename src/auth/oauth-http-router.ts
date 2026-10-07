@@ -1,11 +1,12 @@
 /**
  * OAuth HTTP Router — discovery, DCR, consent, token, and revocation adapter.
- * Wing: auth | Topic: oauth-http-surface | Updated: 2026-08-26
+ * Wing: auth | Topic: oauth-http-surface | Updated: 2026-10-07 16:15
  *
  * Provenance: MCP authorization specification 2026-07-28, RFC 7009,
  * W3C CSP Level 3, ADR-011, ADR-012, and ADR-013.
  */
 
+import type { SurfaceProfile } from "./connection-profile.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 import { readBoundedForm, readBoundedJson } from "../shared/http-body.js";
@@ -125,8 +126,10 @@ function sendOAuthError(res: ServerResponse, error: unknown): void {
 
 function authorizationPage(
   pending: PendingAuthorizationResponse,
-  authenticationFailed = false
+  authenticationFailed = false,
+  selectedProfile: SurfaceProfile = pending.requestedProfile ?? "full"
 ): string {
+  const connectionProfile = pending.requestedProfile ?? selectedProfile;
   const failure = authenticationFailed
     ? '<p class="error" role="alert">Owner authentication failed. Please verify your passphrase and try again.</p>'
     : "";
@@ -169,6 +172,7 @@ p.lead strong{color:#1a1d21;font-weight:600;word-break:break-word}
 .error{margin:0 0 1rem;padding:.7rem .85rem;background:#fef3f2;border:1px solid #fda29b;border-radius:10px;color:#b42318;font-size:.86rem}
 .registration{margin:0 0 1rem;padding:.8rem .9rem;background:#fffaeb;border:1px solid #fedf89;border-radius:10px;color:#7a2e0e;font-size:.82rem}.registration h2{margin:0 0 .35rem;font-size:.82rem}.registration p{margin:0 0 .45rem}.registration code{display:block;overflow-wrap:anywhere;color:#7a2e0e;font-size:.75rem}
 label{display:block;font-size:.85rem;font-weight:600;color:#1a1d21;margin:0 0 .4rem}
+select{width:100%;padding:.7rem;margin-bottom:.5rem;border:1px solid #d0d5dd;border-radius:9px;background:Canvas;color:CanvasText;font:inherit}
 input[type=password]{width:100%;padding:.7rem .8rem;font-size:.95rem;color:#1a1d21;background:#fff;border:1px solid #d0d5dd;border-radius:9px;font-family:inherit}
 input[type=password]:focus{outline:none;border-color:#2f5a9e;box-shadow:0 0 0 3px rgba(47,90,158,.18)}
 .hint{margin:.5rem 0 1.25rem;font-size:.78rem;color:#697586;line-height:1.45}
@@ -213,6 +217,12 @@ ${registration}
 ${failure}
 <form method="post" action="/authorize" autocomplete="off">
 <input type="hidden" name="transaction_id" value="${escapeHtml(pending.transactionId)}">
+<label for="surface_profile">Connection</label>
+<select id="surface_profile" name="surface_profile" ${pending.requestedProfile === "gateway-only" ? "disabled" : ""}>
+<option value="full">Full — files, commands, skills and providers</option>
+<option value="gateway-only" ${connectionProfile === "gateway-only" ? "selected" : ""}>Gateway-only — stay connected until revoked</option>
+</select>
+<p class="hint">Gateway-only keeps enabled MCP providers and Debate. It cannot be upgraded to Full. Your agent renews access automatically; delete this connection to revoke it.</p>
 <label for="owner_secret">Owner passphrase</label>
 <input id="owner_secret" name="owner_secret" type="password" required minlength="16" maxlength="1024" autocomplete="off">
 <p class="hint">Set when the server was configured. Must be at least 16 characters.</p>
@@ -352,14 +362,23 @@ export class OAuthHttpRouter {
           }
 
           const ownerSecret = form.get("owner_secret") ?? "";
+          const selectedProfile = this.#consentProfile(form);
           try {
-            this.#redirect(res, this.#service.approveAuthorization(transactionId, ownerSecret));
+            this.#redirect(
+              res,
+              this.#service.approveAuthorization(transactionId, ownerSecret, selectedProfile)
+            );
           } catch (error) {
             if (error instanceof OAuthError && error.code === OAuthErrorCode.AccessDenied) {
               this.#ownerTransactionFailureLimiter.consume(transactionId);
               this.#ownerPeerFailureLimiter.consume(peerKey);
               const pending = this.#service.authorizationDetails(transactionId);
-              sendHtml(res, 200, authorizationPage(pending, true), pending.redirectOrigin);
+              sendHtml(
+                res,
+                200,
+                authorizationPage(pending, true, selectedProfile),
+                pending.redirectOrigin
+              );
             } else {
               throw error;
             }
@@ -419,6 +438,16 @@ export class OAuthHttpRouter {
     }
 
     return false;
+  }
+
+  #consentProfile(form: URLSearchParams): "full" | "gateway-only" {
+    const values = form.getAll("surface_profile");
+    if (
+      values.length > 1 ||
+      (values[0] !== undefined && values[0] !== "full" && values[0] !== "gateway-only")
+    )
+      throw new OAuthError(OAuthErrorCode.InvalidRequest, "Unsupported surface profile");
+    return values[0] === "gateway-only" ? "gateway-only" : "full";
   }
 
   #isOAuthPath(pathname: string): boolean {

@@ -39,7 +39,12 @@ async function temp(prefix: string): Promise<string> {
   return path;
 }
 
-function issueGrant(oauth: OAuthService, clientId: string, verifier: string): string {
+function issueGrant(
+  oauth: OAuthService,
+  clientId: string,
+  verifier: string,
+  profile: "full" | "gateway-only" = "full"
+): string {
   const pending = oauth.beginAuthorization({
     response_type: "code",
     client_id: clientId,
@@ -49,7 +54,7 @@ function issueGrant(oauth: OAuthService, clientId: string, verifier: string): st
     resource: RESOURCE,
     scope: "mcp:tools"
   });
-  const redirect = oauth.approveAuthorization(pending.transactionId, OWNER_SECRET);
+  const redirect = oauth.approveAuthorization(pending.transactionId, OWNER_SECRET, profile);
   return oauth.exchangeAuthorizationCode({
     grant_type: "authorization_code",
     code: redirect.searchParams.get("code") ?? "",
@@ -111,6 +116,7 @@ describe("surface profile and Debate integration", () => {
     });
     const firstToken = issueGrant(oauth, client.client_id, "a".repeat(43));
     const secondToken = issueGrant(oauth, client.client_id, "b".repeat(43));
+    const nativeGatewayToken = issueGrant(oauth, client.client_id, "c".repeat(43), "gateway-only");
     const firstConnection = await oauth.authenticateConnection(firstToken);
     const secondConnection = await oauth.authenticateConnection(secondToken);
     expect(firstConnection.grantId).not.toBe(secondConnection.grantId);
@@ -176,6 +182,20 @@ describe("surface profile and Debate integration", () => {
           body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params })
         })
       );
+
+    const nativeList = await rpc(nativeGatewayToken, "tools/list", {});
+    expect(nativeList.result?.tools?.map((tool) => tool.name)).toContain("sample.echo");
+    expect(nativeList.result?.tools?.map((tool) => tool.name)).not.toContain("core.read");
+    const nativeDenied = await rpc(nativeGatewayToken, "tools/call", {
+      name: "core.read",
+      arguments: { path: "visible.txt" }
+    });
+    expect(nativeDenied.error).toBeDefined();
+    const nativeProvider = await rpc(nativeGatewayToken, "tools/call", {
+      name: "sample.echo",
+      arguments: { value: "native-gateway" }
+    });
+    expect(nativeProvider.result?.structuredContent).toMatchObject({ value: "native-gateway" });
 
     const fullList = await rpc(firstToken, "tools/list", {});
     const fullNames = fullList.result?.tools?.map((tool) => tool.name) ?? [];
