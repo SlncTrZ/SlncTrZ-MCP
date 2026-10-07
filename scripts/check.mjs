@@ -1,6 +1,6 @@
 /**
  * Quality Gate Runner — runs static checks concurrently, then the timing-sensitive test suite.
- * Wing: scripts | Topic: quality-gate | Updated: 2026-09-09
+ * Wing: scripts | Topic: quality-gate | Updated: 2026-10-07 22:53
  *
  * Provenance: ENGINEERING pre-commit requirements.
  */
@@ -24,7 +24,7 @@ const staticChecks = [
   {
     name: "format",
     script: "node_modules/prettier/bin/prettier.cjs",
-    args: ["--check", "**/*.{ts,json,md,yaml,yml}"]
+    args: ["--check", "**/*.{ts,mjs,json,md,yaml,yml}"]
   }
 ];
 

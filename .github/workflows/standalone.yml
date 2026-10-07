@@ -94,6 +94,9 @@ jobs:
       - name: Smoke-test Linux SEA
         run: npm run smoke:sea:linux-x64
 
+      - name: Accept native Linux uninstall layouts
+        run: node scripts/smoke-uninstall.mjs
+
       - name: Upload Linux release inputs
         uses: actions/upload-artifact@v7
         with:
@@ -132,6 +135,9 @@ jobs:
 
       - name: Smoke-test Windows SEA
         run: npm run smoke:sea:win32-x64
+
+      - name: Accept native Windows uninstall layouts
+        run: node scripts/smoke-uninstall.mjs
 
       - name: Upload Windows release inputs
         uses: actions/upload-artifact@v7

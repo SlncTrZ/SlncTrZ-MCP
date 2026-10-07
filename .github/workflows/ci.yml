@@ -44,6 +44,30 @@ jobs:
       - name: Public docs contract
         run: npm run docs:check
 
+      - name: Build Linux x64 SEA
+        if: matrix.node-version == 24
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+          SLNCTRZ_RELEASE_BASE_URL: https://example.invalid/slnctrz-ci/
+        run: |
+          # CI artifacts use a disposable verification key and are never published.
+          export SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64="$(node --input-type=module -e "import { generateKeyPairSync } from 'node:crypto'; const { publicKey } = generateKeyPairSync('ed25519'); process.stdout.write(publicKey.export({ type: 'spki', format: 'der' }).toString('base64'));")"
+          npm run build:sea:linux-x64
+
+      - name: Smoke Linux x64 SEA
+        if: matrix.node-version == 24
+        run: npm run smoke:sea:linux-x64
+
+      - name: Verify Linux x64 release identity
+        if: matrix.node-version == 24
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+        run: npm run release:gate -- dist/standalone/linux-x64 linux-x64
+
+      - name: Accept native Linux uninstall layouts
+        if: matrix.node-version == 24
+        run: node scripts/smoke-uninstall.mjs
+
   verify-windows:
     name: Windows native security/runtime gate
     runs-on: windows-latest
@@ -91,6 +115,9 @@ jobs:
         env:
           SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
         run: npm run release:gate -- dist/standalone/win32-x64 win32-x64
+
+      - name: Accept native Windows uninstall layouts
+        run: node scripts/smoke-uninstall.mjs
 
   provenance:
     name: dependency license inventory
