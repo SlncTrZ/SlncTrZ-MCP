@@ -48,9 +48,10 @@ const changelog = await readFile(changelogPath, "utf8");
 const date = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(new Date());
 const section = `## ${requested}\n\nDate: ${date}\n\n### Added\n\n- \n\n`;
 const headerEnd = changelog.indexOf("\n## ");
-const nextChangelog = headerEnd === -1
-  ? `${changelog}\n\n${section}`
-  : `${changelog.slice(0, headerEnd)}\n${section}${changelog.slice(headerEnd + 1)}`;
+const nextChangelog =
+  headerEnd === -1
+    ? `${changelog}\n\n${section}`
+    : `${changelog.slice(0, headerEnd)}\n${section}${changelog.slice(headerEnd + 1)}`;
 await writeFile(changelogPath, nextChangelog, "utf8");
 
 // 4. Current-release-line references in the public docs.
@@ -64,4 +65,6 @@ for (const file of docFiles) {
   await writeFile(filePath, text, "utf8");
 }
 
-console.log(`bumped to ${requested} (release line ${releaseLine}.x); verify with: npm run docs:check`);
+console.log(
+  `bumped to ${requested} (release line ${releaseLine}.x); verify with: npm run docs:check`
+);

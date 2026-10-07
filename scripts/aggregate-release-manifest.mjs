@@ -20,9 +20,7 @@ let buildCommit;
 const artifacts = [];
 const targets = new Set();
 for (const directory of inputDirectories) {
-  const fragment = JSON.parse(
-    await readFile(join(directory, "manifest-fragment.json"), "utf8")
-  );
+  const fragment = JSON.parse(await readFile(join(directory, "manifest-fragment.json"), "utf8"));
   if (
     fragment.schemaVersion !== 1 ||
     typeof fragment.version !== "string" ||
