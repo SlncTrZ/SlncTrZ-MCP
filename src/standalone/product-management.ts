@@ -1,5 +1,5 @@
 /** Installed product status, diagnostics, configuration, update, recovery and uninstall.
- * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-07 22:34
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-07 23:02
  */
 
 import { ensureHarnessLayout } from "../context/provisioning.js";
@@ -1389,8 +1389,11 @@ export async function uninstallProduct(
     if (reloaded.code !== 0) throw new Error("service_daemon_reload_failed");
   }
 
+  // Windows may launch through an 8.3 alias while managed roots are canonical paths.
+  const executablePath =
+    process.platform === "win32" ? await realpath(process.execPath) : process.execPath;
   const deferredProgramRemoval =
-    process.platform === "win32" && removed.some((path) => containsPath(path, process.execPath));
+    process.platform === "win32" && removed.some((path) => containsPath(path, executablePath));
   if (deferredProgramRemoval) {
     await scheduleWindowsInstallRootRemoval(removed);
   } else {
