@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import {
@@ -94,7 +94,8 @@ describe("filesystem boundary", () => {
     await writeFile(join(root, "secrets", "owner-passphrase"), "synthetic", "utf8");
     await writeFile(join(root, "client.env"), "SYNTHETIC=value", "utf8");
 
-    await expect(resolveBoundaryRoot(root)).resolves.toBe(root);
+    // Windows temp paths may use an 8.3 alias; the boundary returns the canonical path.
+    await expect(resolveBoundaryRoot(root)).resolves.toBe(await realpath(root));
     await expect(
       resolveExistingBoundaryPath(root, "secrets/owner-passphrase")
     ).resolves.toMatchObject({
