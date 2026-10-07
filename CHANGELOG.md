@@ -20,6 +20,20 @@ Date: 2026-10-05
 
 ## Unreleased
 
+### Added
+
+- Choose Gateway-only at first OAuth consent, before any Full token is issued.
+- Gateway-only grants stay connected until revoked: short access tokens, single-use rotating refresh tokens with no fixed/idle expiry, durable restart/offline recovery.
+- An immutable Gateway-only ceiling prevents Full promotion, including through Owner controls.
+- Native OAuth connection guide for OpenCode, Pi, Codex and Claude Code; Pi no longer needs a separate bridge when using its native MCP client.
+- Shorter README, task-oriented documentation index and a 60-second portrait introduction.
+
+### Migration
+
+- OAuth grant database schema v3 preserves existing grants and finite lifetimes. One fresh Gateway-only consent adopts durable onboarding; old grants are not upgraded silently.
+- Take a coherent state/config backup before migration. Older binaries reject schema v3 and need pre-migration state for downgrade.
+- These are source changes pending installed-client and release acceptance.
+
 ## 0.3.6
 
 Date: 2026-09-29

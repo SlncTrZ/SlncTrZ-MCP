@@ -43,10 +43,15 @@ const buildCommit =
   process.env.SLNCTRZ_BUILD_COMMIT?.trim() || process.env.GITHUB_SHA?.trim() || "unknown";
 const releaseSigningPublicKeyB64 = process.env.SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64?.trim();
 if (releaseSigningPublicKeyB64 === undefined || releaseSigningPublicKeyB64.length === 0) {
-  throw new Error("SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 is required for standalone release builds");
+  throw new Error(
+    "SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 is required for standalone release builds"
+  );
 }
 const releaseSigningPublicKey = Buffer.from(releaseSigningPublicKeyB64, "base64");
-if (releaseSigningPublicKey.length === 0 || releaseSigningPublicKey.toString("base64") !== releaseSigningPublicKeyB64) {
+if (
+  releaseSigningPublicKey.length === 0 ||
+  releaseSigningPublicKey.toString("base64") !== releaseSigningPublicKeyB64
+) {
   throw new Error("SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 must be canonical base64 SPKI");
 }
 const parsedReleaseSigningPublicKey = createPublicKey({
@@ -111,7 +116,7 @@ await writeFile(
         "slnctrz-mcp-launcher.sh"
       ),
       "config/systemd/gateway.env.example": join(root, "config", "systemd", "gateway.env.example"),
-      "AGENTS.md": join(root, "AGENTS.md"),
+      "PRODUCT_AGENT_HARNESS.md": join(root, "PRODUCT_AGENT_HARNESS.md"),
       "skills/code-review/SKILL.md": join(root, "skills", "code-review", "SKILL.md"),
       "skills/debug-and-test/SKILL.md": join(root, "skills", "debug-and-test", "SKILL.md"),
       "skills/debug-and-test/references/regression-checks.md": join(

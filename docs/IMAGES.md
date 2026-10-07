@@ -50,7 +50,7 @@ the limits. Malformed pixels may still pass header checks and then fail in a cli
 | Broken `sandbox:` link                 | The file must exist in the current chat's local attachment runtime, not only on the remote gateway          |
 | Model cannot consume the result        | Check that the client forwards `content[]` image blocks and the selected model accepts images               |
 
-See [Troubleshooting](TROUBLESHOOTING.md#image-reading-and-chat-display) for related diagnostics.
+See [Troubleshooting](TROUBLESHOOTING.md) for related diagnostics.
 
 ## Client integration notes
 
@@ -71,11 +71,11 @@ node node_modules/vitest/vitest.mjs run tests/conformance/media-image-e2e.test.t
 An optional `SLNCTRZ_IMAGE_SMOKE_PATH` selects an explicitly authorized local image.
 The test starts an isolated server; it does not deploy or restart a live gateway.
 Record installed-artifact model perception and user display separately using
-[Release Acceptance](RELEASE_ACCEPTANCE.md#image-reading-and-display-acceptance).
+[Release Acceptance](RELEASE_ACCEPTANCE.md).
 
 ## Audio
 
 This tool reads images. File transport or user audio playback does not establish model hearing,
 and this feature supplies no audio reader or transcription service.
 
-See also [User Guide](USER_GUIDE.md#6-view-an-image-together-with-your-agent).
+See also [User Guide](USER_GUIDE.md).

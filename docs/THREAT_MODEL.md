@@ -1,375 +1,41 @@
-# SlncTrZ-MCP Threat Model
+# Threat Model
 
-> Scope: current schema-v2 gateway architecture. Historical workspace/profile/binding/proposal models belong in ADR history, not in the active security contract.
-> Status: active implementation gate
-> Reviewed against v0.3.6 source: 2026-10-01
->
-> Audience: contributors and security reviewers. For practical configuration, start with
-> [User Guide](USER_GUIDE.md) and [Deployment](DEPLOYMENT.md). This document states controls
-> and residual risks; its acceptance requirements are not a blanket claim of live verification.
+Security boundaries and threat mitigation for SlncTrZ-MCP Gateway.
 
-## 1. Security objective
+---
 
-SlncTrZ-MCP exposes local capabilities to authenticated AI clients without pretending that every operating mode has the same containment boundary.
+## 1. Security Model
 
-The current product has four owner-facing **authority controls**:
+SlncTrZ-MCP exposes workstation capabilities to authenticated AI clients without pretending that all operating modes are sandboxes:
 
-```text
-Autonomy
-Paths
-Commands
-MCP Servers
-```
+- **Restricted**: Strict path containment and command catalog whitelist.
+- **Autonomous**: Matches the OS account running the gateway. It does not elevate privileges.
 
-`/usage` is a read-only owner observability surface, not a fifth authority control.
+---
 
-Security mechanisms behind those concepts include OAuth, canonical path handling, secret-path protection in restricted mode, bounded I/O, command-catalog execution, provider isolation, credential separation, atomic generation activation, owner authentication, bounded audit/metrics and verified standalone releases.
+## 2. Threats & Mitigations
 
-Authentication identifies a client and its OAuth grant/tool-surface profile. Full/Gateway-only
-filters discovery and dispatch in addition to the active policy and OS authority. Gateway-only
-hides coding/context/task tools while retaining provider and Debate tools; provider calls in that
-profile do not require coding-context receipts.
+### Filesystem & Secrets
 
-## 2. Authority modes
+- **Threat:** AI reading credentials (`.ssh`, `.gnupg`, private tokens).
+- **Mitigation:** In Restricted mode, sensitive paths are denied by default. Writes use atomic swap to prevent partial corruption.
 
-### 2.1 Restricted
+### Command Execution
 
-Restricted mode is the capability-controlled mode.
-
-- Core filesystem tools operate under configured `Paths`.
-- Protected-secret path rules apply to core filesystem operations.
-- `core.exec` requires an authorized working Path plus a matching owner-managed command rule.
-- Enabled MCP providers expose their accepted tools through the active provider generation.
-- General-purpose shells/interpreters remain powerful: once authorized, the child process can use the OS permissions of the gateway service account. Restricted mode is therefore not an OS sandbox.
-
-### 2.2 Autonomous
-
-Autonomous mode deliberately follows the gateway process user's OS authority:
-
-```text
-model authority ≈ gateway process authority ≈ OS-user authority
-```
-
-The restricted Path boundary and protected-secret deny are not containment guarantees in this mode. OS account permissions, ACLs, service hardening, containers/VMs and external network controls become the authoritative boundaries.
-
-The gateway never silently elevates privileges.
-
-## 3. Protected assets
-
-- Credentials, tokens, passphrases, private keys and provider secrets.
-- Files that are outside restricted-mode configured Paths.
-- Integrity of files modified through core write/edit operations.
-- Trusted executable identity and command-catalog integrity.
-- OAuth authorization state, dynamic-client state and token families.
-- Owner-managed policy, command and provider state.
-- Provider credentials and accepted tool catalogs.
-- Availability of the gateway process, child-process capacity, Task Runtime capacity and provider supervisors.
-- Audit attribution and release/build provenance.
-- Integrity of the active runtime generation.
-- Integrity and bounded delivery of owner-edited global/project coding instructions and Agent Skills.
-- Debate membership, sequence/turn state and intentionally stored conversation history.
-
-## 4. Trust boundaries
-
-1. **Public ingress** accepts network traffic but grants no authority by itself.
-2. **OAuth** establishes authenticated client identity and valid scope.
-3. **Active policy snapshot** selects restricted/autonomous authority and core capabilities.
-4. **Filesystem kernel** performs canonical path resolution, bounded UTF-8 I/O, symlink/race checks and restricted-mode secret protection.
-5. **Exec kernel** resolves and revalidates executable identity, bounds argv/output/time and terminates process trees.
-6. **Task Runtime** keeps bounded in-process Runner/Coordinator state; Runner launch reuses Exec authority while coordination state carries no capability authority.
-7. **Extension registry/runtime** binds namespaced provider tools to fixed transports and accepted catalogs.
-8. **Credential store** resolves provider secrets without exposing them through normal model-facing metadata.
-9. **Owner control plane / Owner Console** is separately authenticated and is not a model-facing admin tool surface.
-10. **Audit/metrics** accept only bounded privacy-reviewed projections.
-11. **Standalone release path** verifies release metadata and artifact bytes before activation.
-12. **Coding context runtime** discovers bounded global/project guidance, issues principal/policy/revision-bound receipts and gates ordinary dispatch before effects. A receipt proves delivery workflow only; it is not authority.
-
-Product/project instructions, task/Debate content, prompts, provider descriptions and MCP tool
-output are data, not capability grants. Debate history persists content in a private SQLite store;
-it does not share the payload-free privacy contract of audit/usage. Protect its backups, enforce
-participant membership/turn checks, and stop active Debates before Owner deletion.
-
-## 5. Threats and controls
-
-| Threat                           | Example                                                                 | Required control                                                                                                                                                              |
-| -------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Lexical traversal                | `../../secret`                                                          | Normalize and reject path escape before I/O.                                                                                                                                  |
-| Symlink escape                   | Path resolves outside a restricted root                                 | Canonical `realpath` containment; deny unsafe final write symlinks.                                                                                                           |
-| TOCTOU write race                | File replaced between validation and overwrite                          | Optimistic SHA-256 check, re-read before replacement, atomic same-directory write.                                                                                            |
-| Restricted secret disclosure     | `.env`, `.ssh`, credential files                                        | Protected-secret deny in restricted mode.                                                                                                                                     |
-| Autonomous-mode ambiguity        | Docs claim secret/path containment while code follows OS user           | Explicit mode contract in README/ARCHITECTURE/SECURITY and tool descriptions.                                                                                                 |
-| Invalid encoding                 | Malformed UTF-8                                                         | Fatal UTF-8 decode and stable error.                                                                                                                                          |
-| Resource exhaustion              | Huge tree/file/output                                                   | Hard bytes/results/entries/argv/output/time limits.                                                                                                                           |
-| Write corruption                 | Crash during overwrite                                                  | Temporary file, fsync, atomic replacement/link, cleanup.                                                                                                                      |
-| Shell injection                  | Caller-controlled shell string                                          | Direct spawn; fixed executable; no generic shell interpolation in core exec.                                                                                                  |
-| Executable substitution          | Catalog binary changes after authorization                              | Canonical executable identity stored/revalidated immediately before spawn.                                                                                                    |
-| Environment leakage              | Child inherits secrets                                                  | Minimal explicit environment rather than wholesale inheritance.                                                                                                               |
-| Process leak                     | Timeout/disconnect leaves descendants                                   | Cancellation propagation and process-tree termination with grace period.                                                                                                      |
-| Task privilege confusion         | Caller treats `task.start` as authority beyond `core.exec`              | Runner launch reuses the same policy/Exec authorization path.                                                                                                                 |
-| Coordination confused deputy     | Task text asks claimant to exceed current authority                     | Coordination text is context only; Kernel/Auth/Policy remains authoritative.                                                                                                  |
-| Coordination claim race          | Two clients believe they own the same logical task                      | Deterministic atomic single-winner claim in one gateway process.                                                                                                              |
-| Task-state exhaustion            | Client fills in-memory Runner/Coordinator capacity                      | Fixed bounds; Coordinator evicts only oldest terminal history, while active work remains non-evictable and full-active capacity fails loud.                                   |
-| Context bypass                   | Client calls a side-effecting tool without current guidance             | Full-connection core/image/task/provider dispatch validates a current receipt first and reports `operationExecuted: false` on preflight rejection.                            |
-| Context receipt exhaustion       | Expired or policy-stale receipts consume the bounded receipt store      | Fixed capacity; expiry/close reclaim entries and bootstrap removes receipts invalidated by the current workspace policy generation.                                           |
-| Skill/resource path escape       | Skill resource uses traversal or a symlink to read outside its root     | Dedicated bounded readers reject traversal, protected names, symlinks/junctions and paths outside the selected skill directory.                                               |
-| Windows command-script injection | `.cmd/.bat` metacharacters                                              | Reject unsafe command-script metacharacters and use controlled Windows invocation.                                                                                            |
-| Namespace collision              | Provider shadows core/another provider                                  | Candidate generation fails closed; previous generation remains active.                                                                                                        |
-| Provider discovery drift         | Runtime tools differ from accepted catalog                              | Readiness attestation and fail-closed provider availability.                                                                                                                  |
-| Provider credential leak         | Secret appears in tool metadata/log/audit                               | Separate credential store and schemas that cannot carry secret values.                                                                                                        |
-| Credential rotation rollback     | New secret overwrites/deletes active prior secret before activation     | Stage opaque new ref, probe/activate new generation, then cleanup only unreferenced old refs.                                                                                 |
-| Provider exhaustion              | Hung/crashing provider                                                  | Bounded timeout/message/output/restart and supervisor state.                                                                                                                  |
-| Hybrid generation                | New policy uses old/partial provider state                              | Build complete candidate then atomically swap active generation.                                                                                                              |
-| Owner impersonation              | Local process calls control API                                         | Owner verifier on every route plus failed-auth rate limiting; success does not consume the budget, while an exhausted direct-peer budget intentionally fails closed pre-KDF.  |
-| Public admin exposure            | `/owner`/control action accidentally becomes MCP tool                   | No model-facing `owner.*`; control routes are separately handled/authenticated.                                                                                               |
-| Host/origin abuse                | Hostile Host/Origin headers                                             | Explicit hostname/origin validation before Owner Console, OAuth, and MCP application dispatch.                                                                                |
-| JSON-RPC/body abuse              | Bad envelope, oversized body, invalid UTF-8                             | Strict bounded HTTP parsing and protocol validation.                                                                                                                          |
-| Audit disclosure                 | Args/content/credentials persisted                                      | Fixed metadata-only schemas; no raw payloads by default.                                                                                                                      |
-| Audit exhaustion                 | Unbounded journal                                                       | Fixed-capacity in-memory journal and bounded persistent sink if enabled.                                                                                                      |
-| Release substitution             | Modified binary under valid version label                               | After trust bootstrap, signed-manifest verification precedes artifact size + SHA-256 verification and activation.                                                             |
-| Release signing-key misuse       | A workflow/ref obtains the publisher private key without release review | Tag-only `aggregate-release`, main-history check, protected `release-signing` Environment, required reviewer/tag rules, and no repository-level duplicate private-key secret. |
-| Redirect downgrade/substitution  | Release URL redirects to unsafe scheme/origin chain                     | HTTPS-only bounded redirects with explicit validation before accepting bytes.                                                                                                 |
-| Mixed deployment                 | Live directory contains files from multiple generations                 | Immutable versioned release directories and atomic activation pointer.                                                                                                        |
-| Destructive-root confusion       | Tampered state points uninstall at an unrelated directory               | Independent install-root + state installation IDs must match before deletion.                                                                                                 |
-| Version drift                    | `package.json` and runtime identities disagree                          | One canonical build-info source plus consistency/release gate tests.                                                                                                          |
-| Provenance loss                  | Runtime cannot identify source commit                                   | Inject exact build commit in CI/deployment; surface it in binary/runtime diagnostics.                                                                                         |
-
-Release-signing note: after the signing-enabled trust bootstrap, an Ed25519 publisher signature over the exact manifest bytes is verified against the embedded trust root before manifest parsing. Fresh bootstrap still depends on trusted acquisition of the installer/bootstrap binary. The `release-signing` GitHub Environment and its protection rules are external release configuration and must be verified during release acceptance; naming the Environment in workflow YAML alone is not evidence that reviewer/tag protections are configured.
-
-## 6. Filesystem requirements
-
-### Restricted mode
-
-- Every core read/search/write/edit target must resolve under one configured Path.
-- Canonical containment must be checked after resolving symlinks.
-- Protected secret names such as `.env`, `.ssh`, `.aws`, `.gnupg`, private-key filenames and equivalent configured classes remain denied.
-- Reads are bounded and strict UTF-8.
-- Searches are bounded by entries/results/time and deterministic where possible.
-- Existing-file overwrite requires `expectedSha256`.
-- Writes use same-directory temporary files and atomic replacement/creation.
-- Exact edit rejects missing, ambiguous or overlapping matches.
-
-### Autonomous mode
-
-Filesystem operations may use any path accessible to the gateway OS user. The same deterministic I/O guards, write atomicity, limits and error handling should remain active, but restricted root/secret containment is intentionally disabled.
-
-This distinction must be visible in user/model documentation and must not be obscured by generic claims such as “secret deny always overrides allow.”
-
-## 7. Execution requirements
-
-### Restricted execution
-
-`core.exec` requires:
-
-```text
-core.exec capability
-+ authorized working Path
-+ owner-managed command rule
-+ canonical executable revalidation
-```
-
-Additional controls:
-
-- up to 4,096 argv entries, with a 128 KiB-minus-NUL per-argument ceiling;
-- aggregate argv remains platform-bounded: 1 MiB on Linux/POSIX, 30,000 UTF-16 code units for native Windows commands, and 7,500 characters for Windows command scripts;
-- bounded stdout/stderr capture;
-- hard timeout ceiling;
-- cancellation support;
-- reduced environment;
-- process-tree termination;
-- stable audit identity using approved command identity rather than raw command output.
-
-Authorizing a shell/interpreter is an explicit owner decision and can effectively expose the service account's broader OS powers from inside that child process.
-
-### Autonomous execution
-
-Autonomous execution follows the gateway OS-user token. The runtime must still keep output/time/process-cleanup guards and must not claim privilege elevation.
+- **Threat:** Arbitrary code execution or system tampering.
+- **Mitigation:** Restricted mode only allows binaries listed in `command.json`. Autonomous mode inherits the OS user's permissions without silent UAC/sudo elevation.
 
 ### Managed task requirements
 
-- `task.start` must use the same Restricted/Autonomous execution authorization as `core.exec`.
-- Runner tasks are creator-private and workspace-bound.
-- Aborting `task.wait` must not cancel the underlying process; explicit `task.cancel` owns cancellation.
-- Coordination tasks are workspace-visible logical state with exactly one claimant at a time.
-- Only the current claimant may release/complete/fail; creator cancellation remains explicit.
-- Task instructions/results must not be stored in metadata-only audit records.
-- Task Runtime state is intentionally in-memory in the current product and is cleared on gateway restart.
-- Graceful SIGTERM/SIGINT shutdown stops new work, cancels active Runner process trees, retires provider generations and closes listeners/audit resources before exit; forced termination that prevents handlers from running is outside this guarantee.
-- Coordinator retention may prune only terminal history; `available` and `claimed` work is never evicted to make room.
-- No durable recovery, lease/heartbeat, dependency DAG or resource-lock claim is made unless separately implemented and tested.
+- **Task-state exhaustion:** Background tasks enforce strict concurrency limits, timeouts, and output buffer caps to prevent resource exhaustion.
+- Child tasks cannot widen gateway permissions.
 
-## 8. Extension provider requirements
+### Downstream Providers & Secrets
 
-- Provider transport is owner-declared and fixed by manifest/state, not selected per tool call.
-- Provider credentials are resolved from opaque refs and never returned to the model.
-- Stdio providers run out of the gateway core process with `shell:false` where applicable.
-- HTTP providers use validated HTTPS endpoints, with the documented loopback HTTP exception only where explicitly allowed.
-- Redirects must not cross the fixed origin.
-- Tool catalogs are namespaced and collision checked.
-- Runtime discovery/tool drift must fail closed.
-- Message, output, timeout and restart behavior are bounded.
-- Provider failures must not terminate the core gateway.
-- Enable/disable/sync mutations build and activate a complete valid generation or leave the previous generation untouched.
+- **Threat:** Compromised downstream MCP server or token leak.
+- **Mitigation:** Providers run in isolated processes. Credential rotation rollback guarantees that failed credential rotation falls back to the active configuration without service disruption.
 
-Provider isolation is process/protocol isolation, not an OS sandbox. An untrusted local provider still has the OS authority of its process identity unless external containment is used.
+### Supply Chain & Releases
 
-## 9. OAuth and public protocol requirements
-
-- MCP tool dispatch requires valid bearer authorization.
-- PKCE, audience, expiry and scope checks remain enforced where applicable.
-- Refresh rotation and family revocation must invalidate the correct token lineage.
-- Dynamic-client registration is rate limited. Owner-authentication failures use a per-authorization-transaction budget plus a higher direct-peer backstop; successful approvals are not charged, and forwarding headers are not trusted for peer identity.
-- Unsupported MCP protocol versions fail before normal tool use.
-- Malformed JSON, JSON-RPC batches/envelopes, invalid UTF-8 and unsupported media types fail with stable non-secret errors.
-- Public MCP request bodies are bounded at 16 MiB; core UTF-8 read/write/edit payloads are bounded at 8 MiB.
-- Provider request/response messages default to 8 MiB and remain hard-bounded at 16 MiB.
-- Host/origin validation occurs before Owner Console, OAuth, and MCP application dispatch; `/healthz` and `/readyz` remain intentionally outside the Origin gate.
-- Credentials must never be reflected in OAuth/owner failure responses.
-
-## 10. Owner/control-plane requirements
-
-The owner authorization surface manages only the current authority controls:
-
-```text
-Autonomy
-Paths
-Commands
-MCP Servers
-```
-
-`/usage` is a read-only owner observability surface, not a fifth authority control.
-
-There is no active workspace/profile/binding/proposal authorization ceremony.
-
-Requirements:
-
-- every owner action requires owner authentication;
-- request bodies are bounded;
-- responses are non-cacheable where sensitive;
-- malformed intents fail closed;
-- mutations are typed and validated;
-- owner admin is not exposed as model-facing MCP tools;
-- policy/provider mutation activates atomically;
-- local diagnostics may expose safe status/audit projections but not credentials or raw secret-bearing config.
-
-## 11. Audit and observability requirements
-
-Security audit and product usage telemetry are separate data products with separate schemas. Neither is allowed to become an authorization input.
-
-### Security audit
-
-The default audit design is privacy-first metadata. Allowed fields include timestamps, request/client identity, capability/tool identity, policy version, result/decision, duration, safe command/provider identity, and build provenance. Raw file contents, model prompts, task instructions/results, provider payloads, credentials, and command stdout/stderr are excluded.
-
-The bounded in-memory journal persists the same privacy-reviewed projection to `<stateRoot>/audit.sqlite3`. Durable retention defaults to the newest 250,000 events. Persistence failure must not broaden authority or replay a completed action.
-
-### Usage telemetry
-
-`<stateRoot>/usage.sqlite3` is independent from audit. It may persist only numeric/classification data needed to answer how much MCP traffic crossed the gateway and how much Agent Skill context progressive disclosure avoided. It must not persist prompts, request bodies, tool arguments, paths, file contents, command output, provider payloads, credentials, OAuth/bearer material, or context receipts.
-
-Controls:
-
-- measurement happens after MCP authentication at the common HTTP boundary;
-- the observer is fail-open and non-authoritative; estimator, queue, SQLite, or dashboard failure must not fail a valid MCP operation;
-- queue length, retention time, row count, query ranges, and result cardinality are bounded;
-- usage APIs require an authenticated Owner Console session; `/usage` itself contains no private telemetry data;
-- the Owner session cookie remains scoped to `/owner`;
-- token values are explicitly estimates tied to a versioned estimator;
-- cost avoided is calculated from an owner-supplied rate and is never described as provider billing truth;
-- progressive-disclosure savings use an explicit eager-load baseline and are clamped at zero rather than manufacturing negative/positive savings.
-
-Residual privacy risk is therefore concentrated in classification/timing/volume metadata rather than payload content. Operators who consider even traffic-volume history sensitive should protect state backups accordingly.
-
-## 12. Release and deployment requirements
-
-A production instance should be traceable to one immutable artifact.
-
-Preferred flow:
-
-```text
-canonical main commit/tag
-→ CI quality + docs/provenance gate
-→ build artifact with embedded {version, buildCommit}
-→ manifest {version, target, URL, size, sha256}
-→ SHA256SUMS + release identity gate
-→ prerelease candidate
-→ real public redirect + clean install acceptance
-→ verified version directory
-→ atomic activation
-→ restart where applicable
-→ health/status/core.ping confirms running version + buildCommit
-→ promote public release
-```
-
-Requirements:
-
-- same-version different bytes fail closed;
-- interrupted download/install does not replace current activation;
-- rollback targets must already exist and verify;
-- active deployment directory must not be mutated by copying selected compiled files into it;
-- semantic version comes from one canonical package/build source;
-- build commit is explicit and must not be fabricated when unavailable.
-
-## 13. Cross-platform requirements
-
-A platform is supported only when its security-sensitive behavior is continuously tested on that platform.
-
-Linux CI must cover Node 22 and 24. Windows claims require a Windows runner covering at minimum:
-
-- filesystem boundary behavior;
-- private ACL handling;
-- native executable resolution;
-- `.cmd/.bat` safety behavior;
-- timeout/cancellation/process-tree termination;
-- restricted and autonomous execution semantics.
-
-Linux-only skipped Windows tests are not evidence of Windows correctness.
-
-## 14. Current evidence map
-
-Key test families:
-
-- `tests/conformance/mcp-initialize.test.ts` — protocol negotiation and malformed ingress.
-- `tests/conformance/default-workspace-e2e.test.ts` — schema-v2 Paths and restricted/autonomous behavior.
-- `tests/conformance/exec-command-catalog-e2e.test.ts` — restricted command-catalog execution.
-- `tests/conformance/extension-gateway-e2e.test.ts` — provider transport/credential/tool exposure.
-- `tests/conformance/task-runner-e2e.test.ts` — request-independent Runner launch/wait/cancel and policy reuse.
-- `tests/conformance/task-coordinator-e2e.test.ts` — independent authenticated clients and single-winner coordination claim.
-- `tests/unit/task-runtime.test.ts`, `task-coordinator.test.ts` — bounded task state/ownership transitions.
-- `tests/unit/fs-boundary.test.ts`, `fs-read`, `fs-search`, `fs-write`, `fs-edit` — filesystem kernel.
-- `tests/unit/exec-run.test.ts` — execution bounds and process behavior.
-- `tests/unit/oauth-*` — authorization, PKCE, token families and HTTP flow.
-- `tests/unit/extension-*` — manifest, runtime, adapters, supervisor and drift behavior.
-- `tests/unit/owner-*` — owner state and provider lifecycle.
-- `tests/unit/audit-*`, `metrics.test.ts` — privacy projection and bounded observability.
-- `tests/unit/standalone-*`, `release-manifest.test.ts`, `manifest-fetch.test.ts`, `product-management.test.ts` — release verification, setup, lifecycle, diagnostics and activation.
-- `scripts/clean-release-user-e2e.sh` — exact public release redirect/bootstrap/User Install acceptance after candidate publication.
-- `scripts/clean-release-system-e2e.sh` — guarded destructive System Install acceptance for disposable systemd hosts only.
-- `tests/unit/windows-private-acl.test.ts` — Windows-specific secret/state ACL behavior; must run on Windows CI.
-
-## 15. Residual risks
-
-- Usage token/cost figures are model-neutral estimates, not exact provider billing; misleading presentation is controlled by explicit labels and estimator/version disclosure.
-- The project has substantial internal automated security evidence but limited independent/community review; maturity claims must not be phrased as independent security certification.
-
-1. Node.js cannot provide identical race-free filesystem primitives on every OS; platform-specific testing remains required.
-2. A permitted shell/interpreter can escape the practical intent of a restricted command list because the child process has the gateway OS account's authority.
-3. Autonomous mode intentionally has broad local authority and should be reserved for trusted personal/automation hosts.
-4. Local stdio MCP providers are not OS-sandboxed by the gateway.
-5. Metadata-only auditing favors privacy over complete forensic reconstruction even though restart-safe SQLite history is enabled by default.
-6. External OS/network/container policy remains necessary for untrusted multi-tenant workloads.
-7. Build provenance is only as strong as the release/deployment process that injects and verifies it.
-
-## Follow-up hardening from the 2026-09-25 Opencode agent review
-
-The follow-up review re-verified the reported High/Medium/Low findings against the current source rather than accepting the report classifications verbatim.
-
-Confirmed controls added:
-
-- **Loopback control-plane brute force:** failed Owner authentication is limited per direct socket peer before scrypt verification; once exhausted, the peer receives 429 + `Retry-After` until reset. Forwarding headers are not trusted.
-- **Dynamic-client revocation durability:** removal of a persisted dynamic client is saved before live state/grants are mutated; a persistence failure leaves the client live rather than creating restart resurrection.
-- **Runtime lease cleanup:** policy/extension runtime leases are released if MCP handler construction fails before request dispatch.
-- **Usage metadata bounds:** caller-supplied tool names longer than the supported telemetry bound are omitted rather than persisted verbatim.
-- **Standalone rollback integrity:** rollback re-verifies executable size and SHA-256 from immutable release metadata before activation.
-- **Release fetch liveness:** manifest + signature retrieval shares one bounded deadline across redirects, retries and retry backoff.
-- **Debate wait fan-out:** concurrent long-poll callers for one debate share a ref-counted notification signal, and the signal is removed when the final waiter cancels or when notification fires.
-
-Findings intentionally not converted into code changes include synchronous check/consume sequences that cannot interleave on the JavaScript event loop, documented Gateway-only/harness recovery behavior, public input-length bounds, and theoretical PID/path races without a confirmed new bypass.
+- **Ed25519 publisher signature:** Standalone binaries (SEA) are signed with Ed25519 keys generated in isolated CI environments.
+- **Release signing-key misuse:** Signing keys are protected within dedicated GitHub Environments, preventing untrusted workflow tampering.

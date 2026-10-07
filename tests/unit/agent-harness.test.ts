@@ -8,8 +8,8 @@ import {
 } from "../../src/shared/agent-harness.js";
 
 describe("canonical product agent harness", () => {
-  it("extracts only the universal guidance block from product AGENTS.md", async () => {
-    const source = await readFile("AGENTS.md", "utf8");
+  it("extracts only the universal guidance block from the product harness payload", async () => {
+    const source = await readFile("PRODUCT_AGENT_HARNESS.md", "utf8");
     const harness = extractCanonicalAgentHarness(source);
 
     expect(harness.id).toBe(AGENT_HARNESS_ID);
@@ -30,7 +30,9 @@ describe("canonical product agent harness", () => {
   });
 
   it("builds server instructions that preserve the guidance/security boundary", async () => {
-    const harness = extractCanonicalAgentHarness(await readFile("AGENTS.md", "utf8"));
+    const harness = extractCanonicalAgentHarness(
+      await readFile("PRODUCT_AGENT_HARNESS.md", "utf8")
+    );
     const instructions = buildAgentHarnessInstructions(harness);
 
     expect(instructions).toContain("product working guidance, not authorization");

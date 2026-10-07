@@ -1,4 +1,5 @@
-/** Canonical SlncTrZ product working guidance extracted from the product-owned AGENTS.md. */
+/** Canonical SlncTrZ product working guidance extracted from the product-owned harness payload
+ * (`PRODUCT_AGENT_HARNESS.md`). This is not project-level agent configuration. */
 
 import { createHash } from "node:crypto";
 

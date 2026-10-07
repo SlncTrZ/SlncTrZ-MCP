@@ -327,8 +327,8 @@ export async function bootstrap(
     : undefined;
   const applicationRoot = resolveApplicationRoot();
   const agentHarnessSource = standaloneRuntime
-    ? readStandaloneTextAsset("AGENTS.md")
-    : await readFile(join(applicationRoot, "AGENTS.md"), "utf8");
+    ? readStandaloneTextAsset("PRODUCT_AGENT_HARNESS.md")
+    : await readFile(join(applicationRoot, "PRODUCT_AGENT_HARNESS.md"), "utf8");
   if (agentHarnessSource === undefined) throw new Error("agent_harness_missing");
   const agentHarness = extractCanonicalAgentHarness(agentHarnessSource);
   const harnessRoot = config.harnessRoot ?? join(statePaths.root, "harness");
@@ -371,7 +371,9 @@ export async function bootstrap(
         providers: statePaths.mcpProvidersFile,
         audit: statePaths.auditDatabaseFile
       },
-      docs: standaloneRuntime ? [] : ["AGENTS.md", "docs/MODEL_GUIDE.md", "MCP_SERVERS.md"],
+      docs: standaloneRuntime
+        ? []
+        : ["PRODUCT_AGENT_HARNESS.md", "docs/MODEL_GUIDE.md", "MCP_SERVERS.md"],
       ...(standaloneModelGuide === undefined ? {} : { modelGuide: standaloneModelGuide }),
       agentHarness
     },

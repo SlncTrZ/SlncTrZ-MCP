@@ -1,7 +1,7 @@
 /** Public documentation contract checks that fail CI when user-facing commands drift. */
 
-import { readFile } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { dirname, relative, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readVersion, RELEASE_LINE_MARKER } from "./version.mjs";
 
@@ -11,7 +11,7 @@ const [
   release,
   provenance,
   pkgRaw,
-  agents,
+  productHarness,
   modelGuide,
   deployment,
   troubleshooting,
@@ -31,7 +31,7 @@ const [
   readFile(join(root, "RELEASE.md"), "utf8"),
   readFile(join(root, "PROVENANCE.md"), "utf8"),
   readFile(join(root, "package.json"), "utf8"),
-  readFile(join(root, "AGENTS.md"), "utf8"),
+  readFile(join(root, "PRODUCT_AGENT_HARNESS.md"), "utf8"),
   readFile(join(root, "docs", "MODEL_GUIDE.md"), "utf8"),
   readFile(join(root, "docs", "DEPLOYMENT.md"), "utf8"),
   readFile(join(root, "docs", "TROUBLESHOOTING.md"), "utf8"),
@@ -107,21 +107,25 @@ for (const command of [
   "slnctrz-mcp uninstall --yes",
   "slnctrz-mcp owner rotate-passphrase"
 ]) {
-  requireText(readme, command, "README");
+  requireText(userGuide, command, "USER_GUIDE");
 }
 
+// README is the product entry point; operational details belong in the linked User Guide.
 for (const value of [
   "http://127.0.0.1:3100/mcp",
-  "http://127.0.0.1:3100/owner",
-  "/mcp",
-  "docs/MODEL_GUIDE.md",
   "releases/latest/download/install.sh",
-  "Windows x64 with Git Bash",
-  "%LOCALAPPDATA%\\SlncTrZ-MCP",
+  "docs/USER_GUIDE.md",
+  "docs/GATEWAY_ONLY.md",
+  "docs/README.md",
   ">=22.13.0 <25"
-]) {
+])
   requireText(readme, value, "README");
-}
+for (const value of [
+  "http://127.0.0.1:3100/owner",
+  "Windows x64 with Git Bash",
+  "%USERPROFILE%\\.slnctrz-mcp"
+])
+  requireText(userGuide, value, "USER_GUIDE");
 
 if (pkg.engines?.node !== ">=22.13.0 <25") {
   throw new Error(
@@ -189,9 +193,13 @@ requireText(release, "manifest.json.sig", "RELEASE");
 requireText(release, "protected GitHub Environment `release-signing`", "RELEASE");
 requireText(release, "no repository-level or organization-level duplicate", "RELEASE");
 requireText(release, "disposable Ed25519 verification key", "RELEASE");
-requireText(readme, "Ed25519 trust root", "README");
-requireText(readme, `The v${pkg.version} line includes`, "README");
-requireText(readme, "Release status is determined by the published GitHub release", "README");
+requireText(userGuide, "Ed25519 trust root", "USER_GUIDE");
+requireText(readme, `docs/releases/v${pkg.version}.md`, "README release link");
+requireText(
+  userGuide,
+  "Release status is determined by the published GitHub release",
+  "USER_GUIDE"
+);
 requireText(threatModel, "Ed25519 publisher signature", "THREAT_MODEL");
 requireText(threatModel, "Release signing-key misuse", "THREAT_MODEL");
 requireText(
@@ -306,7 +314,7 @@ for (const value of [
   "Reuse first",
   "No self-privilege"
 ]) {
-  requireText(agents, value, "AGENTS");
+  requireText(productHarness, value, "PRODUCT_AGENT_HARNESS");
 }
 requireText(
   modelGuide,
@@ -322,10 +330,10 @@ requireText(modelGuide, "task.create", "MODEL_GUIDE");
 requireText(modelGuide, "in-memory only", "MODEL_GUIDE");
 requireText(modelGuide, "structuredContent.managedTasks", "MODEL_GUIDE");
 requireText(modelGuide, "True authorization/ownership denials", "MODEL_GUIDE");
-requireText(readme, "## Managed tasks", "README");
-requireText(readme, "task.start", "README");
-requireText(readme, "task.create", "README");
-requireText(readme, "in-memory only", "README");
+requireText(userGuide, "## 6. Tasks and Debates", "USER_GUIDE");
+requireText(userGuide, "task.start", "USER_GUIDE");
+requireText(architecture, "task.create", "ARCHITECTURE");
+requireText(architecture, "in-memory", "ARCHITECTURE");
 requireText(architecture, "## Managed Task Runtime", "ARCHITECTURE");
 requireText(architecture, "Product Agent Harness", "ARCHITECTURE");
 requireText(architecture, "task.start", "ARCHITECTURE");
@@ -340,7 +348,7 @@ requireText(security, "Graceful gateway shutdown", "SECURITY");
 requireText(threatModel, "### Managed task requirements", "THREAT_MODEL");
 requireText(threatModel, "Task-state exhaustion", "THREAT_MODEL");
 requireText(threatModel, "Credential rotation rollback", "THREAT_MODEL");
-requireText(releaseAcceptance, "## Managed Task Runtime release acceptance", "RELEASE_ACCEPTANCE");
+requireText(releaseAcceptance, "Managed Task Runtime release acceptance", "RELEASE_ACCEPTANCE");
 requireText(releaseAcceptance, "exactly one winner", "RELEASE_ACCEPTANCE");
 requireText(releaseAcceptance, "OLD -> committed -> active runtime NEW", "RELEASE_ACCEPTANCE");
 requireText(releaseAcceptance, "official legacy + modern-only", "RELEASE_ACCEPTANCE");
@@ -354,12 +362,12 @@ requireText(
   "OPERATIONAL_FILES"
 );
 requireText(deployment, "/opt/slnctrz-mcp", "DEPLOYMENT");
-requireText(deployment, "## Task Runtime lifecycle", "DEPLOYMENT");
+requireText(deployment, "Task Runtime lifecycle", "DEPLOYMENT");
 requireText(deployment, "graceful SIGTERM/SIGINT shutdown", "DEPLOYMENT");
 requireText(deployment, "/var/lib/slnctrz-mcp", "DEPLOYMENT");
 requireText(deployment, "/etc/slnctrz-mcp", "DEPLOYMENT");
 requireText(troubleshooting, "running_version_mismatch", "TROUBLESHOOTING");
-requireText(troubleshooting, "## Managed tasks after restart", "TROUBLESHOOTING");
+requireText(troubleshooting, "Managed tasks after restart", "TROUBLESHOOTING");
 requireText(backup, "secrets/owner-passphrase", "BACKUP_RESTORE");
 requireText(backup, "Task Runtime state", "BACKUP_RESTORE");
 requireText(projectContextAdr, "Superseded by ADR-027", "ADR-009");
@@ -368,7 +376,7 @@ requireText(mcpServers, "server/discover", "MCP_SERVERS");
 requireText(mcpServers, "Credential rotation must activate the new credential", "MCP_SERVERS");
 
 for (const [text, label] of [
-  [readme, "README"],
+  [userGuide, "USER_GUIDE"],
   [modelGuide, "MODEL_GUIDE"],
   [architecture, "ARCHITECTURE"],
   [releaseAcceptance, "RELEASE_ACCEPTANCE"]
@@ -387,4 +395,77 @@ for (const value of [
 ])
   requireText(harnessGuide, value, "HARNESS");
 requireText(codingAgents, "org.slnctrz/contextToken", "CODING_AGENTS");
+const gatewayOnly = await readFile(join(root, "docs", "GATEWAY_ONLY.md"), "utf8");
+for (const value of [
+  "until revoked",
+  "ceiling",
+  "pi mcp login slnctrz",
+  "codex mcp login slnctrz",
+  "opencode mcp auth slnctrz",
+  "Full",
+  "unreleased"
+])
+  requireText(gatewayOnly, value, "GATEWAY_ONLY");
+requireText(backup, "schema v3", "BACKUP_RESTORE");
+
+// Public navigation integrity: every relative markdown link must resolve and every
+// anchor must exist. Substring assertions alone let dead links ship (see AUDIT 37, F-A2).
+const stripCode = (text) => text.replace(/```[\s\S]*?```/gu, "").replace(/`[^`\n]*`/gu, "");
+function anchorCandidates(heading) {
+  const cleaned = heading
+    .toLowerCase()
+    .replace(/<[^>]*>/gu, "")
+    .replace(/[^\p{L}\p{N} _-]/gu, "")
+    .trim();
+  // Accept GitHub's per-space dashes and the collapsed form so the check fails only
+  // on genuinely missing anchors.
+  return [
+    cleaned.replace(/\s/gu, "-").replace(/_/gu, "-"),
+    cleaned.replace(/\s+/gu, "-").replace(/_/gu, "-"),
+    cleaned.replace(/\s+/gu, "").replace(/_/gu, "-")
+  ];
+}
+const publicMarkdown = [];
+for (const entry of await readdir(root, { withFileTypes: true })) {
+  if (entry.isFile() && entry.name.endsWith(".md")) publicMarkdown.push(join(root, entry.name));
+}
+for (const directory of ["docs"]) {
+  for (const entry of await readdir(join(root, directory), {
+    withFileTypes: true,
+    recursive: true
+  })) {
+    if (entry.isFile() && entry.name.endsWith(".md"))
+      publicMarkdown.push(join(entry.parentPath, entry.name));
+  }
+}
+const markdownCache = new Map();
+const readPublic = async (path) => {
+  let value = markdownCache.get(path);
+  if (value === undefined) {
+    value = await readFile(path, "utf8").catch(() => undefined);
+    markdownCache.set(path, value);
+  }
+  return value;
+};
+for (const file of publicMarkdown) {
+  const text = await readPublic(file);
+  if (text === undefined) continue;
+  for (const match of stripCode(text).matchAll(/\]\(([^)\s]+)\)/gu)) {
+    const target = match[1];
+    if (/^(?:[a-z][a-z0-9+.-]*:|#)/iu.test(target)) continue;
+    const [rawPath, rawAnchor] = target.split("#");
+    const linkPath = decodeURIComponent(rawPath ?? "");
+    const resolved = linkPath.length === 0 ? file : resolve(dirname(file), linkPath);
+    const label = `${relative(root, file)} -> ${target}`;
+    const linked = await readPublic(resolved);
+    if (linked === undefined) throw new Error(`docs_contract_failed: dead link ${label}`);
+    if (rawAnchor === undefined) continue;
+    const anchors = new Set();
+    for (const heading of linked.matchAll(/^#{1,6}\s+(.*)$/gmu)) {
+      for (const candidate of anchorCandidates(heading[1])) anchors.add(candidate);
+    }
+    if (!anchors.has(decodeURIComponent(rawAnchor).toLowerCase()))
+      throw new Error(`docs_contract_failed: dead anchor ${label}`);
+  }
+}
 console.log(JSON.stringify({ status: "pass", version: pkg.version, node: pkg.engines.node }));

@@ -1,0 +1,31 @@
+# Documentation
+
+Start with the guide for your task. The README introduces the product; the User Guide explains
+everyday use. Technical references explain the implementation without replacing those guides.
+
+| You need to…                                      | Read                                                                                                     |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Install and connect your first client             | [User Guide](USER_GUIDE.md)                                                                              |
+| Use OpenCode, Pi, Codex or Claude Code with OAuth | [Gateway-only](GATEWAY_ONLY.md)                                                                          |
+| Set up HTTPS or a service                         | [Deployment](DEPLOYMENT.md)                                                                              |
+| Add a provider                                    | [MCP Servers](../MCP_SERVERS.md)                                                                         |
+| Add instructions or custom skills                 | [Harness](HARNESS.md)                                                                                    |
+| Integrate a Full coding harness                   | [Coding Agents](CODING_AGENTS.md)                                                                        |
+| Share an image with your agent                    | [Images](IMAGES.md)                                                                                      |
+| Diagnose a problem                                | [Troubleshooting](TROUBLESHOOTING.md)                                                                    |
+| Preserve or restore your data                     | [Backup and Restore](BACKUP_RESTORE.md)                                                                  |
+| Understand permissions                            | [Autonomy](AUTONOMY.md), [Security](../SECURITY.md), [Threat Model](THREAT_MODEL.md)                     |
+| Develop the project                               | [Contributing](../CONTRIBUTING.md), [Engineering](../ENGINEERING.md), [Architecture](../ARCHITECTURE.md) |
+| Review priorities                                 | [Product Plan](../PLAN.md)                                                                               |
+| Prepare a release                                 | [Release Process](../RELEASE.md), [Acceptance](RELEASE_ACCEPTANCE.md)                                    |
+| Inspect dependency origins                        | [Provenance](../PROVENANCE.md)                                                                           |
+| Understand a past design decision                 | [Architecture decisions](adr/README.md)                                                                  |
+| Give an agent operational guidance                | [Model Guide](MODEL_GUIDE.md)                                                                            |
+
+Release notes and architecture decisions retain historical behavior. A note marked superseded
+describes a past contract. Current guides identify unreleased changes explicitly; a source
+implementation or automated test result alone does not establish installed-client support.
+
+The existing [setup video](SlncTrZ-MCP.mp4) demonstrates installation. The
+[60-second introduction](SlncTrZ-MCP-intro.mp4) explains who the gateway helps and why. Download the
+[editable source, storyboard and render report](SlncTrZ-MCP-intro-source.zip) to adapt it.
