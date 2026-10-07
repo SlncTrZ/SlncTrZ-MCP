@@ -88,6 +88,23 @@ describe("filesystem boundary", () => {
     } satisfies Partial<BoundaryError>);
   });
 
+  it("honours an Owner-granted product-state root without adding an implicit deny", async () => {
+    const root = await makeTempDir();
+    await mkdir(join(root, "secrets"), { recursive: true });
+    await writeFile(join(root, "secrets", "owner-passphrase"), "synthetic", "utf8");
+    await writeFile(join(root, "client.env"), "SYNTHETIC=value", "utf8");
+
+    await expect(resolveBoundaryRoot(root)).resolves.toBe(root);
+    await expect(
+      resolveExistingBoundaryPath(root, "secrets/owner-passphrase")
+    ).resolves.toMatchObject({
+      relativePath: "secrets/owner-passphrase"
+    });
+    await expect(resolveExistingBoundaryPath(root, "client.env")).resolves.toMatchObject({
+      relativePath: "client.env"
+    });
+  });
+
   it("rejects NUL bytes and UNC network-share path forms", async () => {
     const root = await makeTempDir();
     // UNC network share + NUL fail closed at the boundary on every platform.
