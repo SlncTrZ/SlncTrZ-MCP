@@ -20,6 +20,7 @@ everyday use. Technical references explain the implementation without replacing 
 | Prepare a release                                 | [Release Process](../RELEASE.md), [Acceptance](RELEASE_ACCEPTANCE.md)                                    |
 | Inspect dependency origins                        | [Provenance](../PROVENANCE.md)                                                                           |
 | Understand a past design decision                 | [Architecture decisions](adr/README.md)                                                                  |
+| Inspect lifecycle ledger wiring                   | [Lifecycle Wiring](LIFECYCLE_WIRING.md)                                                                  |
 | Give an agent operational guidance                | [Model Guide](MODEL_GUIDE.md)                                                                            |
 
 Release notes and architecture decisions retain historical behavior. A note marked superseded

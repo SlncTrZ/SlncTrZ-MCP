@@ -250,17 +250,20 @@ describe("global context and progressive skill disclosure", () => {
     const boot = await runtime.bootstrap(a);
     await runtime.readSkill(a, boot.contextToken, "review");
     await writeFile(join(outside, "secret.txt"), "PRIVATE");
-    await symlink(
-      join(outside, "secret.txt"),
-      join(root, "skills", "review", "references", "link.txt")
-    );
-    for (const resource of [
-      "../../AGENTS.md",
-      "references/link.txt",
-      "C:\\private.txt",
-      ".env",
-      "/etc/passwd"
-    ]) {
+    let hasSymlink = true;
+    try {
+      await symlink(
+        join(outside, "secret.txt"),
+        join(root, "skills", "review", "references", "link.txt")
+      );
+    } catch {
+      hasSymlink = false;
+    }
+    const forbiddenResources = ["../../AGENTS.md", "C:\\private.txt", ".env", "/etc/passwd"];
+    if (hasSymlink) {
+      forbiddenResources.push("references/link.txt");
+    }
+    for (const resource of forbiddenResources) {
       await expect(
         runtime.readSkill(a, boot.contextToken, "review", resource)
       ).rejects.toBeDefined();

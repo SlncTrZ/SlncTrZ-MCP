@@ -207,8 +207,17 @@ describe("media.read_image over authenticated MCP", () => {
     });
     expect(denied.result?.isError).toBe(true);
     const gateway = await startGateway({ readRoot: root });
-    await symlink(join(outside, "image.png"), join(root, "escape.png"));
-    for (const path of [join(outside, "image.png"), "escape.png", "../image.png"]) {
+    let hasSymlink = true;
+    try {
+      await symlink(join(outside, "image.png"), join(root, "escape.png"));
+    } catch {
+      hasSymlink = false;
+    }
+    const escapePaths = [join(outside, "image.png"), "../image.png"];
+    if (hasSymlink) {
+      escapePaths.push("escape.png");
+    }
+    for (const path of escapePaths) {
       const reply = await rpc(gateway, "tools/call", {
         name: "media.read_image",
         arguments: { path }
