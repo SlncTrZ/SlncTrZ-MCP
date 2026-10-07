@@ -2,6 +2,7 @@
  * Wing: app | Topic: coding-harness-integration | Updated: 2026-09-09
  */
 
+import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fetchReleaseManifest } from "../standalone/manifest-fetch.js";
 import { currentReleaseTarget } from "../standalone/release-manifest.js";
@@ -54,6 +55,19 @@ function absolute(value: string): string {
   return value;
 }
 
+async function readSetupCredentialFile(path: string): Promise<string> {
+  const file = absolute(path);
+  const info = await lstat(file);
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error("Credential input must be a regular file, not a symlink");
+  }
+  const value = (await readFile(file, "utf8")).replace(/\r?\n$/u, "");
+  if (value.length === 0 || /[\r\n]/u.test(value)) {
+    throw new Error("Credential input must contain exactly one non-empty line");
+  }
+  return value;
+}
+
 function onlyFlags(args: readonly string[], allowed: readonly string[]): void {
   for (const arg of args) {
     if (!allowed.includes(arg)) throw new Error(`Unknown standalone CLI argument: ${arg}`);
@@ -65,7 +79,7 @@ function help(): string {
     "Usage: slnctrz-mcp [command]",
     "",
     "Commands:",
-    "  setup [--mode user|system] [--port <1-65535>] [--path <absolute-path>] [--authority restricted|autonomous] [--public-url <https-url>] [--client-id <id>] [--client-secret <secret>]",
+    "  setup [--mode user|system] [--port <1-65535>] [--path <absolute-path>] [--authority restricted|autonomous] [--public-url <https-url>] [--client-id <id>] [--client-secret <secret>|--client-secret-file <absolute-path>]",
     "  status [--json]",
     "  doctor [--json]",
     "  config show [--json]",
@@ -183,8 +197,12 @@ export async function runStandaloneCli(
       "--state-root",
       "--config-root",
       "--client-id",
-      "--client-secret"
+      "--client-secret",
+      "--client-secret-file"
     ]);
+    if (values.includes("--client-secret") && values.includes("--client-secret-file")) {
+      throw new Error("Use only one of --client-secret or --client-secret-file");
+    }
     const mode = values.includes("--mode") ? option(values, "--mode") : "user";
     if (mode !== "user" && mode !== "system") throw new Error("--mode must be user or system");
     if (mode === "system") {
@@ -225,7 +243,11 @@ export async function runStandaloneCli(
         ...(values.includes("--client-id") ? { clientId: option(values, "--client-id") } : {}),
         ...(values.includes("--client-secret")
           ? { clientSecret: option(values, "--client-secret") }
-          : {})
+          : values.includes("--client-secret-file")
+            ? {
+                clientSecret: await readSetupCredentialFile(option(values, "--client-secret-file"))
+              }
+            : {})
       },
       {
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),

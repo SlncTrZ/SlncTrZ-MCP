@@ -55,6 +55,7 @@ import {
   type InstallationMetadata
 } from "./installation-metadata.js";
 import { ensureClientEnvFile, OFFICIAL_RELEASE_MANIFEST_URL } from "./product-setup.js";
+import { assertManagedRootLayout } from "./root-layout.js";
 import { userPlatformLayout } from "./platform-layout.js";
 import { resolveRuntimeIdentity, runtimeCanExecuteBinary } from "./runtime-identity.js";
 import {
@@ -1271,6 +1272,11 @@ export async function uninstallProduct(
   readonly deferredProgramRemoval: boolean;
 }> {
   const context = await discoverInstalledProduct(dependencies);
+  await assertManagedRootLayout({
+    installRoot: context.installation.installRoot,
+    stateRoot: context.installation.stateRoot,
+    configRoot: context.installation.configRoot
+  });
   const installRoot = await safeManagedRoot(context.installation.installRoot);
   const stateRoot = await safeManagedRoot(context.installation.stateRoot);
   await assertPlainMarker(join(installRoot, "current.json"), "standalone_install_marker_invalid");

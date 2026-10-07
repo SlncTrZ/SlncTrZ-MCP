@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -221,6 +221,60 @@ describe("product setup", () => {
     expect(await readFile(result.staticClientFile, "utf8")).toContain(
       ["SLNCTRZ_CLIENT_ID=custom-client", "SLNCTRZ_CLIENT_SECRET=custom-client-secret"].join("\n")
     );
+  });
+
+  it("rejects overlapping install, state, and config roots before any setup mutation", async () => {
+    const root = await directory("slnctrz-overlap-");
+    const workspace = await directory("slnctrz-overlap-workspace-");
+    const installRoot = join(root, "install");
+    const stateRoot = join(installRoot, "state");
+    const configRoot = join(root, "config");
+    const fetch = releaseFetch(Buffer.from("standalone-bytes"));
+
+    await expect(
+      prepareProductSetup(
+        {
+          installMode: "user",
+          port: 9126,
+          initialPath: workspace,
+          manifestUrl: "https://updates.example.test/manifest.json",
+          installRoot,
+          stateRoot,
+          configRoot
+        },
+        { fetch, checkPort: async () => undefined, releaseTrustKeys: TEST_RELEASE_TRUST_KEYS }
+      )
+    ).rejects.toThrow("Managed roots must not overlap");
+  });
+
+  it("rejects managed roots that overlap through a symlink or junction parent", async () => {
+    const root = await directory("slnctrz-overlap-alias-");
+    const workspace = await directory("slnctrz-overlap-alias-workspace-");
+    const installRoot = join(root, "install");
+    const aliasRoot = join(root, "install-alias");
+    const stateRoot = join(aliasRoot, "state");
+    const configRoot = join(root, "config");
+    await mkdir(installRoot, { recursive: true });
+    await symlink(installRoot, aliasRoot, process.platform === "win32" ? "junction" : "dir");
+
+    await expect(
+      prepareProductSetup(
+        {
+          installMode: "user",
+          port: 9127,
+          initialPath: workspace,
+          manifestUrl: "https://updates.example.test/manifest.json",
+          installRoot,
+          stateRoot,
+          configRoot
+        },
+        {
+          fetch: releaseFetch(Buffer.from("standalone-bytes")),
+          checkPort: async () => undefined,
+          releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+        }
+      )
+    ).rejects.toThrow("Managed roots must not overlap");
   });
 
   it.skipIf(process.platform !== "linux")(

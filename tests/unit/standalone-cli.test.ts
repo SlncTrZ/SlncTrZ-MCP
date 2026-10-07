@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPolicyDocument } from "../../src/policy/policy-config.js";
@@ -82,6 +82,8 @@ describe("standalone CLI", () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "slnctrz-cli-setup-workspace-"));
     cleanup.push(root, workspaceRoot);
     const configRoot = join(root, "config");
+    const clientSecretFile = join(root, "client-secret.txt");
+    await writeFile(clientSecretFile, "cli-client-secret\n", { encoding: "utf8", mode: 0o600 });
     const captured = output();
 
     await expect(
@@ -102,8 +104,8 @@ describe("standalone CLI", () => {
           configRoot,
           "--client-id",
           "cli-client",
-          "--client-secret",
-          "cli-client-secret"
+          "--client-secret-file",
+          clientSecretFile
         ],
         {
           output: captured,
@@ -126,6 +128,61 @@ describe("standalone CLI", () => {
     expect(await readFile(join(configRoot, "client.env"), "utf8")).toContain(
       ["SLNCTRZ_CLIENT_ID=cli-client", "SLNCTRZ_CLIENT_SECRET=cli-client-secret"].join("\n")
     );
+  });
+
+  it("keeps the legacy --client-secret setup contract while supporting file input", async () => {
+    const root = await mkdtemp(join(tmpdir(), "slnctrz-cli-legacy-secret-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "slnctrz-cli-legacy-workspace-"));
+    cleanup.push(root, workspaceRoot);
+    const captured = output();
+
+    await expect(
+      runStandaloneCli(
+        [
+          "setup",
+          "--port",
+          "9128",
+          "--path",
+          workspaceRoot,
+          "--manifest",
+          "https://updates.example.test/manifest.json",
+          "--install-root",
+          join(root, "install"),
+          "--state-root",
+          join(root, "state"),
+          "--config-root",
+          join(root, "config"),
+          "--client-id",
+          "legacy-client",
+          "--client-secret",
+          "legacy-client-secret"
+        ],
+        {
+          output: captured,
+          fetch: releaseFetch(Buffer.from("standalone-legacy-bytes")),
+          environment: {},
+          checkPort: async () => undefined,
+          releaseTrustKeys: TEST_RELEASE_TRUST_KEYS
+        }
+      )
+    ).resolves.toBe(true);
+
+    expect(captured.lines.join("\n")).not.toContain("legacy-client-secret");
+    expect(await readFile(join(root, "config", "client.env"), "utf8")).toContain(
+      "SLNCTRZ_CLIENT_SECRET=legacy-client-secret"
+    );
+  });
+
+  it("rejects ambiguous setup secret inputs before setup runs", async () => {
+    await expect(
+      runStandaloneCli([
+        "setup",
+        "--client-secret",
+        "synthetic-secret",
+        "--client-secret-file",
+        "/tmp/synthetic-secret-file"
+      ])
+    ).rejects.toThrow("Use only one of --client-secret or --client-secret-file");
   });
 
   it("does not print the rotated Owner Passphrase", async () => {

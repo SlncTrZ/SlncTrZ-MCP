@@ -101,6 +101,7 @@ state_root_set=false
 config_root_set=false
 client_id_set=false
 client_secret_set=false
+client_secret_file_set=false
 
 while [ "$#" -gt 0 ]; do
   option=$1
@@ -150,6 +151,10 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -gt 0 ] || { echo "error: missing --client-secret value" >&2; exit 2; }
       client_secret=$1; client_secret_set=true; shift
       ;;
+    --client-secret-file)
+      [ "$#" -gt 0 ] || { echo "error: missing --client-secret-file value" >&2; exit 2; }
+      client_secret_file=$1; client_secret_file_set=true; shift
+      ;;
     --manifest)
       echo "error: bootstrap owns --manifest so setup stays pinned to the verified release" >&2
       exit 2
@@ -161,6 +166,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "$client_secret_set" = true ] && [ "$client_secret_file_set" = true ]; then
+  echo "error: use only one of --client-secret or --client-secret-file" >&2
+  exit 2
+fi
+
 if [ "$windows_bootstrap" = true ]; then
   if [ "$mode_set" = true ] && [ "$mode" = system ]; then
     echo "error: Windows System Install is not supported yet; use --mode user" >&2
@@ -170,6 +180,7 @@ if [ "$windows_bootstrap" = true ]; then
   if [ "$install_root_set" = true ]; then install_root=$(convert_windows_path "$install_root"); fi
   if [ "$state_root_set" = true ]; then state_root=$(convert_windows_path "$state_root"); fi
   if [ "$config_root_set" = true ]; then config_root=$(convert_windows_path "$config_root"); fi
+  if [ "$client_secret_file_set" = true ]; then client_secret_file=$(convert_windows_path "$client_secret_file"); fi
 fi
 
 set --
@@ -184,6 +195,7 @@ if [ "$state_root_set" = true ]; then set -- "$@" --state-root "$state_root"; fi
 if [ "$config_root_set" = true ]; then set -- "$@" --config-root "$config_root"; fi
 if [ "$client_id_set" = true ]; then set -- "$@" --client-id "$client_id"; fi
 if [ "$client_secret_set" = true ]; then set -- "$@" --client-secret "$client_secret"; fi
+if [ "$client_secret_file_set" = true ]; then set -- "$@" --client-secret-file "$client_secret_file"; fi
 
 # Pin setup to the same exact release location used for the checksum and bootstrap artifact.
 exec "$binary" setup --manifest "$RELEASE_URL/manifest.json" "$@"

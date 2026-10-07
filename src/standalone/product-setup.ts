@@ -31,6 +31,7 @@ import {
   readRuntimeConfig
 } from "../app/config.js";
 import { fetchReleaseManifest } from "./manifest-fetch.js";
+import { assertManagedRootLayout } from "./root-layout.js";
 import type { ReleaseTrustKey } from "./release-signature.js";
 import { currentReleaseTarget } from "./release-manifest.js";
 import {
@@ -302,6 +303,7 @@ export async function prepareProductSetup(
   const installRoot = requireAbsolute(request.installRoot ?? defaults.installRoot, "Install root");
   const stateRoot = requireAbsolute(request.stateRoot ?? defaults.stateRoot, "State root");
   const configRoot = requireAbsolute(request.configRoot ?? defaults.configRoot, "Config root");
+  await assertManagedRootLayout({ installRoot, stateRoot, configRoot });
   const port = validatePort(request.port ?? 3100);
   const host = request.listenHost ?? "127.0.0.1";
   const authorityMode = request.authorityMode ?? "restricted";
