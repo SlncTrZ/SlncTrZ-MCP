@@ -773,6 +773,92 @@ describe("installed product management", () => {
     expect(after.trim()).toBe(result.passphrase);
   });
 
+  it.each([
+    ["nested state", "program", "program/data/state", "config"],
+    ["nested config", "program", "state", "program/data/config"],
+    ["both nested", "program", "program/data/state", "program/data/config"],
+    ["shared roots", "shared", "shared", "shared"],
+    ["program in state", "state/program", "state", "config"],
+    ["state in config", "program", "config/state", "config"],
+    ["config in state", "program", "state", "state/config"]
+  ])(
+    "uninstalls legacy %s according to the requested preservation scope",
+    async (_name, program, state, config) => {
+      for (const options of [{}, { removeConfig: true }, { purgeState: true }]) {
+        const root = await directory("slnctrz-legacy-uninstall-");
+        const installRoot = join(root, program);
+        const stateRoot = join(root, state);
+        const configRoot = join(root, config);
+        for (const path of [installRoot, stateRoot, configRoot])
+          await mkdir(path, { recursive: true });
+        const installationId = "00000000-0000-4000-8000-000000000001";
+        await writeFile(
+          join(stateRoot, "installation.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            installationId,
+            installMode: "user",
+            installRoot,
+            stateRoot,
+            configRoot,
+            serviceMode: "foreground",
+            serviceName: "slnctrz-mcp",
+            releaseChannel: "stable",
+            host: "127.0.0.1",
+            port: 3100,
+            authorityMode: "restricted",
+            initialPath: root,
+            createdAt: "2026-10-07T00:00:00.000Z",
+            updatedAt: "2026-10-07T00:00:00.000Z"
+          })
+        );
+        await writeFile(
+          join(installRoot, "installation-marker.json"),
+          JSON.stringify({ schemaVersion: 1, installationId, stateRoot })
+        );
+        await writeFile(join(installRoot, "current.json"), "{}");
+        await mkdir(join(installRoot, "versions"), { recursive: true });
+        await writeFile(join(installRoot, "versions", "program.bin"), "program");
+        const launcher = join(installRoot, userPlatformLayout().launcherFileName);
+        await writeFile(launcher, "launcher");
+        await writeFile(join(stateRoot, "retained-state.txt"), "state");
+        await writeFile(join(configRoot, "gateway.env"), "fixture-config");
+        await writeFile(join(configRoot, "client.env"), "fixture-client-config");
+
+        const result = await uninstallProduct(options, { stateRoot });
+        const purge = "purgeState" in options;
+        const removeConfig = purge || "removeConfig" in options;
+        expect(result.statePreserved).toBe(!purge);
+        await expect(access(join(installRoot, "current.json"))).rejects.toMatchObject({
+          code: "ENOENT"
+        });
+        await expect(access(join(installRoot, "versions", "program.bin"))).rejects.toMatchObject({
+          code: "ENOENT"
+        });
+        await expect(access(launcher)).rejects.toMatchObject({ code: "ENOENT" });
+        if (purge)
+          await expect(access(join(stateRoot, "retained-state.txt"))).rejects.toMatchObject({
+            code: "ENOENT"
+          });
+        else expect(await readFile(join(stateRoot, "retained-state.txt"), "utf8")).toBe("state");
+        if (removeConfig)
+          await expect(access(join(configRoot, "gateway.env"))).rejects.toMatchObject({
+            code: "ENOENT"
+          });
+        else expect(await readFile(join(configRoot, "gateway.env"), "utf8")).toBe("fixture-config");
+      }
+    }
+  );
+
+  it("validates requested config removal before deleting the program", async () => {
+    const f = await fixture();
+    await rm(join(f.configRoot, "gateway.env"));
+    await expect(
+      uninstallProduct({ removeConfig: true }, { stateRoot: f.stateRoot })
+    ).rejects.toBeDefined();
+    await expect(access(join(f.installRoot, "current.json"))).resolves.toBeUndefined();
+  });
+
   it("uninstalls program-only by default and preserves config/state", async () => {
     const f = await fixture();
     const result = await uninstallProduct(

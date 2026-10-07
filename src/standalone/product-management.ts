@@ -1,5 +1,5 @@
 /** Installed product status, diagnostics, configuration, update, recovery and uninstall.
- * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-05 12:49
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-07 22:34
  */
 
 import { ensureHarnessLayout } from "../context/provisioning.js";
@@ -13,6 +13,7 @@ import {
   lstat,
   mkdir,
   readFile,
+  readdir,
   realpath,
   rename,
   rm,
@@ -20,7 +21,7 @@ import {
   statfs,
   writeFile
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { readRuntimeConfig } from "../app/config.js";
 import { compileCommandCatalog, parseCommandAllowlist } from "../kernel/command-catalog.js";
@@ -55,7 +56,6 @@ import {
   type InstallationMetadata
 } from "./installation-metadata.js";
 import { ensureClientEnvFile, OFFICIAL_RELEASE_MANIFEST_URL } from "./product-setup.js";
-import { assertManagedRootLayout } from "./root-layout.js";
 import { userPlatformLayout } from "./platform-layout.js";
 import { resolveRuntimeIdentity, runtimeCanExecuteBinary } from "./runtime-identity.js";
 import {
@@ -1230,29 +1230,72 @@ async function assertPlainMarker(path: string, code: string): Promise<void> {
 
 function containsPath(root: string, child: string): boolean {
   const rel = relative(resolve(root), resolve(child));
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 function powershellLiteral(value: string): string {
   return "'" + value.replaceAll("'", "''") + "'";
 }
 
-async function scheduleWindowsInstallRootRemoval(installRoot: string): Promise<void> {
+/** Plan deletions before mutation, keeping retained legacy subtrees in place. */
+async function collectRemovalTargets(root: string, retained: readonly string[]): Promise<string[]> {
+  if (retained.includes(root)) return [];
+  if (!retained.some((path) => containsPath(root, path))) return [root];
+  const targets: string[] = [];
+  for (const entry of await readdir(root)) {
+    targets.push(...(await collectRemovalTargets(join(root, entry), retained)));
+  }
+  return targets;
+}
+
+async function existingRemovalTargets(
+  roots: readonly string[],
+  retained: readonly string[]
+): Promise<string[]> {
+  const targets: string[] = [];
+  for (const root of roots) {
+    try {
+      await lstat(root);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    targets.push(...(await collectRemovalTargets(root, retained)));
+  }
+  return unique(targets).filter(
+    (path, _index, all) => !all.some((parent) => parent !== path && containsPath(parent, path))
+  );
+}
+
+async function scheduleWindowsInstallRootRemoval(targets: readonly string[]): Promise<void> {
   const script = [
     `$parentPid=${process.pid}`,
     "Wait-Process -Id $parentPid -ErrorAction SilentlyContinue",
-    `$target=${powershellLiteral(installRoot)}`,
+    `$targets=@(${targets.map(powershellLiteral).join(",")})`,
     "for ($i = 0; $i -lt 40; $i++) {",
-    "  try { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop; exit 0 }",
+    "  try { foreach ($target in $targets) { if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop } }; exit 0 }",
     "  catch { Start-Sleep -Milliseconds 250 }",
     "}",
     "exit 1"
-  ].join("; ");
+  ].join("\n");
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   await new Promise<void>((resolvePromise, reject) => {
     const child = spawn(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+      "cmd.exe",
+      [
+        "/d",
+        "/s",
+        "/c",
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        encoded
+      ],
+      // The detached cmd host lets PowerShell initialize and survive the executable's exit.
+      // Paths occur only inside the encoded script, never in cmd syntax.
       { detached: true, stdio: "ignore", windowsHide: true }
     );
     child.once("error", reject);
@@ -1272,13 +1315,22 @@ export async function uninstallProduct(
   readonly deferredProgramRemoval: boolean;
 }> {
   const context = await discoverInstalledProduct(dependencies);
-  await assertManagedRootLayout({
-    installRoot: context.installation.installRoot,
-    stateRoot: context.installation.stateRoot,
-    configRoot: context.installation.configRoot
-  });
-  const installRoot = await safeManagedRoot(context.installation.installRoot);
-  const stateRoot = await safeManagedRoot(context.installation.stateRoot);
+  const installRoot = await realpath(await safeManagedRoot(context.installation.installRoot));
+  const stateRoot = await realpath(await safeManagedRoot(context.installation.stateRoot));
+  const configRoot = await realpath(await safeManagedRoot(context.installation.configRoot)).catch(
+    (error: unknown) => {
+      if (
+        !options.removeConfig &&
+        !options.purgeState &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      )
+        return resolve(context.installation.configRoot);
+      throw error;
+    }
+  );
+  for (const root of [installRoot, stateRoot, configRoot]) {
+    if (root === dirname(root)) throw new Error("managed_root_invalid");
+  }
   await assertPlainMarker(join(installRoot, "current.json"), "standalone_install_marker_invalid");
   await assertPlainMarker(
     context.statePaths.installationMetadataFile,
@@ -1289,11 +1341,36 @@ export async function uninstallProduct(
   if (
     stateMarker?.installationId !== context.installation.installationId ||
     installMarker.installationId !== context.installation.installationId ||
-    resolve(installMarker.stateRoot) !== resolve(stateRoot)
+    (await realpath(installMarker.stateRoot)) !== stateRoot
   ) {
     throw new Error("installation_identity_mismatch");
   }
-  const removed: string[] = [];
+  const removeConfig = options.removeConfig || options.purgeState;
+  if (removeConfig)
+    await assertPlainMarker(join(configRoot, "gateway.env"), "config_marker_invalid");
+  const retained = [
+    ...(!options.purgeState ? [stateRoot] : []),
+    ...(!removeConfig ? [configRoot] : [])
+  ];
+  // A shared root also holds non-program data; remove only known program entries there.
+  const programRoots = retained.includes(installRoot)
+    ? [
+        "versions",
+        ".staging",
+        "current.json",
+        "installation-marker.json",
+        userPlatformLayout().launcherFileName
+      ].map((name) => join(installRoot, name))
+    : [installRoot];
+  const configRoots = !removeConfig
+    ? []
+    : retained.includes(configRoot)
+      ? ["gateway.env", "client.env"].map((name) => join(configRoot, name))
+      : [configRoot];
+  const removed = await existingRemovalTargets(
+    [...programRoots, ...configRoots, ...(options.purgeState ? [stateRoot] : [])],
+    retained
+  );
 
   if (context.installation.installMode === "system") {
     const run = dependencies.run ?? defaultRun;
@@ -1313,23 +1390,11 @@ export async function uninstallProduct(
   }
 
   const deferredProgramRemoval =
-    process.platform === "win32" && containsPath(installRoot, process.execPath);
+    process.platform === "win32" && removed.some((path) => containsPath(path, process.execPath));
   if (deferredProgramRemoval) {
-    await scheduleWindowsInstallRootRemoval(installRoot);
+    await scheduleWindowsInstallRootRemoval(removed);
   } else {
-    await rm(installRoot, { recursive: true, force: false });
-  }
-  removed.push(installRoot);
-
-  if (options.removeConfig || options.purgeState) {
-    const configRoot = await safeManagedRoot(context.installation.configRoot);
-    await assertPlainMarker(join(configRoot, "gateway.env"), "config_marker_invalid");
-    await rm(configRoot, { recursive: true, force: false });
-    removed.push(configRoot);
-  }
-  if (options.purgeState) {
-    await rm(stateRoot, { recursive: true, force: false });
-    removed.push(stateRoot);
+    for (const path of removed) await rm(path, { recursive: true, force: false });
   }
 
   return {
