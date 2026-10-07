@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Thời gian do code điều khiển</title>
+<style>
+@font-face{font-family:VideoSans;src:url('./fonts/DejaVuSans.ttf') format('truetype');font-weight:400;font-display:block}
+@font-face{font-family:VideoSans;src:url('./fonts/DejaVuSans-Bold.ttf') format('truetype');font-weight:700;font-display:block}
+*{box-sizing:border-box}html,body{margin:0;background:#0b1320;width:100%;height:100%;overflow:hidden}
+canvas{display:block;width:100vw;height:100vh;object-fit:contain}
+</style>
+</head>
+<body><canvas id="stage" width="3840" height="2160" aria-label="Infographic về render video theo thời gian xác định"></canvas>
+<script>
+'use strict';
+const meta = {width:3840,height:2160,fps:60,duration:15,seed:20261006,scenes:[
+  {name:'Thời gian xác định',start:0,end:5},
+  {name:'Pipeline khung hình',start:5,end:10},
+  {name:'FPS và số khung hình',start:10,end:15}
+]};
+const canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d');
+const C={bg:'#0b1320',panel:'#142237',line:'#293d55',ink:'#edf5fa',muted:'#9eafc0',cyan:'#64e2d5',coral:'#ff977c'};
+const clamp=x=>Math.max(0,Math.min(1,x));
+const p=(t,start,duration)=>clamp((t-start)/duration);
+const ease=x=>1-(1-x)**3;
+let violations=[];
+function text(value,x,y,size=32,color=C.ink,bold=false,max=1728){
+  ctx.font=`${bold?700:400} ${size}px VideoSans`;ctx.textBaseline='alphabetic';ctx.fillStyle=color;
+  const m=ctx.measureText(value);
+  if(m.width>max+.1||x<80||x+m.width>1840||y-size<35||y>1020)violations.push('Text exceeds authored safe bounds');
+  ctx.fillText(value,x,y);
+}
+function rect(x,y,w,h,fill,r=24){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();}
+function line(x1,y1,x2,y2,color=C.line,width=3){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineWidth=width;ctx.strokeStyle=color;ctx.stroke();}
+function dot(x,y,r,color){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();}
+function heading(kicker,a,b){text(kicker,96,242,27,C.cyan,true);text(a,96,339,72,C.ink,true);if(b)text(b,96,429,72,C.ink,true);}
+function background(t,index){
+  ctx.fillStyle=C.bg;ctx.fillRect(0,0,1920,1080);
+  for(let x=960;x<1880;x+=80)for(let y=180;y<930;y+=80)dot(x,y,1.5,C.line);
+  text('ENGINEERING / MOTION LAB',96,91,24,C.muted,true);
+  text('WEB → FRAMES → VIDEO',1420,91,23,C.muted,false,410);
+  line(96,126,1824,126);
+  line(96,967,1824,967);
+  rect(96,964,1728*clamp(t/meta.duration),6,C.cyan,3);
+  text('HTML · CSS · JavaScript · Canvas',96,1020,24,C.muted);
+  text(`${String(index+1).padStart(2,'0')} / 03`,1700,1020,24,C.cyan,true,130);
+}
+function scene0(t){
+  heading('01  /  DETERMINISTIC TIME','Mỗi khung hình.','Một thời điểm.');
+  text('Chuyển động là hàm của thời gian.',100,510,34,C.muted);
+  text('Không phụ thuộc tốc độ chụp.',100,560,34,C.muted);
+  rect(100,650,690,164,C.panel);
+  text('t = frame / FPS',140,718,44,C.cyan,true,610);
+  text('render(t) → một trạng thái hoàn chỉnh',140,777,26,C.muted,false,610);
+  const reveal=ease(p(t,.35,1.7));
+  const active=Math.min(2,Math.floor(p(t,.7,2.8)*3));
+  for(let i=0;i<3;i++){
+    const x=1000+i*272,y=365+24*(1-ease(p(t,.2+i*.16,.6)));
+    ctx.save();ctx.globalAlpha*=.3+.7*ease(p(t,.2+i*.16,.6));
+    rect(x,y,238,296,C.panel);
+    text(`FRAME ${String(i).padStart(3,'0')}`,x+22,y+44,22,C.muted,true,195);
+    line(x+28,y+205,x+210,y+205,C.line,2);
+    const h=(60+i*35)*reveal;
+    rect(x+52,y+205-h,55,h,C.cyan,8);rect(x+127,y+205-h*.6,55,h*.6,C.coral,8);
+    text(`${(i/meta.fps).toFixed(3)} s`,x+26,y+263,25,C.ink,false,190);
+    if(i===active){ctx.strokeStyle=C.cyan;ctx.lineWidth=3;ctx.beginPath();ctx.roundRect(x,y,238,296,24);ctx.stroke();}
+    ctx.restore();
+  }
+  line(1010,747,1790,747,C.line,4);
+  for(let i=0;i<3;i++)dot(1119+i*272,747,i===active?9:5,i===active?C.cyan:C.muted);
+  text('Cùng t → cùng hình',1090,843,34,C.cyan,true,690);
+}
+function scene1(t){
+  heading('02  /  CAPTURE PIPELINE','Chủ động tua thời gian.','Chụp đúng trạng thái.');
+  text('Tải tài nguyên → render(t) → PNG → MP4',100,511,34,C.muted);
+  const labels=['READY','RENDER(t)','CAPTURE','ENCODE'];
+  const subs=['Font + ảnh','Thời gian i / FPS','Đúng một frame','FPS cố định'];
+  for(let i=0;i<3;i++){
+    line(450+i*440,699,530+i*440,699,C.line,4);
+    const x=450+i*440+80*p(t,.9+i*.35,.7);
+    dot(x,699,7,C.cyan);
+  }
+  for(let i=0;i<4;i++){
+    const x=100+i*440,show=ease(p(t,.1+i*.15,.6));
+    ctx.save();ctx.globalAlpha*=.25+.75*show;
+    rect(x,600+20*(1-show),350,210,C.panel);
+    text(String(i+1).padStart(2,'0'),x+30,656,27,C.coral,true,280);
+    text(labels[i],x+30,721,33,C.ink,true,280);
+    text(subs[i],x+30,770,25,C.muted,false,290);ctx.restore();
+  }
+  text('Kiểm tra: tiến → lùi → lặp lại cùng một frame',100,892,30,C.cyan,false,1700);
+}
+function scene2(t){
+  heading('03  /  FIXED FRAME RATE','Đếm khung hình.','Giữ đúng thời lượng.');
+  const reveal=ease(p(t,.35,1.5));
+  text(String(Math.round(450*reveal)).padStart(3,'0'),96,678,154,C.cyan,true,780);
+  text('frames / 15 giây / 30 FPS',102,742,34,C.ink,false,760);
+  text('N = thời lượng × FPS',102,825,31,C.muted,false,760);
+  text('Số frame cho cùng video 15 giây',960,272,32,C.ink,true,860);
+  const x0=1095,w=605,values=[360,450,900],fps=[24,30,60];
+  for(let tick=0;tick<=900;tick+=300){const x=x0+w*tick/900;line(x,310,x,805,C.line,2);text(String(tick),x-12,849,24,C.muted,false,105);}
+  for(let i=0;i<3;i++){
+    const y=365+i*156,progress=ease(p(t,.35+i*.16,1.3));
+    text(`${fps[i]} FPS`,960,y+48,27,C.muted,true,125);
+    rect(x0,y,w*values[i]/900*progress,72,i===1?C.cyan:C.line,10);
+    text(String(Math.round(values[i]*progress)),x0+w*values[i]/900*progress+18,y+48,29,i===1?C.cyan:C.ink,true,110);
+  }
+  text('Tính theo công thức; không phải benchmark.',960,907,25,C.muted,false,850);
+}
+const draws=[scene0,scene1,scene2];
+const ready=(async()=>{
+  const faces=await Promise.all([document.fonts.load('400 32px VideoSans'),document.fonts.load('700 72px VideoSans')]);
+  if(faces.some(f=>f.length===0))throw Error('Required font missing');
+  await document.fonts.ready;
+})();
+function render(t){
+  if(!Number.isFinite(t)||t<0||t>meta.duration)throw Error('Invalid time');
+  violations=[];ctx.resetTransform();ctx.globalAlpha=1;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.scale(meta.width/1920,meta.height/1080);
+  const index=Math.min(2,meta.scenes.findIndex(s=>t>=s.start&&t<s.end)<0?2:meta.scenes.findIndex(s=>t>=s.start&&t<s.end));
+  background(t,index);
+  const local=t-meta.scenes[index].start;
+  const blend=index===0?1:p(local,0,.4);
+  if(index>0&&blend<1){ctx.save();ctx.globalAlpha=1-blend;draws[index-1](meta.scenes[index-1].end-meta.scenes[index-1].start);ctx.restore();}
+  ctx.save();ctx.globalAlpha=blend;draws[index](local);ctx.restore();
+}
+window.video={meta,ready,render,validate:()=>violations};
+ready.then(()=>render(0));
+</script></body></html>

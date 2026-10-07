@@ -27,6 +27,9 @@ research/
 _runtime/
 _private/
 
+# Owner-local personal skills — never commit or package
+/skills/ssh-host/
+
 # Runtime state
 *.log
 *.pid

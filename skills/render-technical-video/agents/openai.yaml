@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical Infographic Video"
+  short_description: "Render deterministic web graphics into video"
+  default_prompt: "Use $render-technical-video to create a technical infographic video with a deterministic timeline and inspect its frames."
