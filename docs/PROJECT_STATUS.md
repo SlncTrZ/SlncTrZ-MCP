@@ -5,21 +5,19 @@ Use runtime core.ping and the published GitHub release when making operational d
 
 ## Source, Release & Runtime Identity
 
-| Layer                        | Observed state                                                                          |
-| ---------------------------- | --------------------------------------------------------------------------------------- |
-| Source package               | 0.4.1; reviewed main baseline 358d14f77b680d2211eb57c1a0f2daf516989b33                  |
-| Follow-up source/docs        | Working-tree patches; not committed or included in the current tag                      |
-| Existing v0.4.0 tag          | Points to the baseline, before the uninstall/test/dependency follow-up                  |
-| Latest public stable release | [v0.3.7](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.3.7)                    |
-| Public v0.4.0 release        | Not found at snapshot time (GitHub release API 404)                                     |
-| Running gateway              | core.ping: 0.3.7, build 141a26ab43d7eda357ff2ab6ef1114641650853f                        |
-| Main CI baseline             | [37712521964](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37712521964): failure |
-| Release baseline             | [37712555541](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37712555541): failure |
+| Layer                        | Observed state                                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Source package               | 0.4.1; main 29419d6398d5b88ea6050fb404680dab8d416a5f; local HEAD matches GitHub main                                                  |
+| Working checkout             | Two untracked owner Windows diagnostic files; no tracked modifications before this docs update                                        |
+| Latest public stable release | [v0.4.1](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.1); published 2026-10-08 13:51 (+07), draft=false, prerelease=false |
+| Running gateway              | core.ping: 0.3.7, build 141a26ab43d7eda357ff2ab6ef1114641650853f                                                                      |
+| Exact-commit CI              | [37738890530](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37738890530): SUCCESS, all five jobs                                |
+| Exact-commit release         | [37739304058](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37739304058): SUCCESS, all thirteen jobs                            |
 
-The observed failures are OAuth legacy migration test timeout and Windows native uninstall.
-Local fixes/checks do not rewrite those hosted results. Source paths moved with the owner's
-workspace organization; release commands must use the current native repo path, never a
-hard-coded workstation mount.
+Current gateway-side source path: `/mnt/pc-dev/SlncTrZ/SlncTrZ-MCP`.
+Release commands must use the current native repo path, never a hard-coded workstation mount.
+Earlier OAuth migration timeout and Windows uninstall failures remain historical evidence;
+the worker correction and fresh exact-commit CI supersede their release-blocking status.
 
 ## Implemented Source Contract
 
@@ -45,11 +43,14 @@ gates passed. Native SEA smoke/identity and uninstall passed Linux 27/27 and Win
 The full dependency audit found zero vulnerabilities; inventory contains 209 packages,
 no UNKNOWN licenses. Direct benchmark success/failure isolation/cleanup passed all three hosts.
 
-[Current QA report](../QA_QC_REPORT_v0.4.1.md) records fingerprints, initial concurrent Linux
-timeouts, sequential reruns and the AI technical approval. Fresh hosted [CI 37733745830](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37733745830)
-failed Windows native uninstall although source tests and Linux native passed. A cmdlet-free pinned-parent worker correction passed the full local matrix, including Windows
-36/36 native uninstall; fresh hosted CI is pending. No v0.4.1 tag or candidate was published. Protected signing and exact public install/browser gates
-remain required after the Windows failure is fixed.
+[Current QA report](../QA_QC_REPORT_v0.4.1.md) preserves local fingerprints and earlier failures.
+The cmdlet-free pinned-parent worker correction is committed in 29419d6398d5b88ea6050fb404680dab8d416a5f.
+Fresh [CI](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37738890530) passed Node 22/24 source gates, Windows native security/runtime,
+license inventory and Linux performance baseline. The [release workflow](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37739304058)
+passed native builds/identity, multi-target aggregation, candidate publication, clean public
+Linux/Windows User Install, installed `/usage` browser acceptance and stable promotion.
+The stable release includes both native binaries, installer, manifest/signature and checksums.
+Local disposable-key artifacts in the QA report remain separate from published release bytes.
 
 ## Documentation Scope
 
@@ -62,13 +63,13 @@ are checked by docs:check, including skill documentation.
 The [documentation index](README.md) provides task-oriented navigation; [Engineering](../ENGINEERING.md)
 defines source/native verification, and [Release Acceptance](RELEASE_ACCEPTANCE.md) defines public gates.
 
-## Outstanding Release Gates
+## Remaining Operational Work
 
-1. Review/commit the fixes and refreshed docs, then obtain fresh hosted source-matrix/native results.
-2. Select an appropriate immutable candidate ref/version containing those fixes.
-3. Build both native targets from the exact ref and complete protected manifest signing/publication.
-4. Pass exact public Linux/Windows clean User Install and installed Usage browser acceptance.
-5. Verify deployment, real-client compatibility and independent signing custody separately where claimed.
+1. Upgrade the live gateway separately, with coherent state/config backup and post-restart identity checks.
+2. Verify named real-client compatibility and disposable-systemd-host acceptance where claimed.
+3. Record independent signing custody separately; successful protected publication does not certify it.
+4. Preserve or separately review the two untracked Windows diagnostic files.
 
-Local disposable-key binaries are not signed public candidates. The owner authorized conditional
-release after QA; commit/tag/publication evidence is pending execution. Gateway deployment is separate.
+Public v0.4.1 release gates are complete. Gateway deployment remains separate and is not
+claimed by source tests or successful publication. No full test rerun was performed for this
+documentation status reconciliation; hosted results above are the current exact-commit evidence.

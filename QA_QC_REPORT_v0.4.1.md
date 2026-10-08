@@ -1,10 +1,10 @@
 # QA/QC — SlncTrZ-MCP v0.4.1
 
-Status: LOCAL TECHNICAL QA REAPPROVED — fresh hosted/public release gates pending.
+Status: TECHNICAL QA APPROVED — exact-commit hosted CI and public stable release gates passed.
 
 Reviewed at: 2026-10-08T06:37:33Z. Worker-fix baseline: 358d14f77b680d2211eb57c1a0f2daf516989b33.
 Baseline: 554ba3c1014b54203a41c314eb13f3814c3bd6ef.
-Candidate: v0.4.1; existing v0.4.0 tag remains unchanged.
+Published stable: v0.4.1; existing v0.4.0 tag remains unchanged.
 Reviewer / QA approval: MeiLin (AI), under the owner's explicit conditional release instruction.
 This is a technical QA sign-off, not independent human signing-custody certification,
 a cryptographic Git signature or the publisher's Ed25519 manifest signature.
@@ -16,7 +16,7 @@ dependency lock patch, private benchmark state, docs contracts/navigation, embed
 and version/release consistency. Existing owner diagnostic files remain outside the release changeset.
 
 Hosted Windows uninstall was reproduced and corrected in the worker. Final local QA passed;
-fresh exact-commit hosted CI remains required before tagging.
+fresh exact-commit hosted CI subsequently passed before stable publication.
 
 ## Final Local Matrix
 
@@ -36,7 +36,7 @@ in [v0.4.0 follow-up QA](QA_QC_REPORT_v0.4.0.md); it was not rerun for this patc
 Two initial concurrent Linux runs timed out at the unchanged 5-second Owner Console test.
 The targeted test passed in 1.429 seconds, then both full Linux suites passed when run
 sequentially. This is consistent with gateway resource contention; no timeout/assertion
-change was made to hide the failure. Hosted isolated CI remains required.
+change was made to hide the failure. Subsequent isolated hosted CI passed.
 
 Full npm registry audit at 2026-10-08T06:37Z: 0 vulnerabilities, including dev/build.
 Lock-derived inventory: 209 packages, 0 UNKNOWN licenses. Reviewed license counts:
@@ -69,10 +69,10 @@ Build marker: 358d14f-v041-cmdlet-fix-local. These bytes are not the official pu
 ## QA Decision & Release Gates
 
 REAPPROVED by MeiLin (AI) after the full worker-fix local matrix passed on all three environments.
-Approved to commit and submit the correction to fresh hosted CI; tag/promotion remain conditional.
-Stable publication approval remains conditional on fresh exact-commit source/native CI,
-protected manifest signing, public Linux/Windows clean User Install and installed Usage
-browser acceptance. Any failing mandatory gate blocks promotion.
+The correction was committed/pushed as 29419d6398d5b88ea6050fb404680dab8d416a5f.
+Fresh exact-commit source/native CI and the protected release workflow passed, including
+public Linux/Windows clean User Install and installed Usage browser acceptance.
+Stable v0.4.1 was published after promotion gates passed. Future mandatory failures still block promotion.
 
 The native Windows preflight is not reported as PASS: local gh authentication is invalid
 and owner diagnostic files make the working checkout unclean. Automated release preflight
@@ -85,12 +85,17 @@ acceptance are not certified by this QA record.
 
 ## Publication State
 
-Source commit: 358d14f77b680d2211eb57c1a0f2daf516989b33, pushed to main.
-Hosted [CI 37733745830](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37733745830)
-passed source tests/static checks, Linux native, license and benchmark gates, but Windows native
-uninstall failed: normal/default retained executable, launcher and current.json after the wait.
-No release tag was pushed and no candidate was published. Local QA approval does not waive
-this mandatory failure. Hosted helper-phase diagnosis ran on a separate disposable branch; the selected fix is below.
+Published source commit: 29419d6398d5b88ea6050fb404680dab8d416a5f; GitHub main matches the local HEAD.
+[Exact-commit CI 37738890530](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37738890530): SUCCESS, all five jobs.
+[Standalone release 37739304058](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37739304058): SUCCESS, all thirteen jobs.
+[Stable v0.4.1](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.1) published 2026-10-08 13:51 (+07), not draft or prerelease.
+Native Linux/Windows builds and identity checks, release aggregation/publication, clean public
+User Install on both platforms, installed `/usage` browser acceptance and stable promotion passed.
+
+Earlier [CI 37733745830](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37733745830)
+failed Windows native uninstall on source 358d14f; no candidate was published at that stage.
+That failure is retained as historical evidence, superseded by the worker correction and green CI.
+Local fingerprints above identify disposable-key test artifacts, not the published release bytes.
 The running gateway remains v0.3.7/build 141a26ab43d7eda357ff2ab6ef1114641650853f;
 deployment is a separate action.
 
@@ -110,4 +115,4 @@ Final worker-fix source matrix passed Linux Node 22/24 and Windows Node 24, with
 739/724 pass counts and explicit skips above. Native SEA rebuild/smoke/identity passed;
 Windows uninstall expanded to 36/36 and Linux remained 27/27. Benchmark isolation cases
 passed again on all three environments. No assertion or runtime wait was relaxed to hide
-this failure. Fresh hosted CI and public release gates remain pending.
+this failure. Subsequent exact-commit hosted CI and public release gates passed as recorded above.
