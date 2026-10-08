@@ -22,6 +22,8 @@ Source CI exercises Linux Node 22/24 and Windows Node 24. Windows x64 is a publi
 
 The Windows SEA build in source CI generates a disposable Ed25519 verification key in memory and exports only its public key to the build process. These CI artifacts are never published and do not establish production publisher trust. Official standalone releases continue to use the configured production public key and the protected signing workflow described below.
 
+The Windows SEA build in source CI generates a disposable Ed25519 verification key in memory and exports only its public key to the build process. These CI artifacts are never published and do not establish production publisher trust. Official standalone releases continue to use the configured production public key and the protected signing workflow described below.
+
 ## Release assets
 
 A multi-target public release contains:
