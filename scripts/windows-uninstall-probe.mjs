@@ -82,6 +82,18 @@ source = source.replace(
     JSON.stringify(log) +
     ', "cmd-pid=" + child.pid + "\\nparent-pid=" + process.pid + "\\n", { flag: "a" });\n    child.unref();'
 );
+source = source.replace(
+  '  const encoded = Buffer.from(script, "utf16le").toString("base64");',
+  [
+    '  const workerCommand = \'"\' + powershell + \'" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand \' + Buffer.from(script, "utf16le").toString("base64");',
+    "  const launcher = [",
+    '    "$launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = " + powershellLiteral(workerCommand) + "; CurrentDirectory = " + powershellLiteral(dirname(handshakeRoot)) + " } -ErrorAction Stop",',
+    '    "if ($launch.ReturnValue -ne 0) { exit 1 }",',
+    '    "Wait-Process -Id $launch.ProcessId -ErrorAction SilentlyContinue"',
+    '  ].join("\\n");',
+    '  const encoded = Buffer.from(launcher, "utf16le").toString("base64");'
+  ].join("\n")
+);
 if (source === original || !source.includes("outer-error"))
   throw new Error("instrumentation failed");
 await writeFile(src, source);
@@ -125,6 +137,15 @@ try {
   console.log("HELPER_PHASES_BEGIN");
   console.log(await readFile(log, "utf8").catch(() => "NO_PHASES"));
   console.log("HELPER_PHASES_END");
+  const phases = await readFile(log, "utf8").catch(() => "");
+  for (const match of phases.matchAll(/(?:cmd|helper|parent)-pid=(\d+)/g)) {
+    const p = spawnSync(
+      join(process.env.SystemRoot, "System32", "tasklist.exe"),
+      ["/FI", "PID eq " + match[1], "/FO", "CSV", "/NH"],
+      { encoding: "utf8", timeout: 10000 }
+    );
+    console.log(JSON.stringify({ pid: match[1], snapshot: p.stdout.trim(), exitCode: p.status }));
+  }
 } finally {
   await writeFile(src, original);
   await rm(root, { recursive: true, force: true });
