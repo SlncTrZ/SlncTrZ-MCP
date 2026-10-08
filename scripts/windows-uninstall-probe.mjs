@@ -14,7 +14,17 @@ let source = original;
 const tick = String.fromCharCode(96);
 const parentLine =
   "    " + tick + "$parentPid=" + String.fromCharCode(36) + "{process.pid}" + tick + ",";
-source = source.replace(parentLine, parentLine + "\n    " + JSON.stringify(psLog("started")) + ",");
+source = source.replace(
+  parentLine,
+  parentLine +
+    "\n    " +
+    JSON.stringify(psLog("started")) +
+    ",\n    " +
+    JSON.stringify(
+      "[IO.File]::AppendAllText(" + literal + ", ('helper-pid=' + $PID + [Environment]::NewLine))"
+    ) +
+    ","
+);
 source = source.replace(
   '    "  $deadline = [DateTime]::UtcNow.AddSeconds(20)",',
   "    " +
@@ -68,7 +78,11 @@ await writeFile(src, source);
 await mkdir("_runtime", { recursive: true });
 const smoke = (await readFile("scripts/smoke-uninstall.mjs", "utf8"))
   .replace("of cases)", "of cases.slice(0, 1))")
-  .replace('["default", "remove-config", "purge"]', '["default"]');
+  .replace('["default", "remove-config", "purge"]', '["default"]')
+  .replace(
+    "env: {",
+    'env: { ...Object.fromEntries(["ComSpec","PATHEXT","SystemDrive","TEMP","TMP","USERPROFILE","APPDATA","LOCALAPPDATA","ProgramData","HOMEDRIVE","HOMEPATH"].flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]])),'
+  );
 await writeFile("_runtime/hosted-uninstall-first-case.mjs", smoke);
 try {
   const { publicKey } = generateKeyPairSync("ed25519");
@@ -97,6 +111,7 @@ try {
   console.log(
     JSON.stringify({ smokeExitCode: run.status, stdout: run.stdout, stderr: run.stderr })
   );
+  console.log("PROBE_SMOKE_ENV=" + (smoke.includes("ComSpec") ? "windows-system" : "minimal"));
   console.log("HELPER_PHASES_BEGIN");
   console.log(await readFile(log, "utf8").catch(() => "NO_PHASES"));
   console.log("HELPER_PHASES_END");
