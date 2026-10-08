@@ -21,13 +21,20 @@ source = source.replace(
     JSON.stringify(psLog("ready-written")) +
     ',\n    "  $deadline = [DateTime]::UtcNow.AddSeconds(20)",'
 );
+const waitLines = [
+  psLog("go-observed"),
+  "  $parent = $null",
+  "  try { $parent = [Diagnostics.Process]::GetProcessById($parentPid) } catch { }",
+  "  [IO.File]::AppendAllText(" +
+    literal +
+    ", ('parent-state: expected=' + $parentPid + '; helper=' + $PID + '; present=' + ($null -ne $parent) + [Environment]::NewLine))",
+  "  $exitDeadline = [DateTime]::UtcNow.AddSeconds(15)",
+  "  while ($null -ne $parent) { $parent.Refresh(); if ($parent.HasExited) { break }; if ([DateTime]::UtcNow -ge $exitDeadline) { throw 'parent_exit_timeout' }; Start-Sleep -Milliseconds 50 }",
+  psLog("parent-exited")
+];
 source = source.replace(
   '    "  Wait-Process -Id $parentPid -ErrorAction SilentlyContinue",',
-  "    " +
-    JSON.stringify(psLog("go-observed")) +
-    ',\n    "  Wait-Process -Id $parentPid -ErrorAction SilentlyContinue",\n    ' +
-    JSON.stringify(psLog("parent-exited")) +
-    ","
+  waitLines.map((line) => "    " + JSON.stringify(line) + ",").join("\n")
 );
 source = source.replace(
   '    "    catch { Start-Sleep -Milliseconds 250 }",',
