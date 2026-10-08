@@ -2,6 +2,40 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.4.0
+
+Date: 2026-10-08
+
+### Added
+
+- Choose Gateway-only at first OAuth consent, before any Full token is issued.
+- New Gateway-only grants stay connected until revoked: short access tokens, single-use rotating refresh tokens with no fixed/idle expiry, durable restart/offline recovery.
+- Usage dashboard charts and Owner connection ceiling controls.
+- Bundled repository reconnaissance, architectural planning, context slicing, invariant checking and technical-video skills.
+- Native OAuth connection guidance for OpenCode, Pi, Codex and Claude Code; Pi's native MCP client does not require a separate bridge.
+- Shorter README, task-oriented documentation index and a 60-second portrait introduction.
+- Durable lifecycle operation ledger with append-only storage, fsync, bounded sanitization and process-identity verification. Execution-controller integration remains future work.
+
+### Security / fixes
+
+- An immutable Gateway-only ceiling prevents Full promotion, including through Owner controls.
+- Reject overlapping or unsafe managed roots before install/uninstall mutation.
+- Preserve legacy roots during native uninstall and canonicalize Windows self-removal paths.
+- Gate native uninstall in Linux/Windows CI and guard unsupported Windows symlink creation in tests.
+- Include ESM scripts in the formatting gate.
+- Version bump now updates Deployment/Troubleshooting release-line markers and the README release-notes link.
+
+### Migration / rollback
+
+- OAuth grant database schema v3 preserves existing grants and finite lifetimes. Fresh Gateway-only consent adopts durable onboarding; old grants are not upgraded silently.
+- Take a coherent state/config backup before migration. Pre-v3 binaries reject schema v3; downgrading to them requires restoring pre-migration state/config, not just rolling back the binary.
+- Restart and refresh tool discovery after upgrading. Task Runtime state and context receipts remain in-memory.
+
+### Verification / promotion
+
+- This section records source preparation. Native SEA build/identity checks, protected signed publication, exact-candidate public Linux/Windows clean install and installed Usage browser acceptance remain required before stable promotion.
+- Named real-client and System Install claims require separate evidence; source QA alone does not certify them.
+
 ## 0.3.7
 
 Date: 2026-10-05
@@ -17,22 +51,6 @@ Date: 2026-10-05
 - Recover a rejected MCP HTTP session once instead of incorrectly leaving a running provider unavailable.
 - Keep invalid MCP arguments from restarting a healthy provider.
 - Guard Debate asynchronous selection and report Connections Apply failures.
-
-## Unreleased
-
-### Added
-
-- Choose Gateway-only at first OAuth consent, before any Full token is issued.
-- Gateway-only grants stay connected until revoked: short access tokens, single-use rotating refresh tokens with no fixed/idle expiry, durable restart/offline recovery.
-- An immutable Gateway-only ceiling prevents Full promotion, including through Owner controls.
-- Native OAuth connection guide for OpenCode, Pi, Codex and Claude Code; Pi no longer needs a separate bridge when using its native MCP client.
-- Shorter README, task-oriented documentation index and a 60-second portrait introduction.
-
-### Migration
-
-- OAuth grant database schema v3 preserves existing grants and finite lifetimes. One fresh Gateway-only consent adopts durable onboarding; old grants are not upgraded silently.
-- Take a coherent state/config backup before migration. Older binaries reject schema v3 and need pre-migration state for downgrade.
-- These are source changes pending installed-client and release acceptance.
 
 ## 0.3.6
 

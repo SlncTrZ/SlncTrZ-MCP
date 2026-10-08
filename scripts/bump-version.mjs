@@ -1,19 +1,22 @@
 /**
  * Bump Version — single entry point for a product version change.
- * Wing: ops | Topic: release-version | Updated: 2026-09-04
+ * Wing: ops | Topic: release-version | Updated: 2026-10-08 07:41
  *
  * Updates every version-bearing artifact in one command so nothing drifts:
  *   node scripts/bump-version.mjs <X.Y.Z[-rc.N]>
  *   (or: npm run bump -- 0.1.2)
  *
  * Touches package.json, package-lock.json and the current-release-line references
- * in RELEASE.md / README.md / PROVENANCE.md. The docs-contract drift gate
+ * in RELEASE.md / README.md / PROVENANCE.md / Deployment / Troubleshooting,
+ * plus the README release-notes link. Release notes and changelog entries still
+ * require maintainer-authored content. The docs-contract drift gate
  * (scripts/docs-check.mjs) re-verifies consistency after the change.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RELEASE_LINE_MARKER } from "./version.mjs";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const requested = process.argv[2];
@@ -32,6 +35,7 @@ async function writeJsonPretty(path, value) {
 // 1. package.json
 const pkgJsonPath = join(root, "package.json");
 const pkg = JSON.parse(await readFile(pkgJsonPath, "utf8"));
+const previousVersion = pkg.version;
 pkg.version = requested;
 await writeJsonPretty(pkgJsonPath, pkg);
 
@@ -57,11 +61,26 @@ await writeFile(changelogPath, nextChangelog, "utf8");
 // 4. Current-release-line references in the public docs.
 // Replace every `X.Y.x` release-line marker with the new line, so nothing drifts.
 // The docs-contract drift gate (docs-check.mjs) re-verifies only the current line remains.
-const docFiles = ["RELEASE.md", "README.md", "PROVENANCE.md"];
+const docFiles = [
+  "RELEASE.md",
+  "README.md",
+  "PROVENANCE.md",
+  "docs/DEPLOYMENT.md",
+  "docs/TROUBLESHOOTING.md"
+];
 for (const file of docFiles) {
   const filePath = join(root, file);
   let text = await readFile(filePath, "utf8");
-  text = text.replace(/\b[0-9]+\.[0-9]+\.x\b/gu, `${releaseLine}.x`);
+  text = text.replace(
+    RELEASE_LINE_MARKER,
+    (marker) => `${marker.startsWith("v") ? "v" : ""}${releaseLine}.x`
+  );
+  if (file === "README.md") {
+    text = text.replaceAll(
+      `docs/releases/v${previousVersion}.md`,
+      `docs/releases/v${requested}.md`
+    );
+  }
   await writeFile(filePath, text, "utf8");
 }
 

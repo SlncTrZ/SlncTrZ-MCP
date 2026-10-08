@@ -79,7 +79,7 @@ See [Security](SECURITY.md) and [Backup and Restore](docs/BACKUP_RESTORE.md).
 | Add MCP providers or custom skills    | [MCP Servers](MCP_SERVERS.md) · [Harness](docs/HARNESS.md)        |
 | Diagnose or update an installation    | [Troubleshooting](docs/TROUBLESHOOTING.md)                        |
 | Contribute or inspect the design      | [Contributing](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md) |
-| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.3.7.md)        |
+| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.0.md)        |
 | Browse all documentation              | [Documentation index](docs/README.md)                             |
 
 Linux x64 and Windows x64 are the standalone release targets. The new Gateway-only consent

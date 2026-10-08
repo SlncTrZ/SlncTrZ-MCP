@@ -1,6 +1,6 @@
 /**
  * Version Module — single source of truth for the product release version/line.
- * Wing: ops | Topic: release-version | Updated: 2026-09-04
+ * Wing: ops | Topic: release-version | Updated: 2026-10-08 07:41
  *
  * Every consumer (release gate, SEA build, docs-contract gate) derives the current
  * release version and line from `package.json` through this module, so a version
@@ -50,5 +50,5 @@ export async function readVersion() {
   return Object.freeze({ version, major, minor, patch, releaseLine, releaseLineRegex });
 }
 
-/** Match a `X.Y.x` release-line marker in documentation text. */
-export const RELEASE_LINE_MARKER = /\b([0-9]+)\.([0-9]+)\.x\b/gu;
+/** Match a `X.Y.x` or `vX.Y.x` release-line marker in documentation text. */
+export const RELEASE_LINE_MARKER = /\bv?([0-9]+)\.([0-9]+)\.x\b/gu;

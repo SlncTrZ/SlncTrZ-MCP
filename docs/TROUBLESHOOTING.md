@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Common issues and quick recovery steps for SlncTrZ-MCP (v0.3.x).
+Common issues and quick recovery steps for SlncTrZ-MCP (v0.4.x).
 
 ---
 

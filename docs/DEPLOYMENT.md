@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Deploying SlncTrZ-MCP (v0.3.x) on Linux and Windows.
+Deploying SlncTrZ-MCP (v0.4.x) on Linux and Windows.
 
 ---
 

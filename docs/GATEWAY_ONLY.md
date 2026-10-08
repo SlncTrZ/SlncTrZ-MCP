@@ -9,7 +9,7 @@ Restricted connection profile for clients that only require downstream MCP tools
 - Unlike Full connections (which expose file, bash, and coding tools), Gateway-only connections hide all coding and context surfaces.
 - Enforces an immutable permission ceiling: a Gateway-only token cannot widen itself to Full.
 - Refresh tokens remain active until revoked by the owner.
-- Part of the unreleased advanced profile roadmap.
+- Included in unreleased v0.4.0 source preparation; installed availability follows the published release status.
 
 ---
 

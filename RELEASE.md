@@ -5,7 +5,7 @@ use [README](README.md) or [User Guide](docs/USER_GUIDE.md).
 
 It defines release requirements; it does not certify that every external acceptance gate has passed.
 
-The active release line is **0.3.x**. Source history, package version, standalone binary identity, release manifest, and public tag must agree before publication.
+The active release line is **0.4.x**. Source history, package version, standalone binary identity, release manifest, and public tag must agree before publication.
 
 ## Supported publication target
 
@@ -16,7 +16,7 @@ linux-x64
 win32-x64
 ```
 
-Source CI exercises Linux Node 22/24 and Windows Node 24. Windows x64 is a public User Install target in the current 0.3.x line; Windows System Install/service mode is not yet supported. macOS remains outside the public standalone target set.
+Source CI exercises Linux Node 22/24 and Windows Node 24. Windows x64 is a public User Install target in the current 0.4.x line; Windows System Install/service mode is not yet supported. macOS remains outside the public standalone target set.
 
 The Windows SEA build in source CI generates a disposable Ed25519 verification key in memory and exports only its public key to the build process. These CI artifacts are never published and do not establish production publisher trust. Official standalone releases continue to use the configured production public key and the protected signing workflow described below.
 
@@ -38,7 +38,7 @@ The standalone binary is a self-contained Node SEA. End-user runtime does not re
 
 ### Windows signing policy
 
-The 0.3.x Windows distribution tier is allowed to publish an **unsigned** `slnctrz-mcp.exe` at the Authenticode layer. Release notes and troubleshooting must not imply Authenticode signing when it is absent.
+The 0.4.x Windows distribution tier is allowed to publish an **unsigned** `slnctrz-mcp.exe` at the Authenticode layer. Release notes and troubleshooting must not imply Authenticode signing when it is absent.
 
 The updater's mandatory publisher-authenticity contract is separate: the canonical `manifest.json` is signed with Ed25519, the release publishes `manifest.json.sig`, and every signing-enabled standalone binary embeds the trusted Ed25519 public key. Update/setup manifest retrieval verifies the signature **before** parsing or activating any artifact; the manifest's existing size + SHA-256 fields then bind the exact binary bytes.
 
