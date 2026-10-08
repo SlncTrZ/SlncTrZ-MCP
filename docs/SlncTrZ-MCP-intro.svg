@@ -97,75 +97,75 @@
   <!-- Top Bar -->
   <g class="text-base">
     <text x="100" y="85" font-size="22" font-weight="700" fill="#9eafc0" letter-spacing="2">SLNCTRZ / MCP</text>
-    <text x="1820" y="85" font-size="18" font-weight="700" fill="#64e2d5" text-anchor="end" letter-spacing="1.5">UNIVERSAL AI CAPABILITY GATEWAY</text>
+    <text x="1820" y="85" font-size="18" font-weight="700" fill="#64e2d5" text-anchor="end" letter-spacing="1.5">ĐƯA AI VÀO CÔNG VIỆC THẬT CỦA BẠN</text>
     <line x1="100" y1="115" x2="1820" y2="115" stroke="#293d55" stroke-width="2" />
   </g>
 
   <!-- Left Column: Storyboard Typography & Value Proposition -->
   <g class="text-base" transform="translate(100, 0)">
-    <!-- Sub-scene 1: Intro -->
+    <!-- Sub-scene 1: Thực tế -->
     <g class="scene-1">
-      <text x="0" y="230" font-size="22" font-weight="700" fill="#64e2d5" letter-spacing="2">SLNCTRZ-MCP CORE</text>
-      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">AI trò chuyện.</text>
-      <text x="0" y="415" font-size="64" font-weight="800" fill="#edf5fa">Máy của bạn.</text>
-      <text x="0" y="505" font-size="64" font-weight="800" fill="#64e2d5">Công việc thật.</text>
-      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Gateway tự host kết nối an toàn AI Client</text>
-      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">với mã nguồn, tệp tin và dòng lệnh thực tế.</text>
+      <text x="0" y="230" font-size="22" font-weight="700" fill="#64e2d5" letter-spacing="2">LÀM VIỆC THỰC TẾ</text>
+      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Đừng chỉ chat.</text>
+      <text x="0" y="415" font-size="64" font-weight="800" fill="#edf5fa">Hãy để AI</text>
+      <text x="0" y="505" font-size="64" font-weight="800" fill="#64e2d5">bắt tay vào làm.</text>
+      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Hết thời copy-paste qua lại giữa web và code.</text>
+      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">Kết nối thẳng AI vào thư mục dự án trên máy bạn.</text>
     </g>
 
-    <!-- Sub-scene 2: Architecture -->
+    <!-- Sub-scene 2: Tự động -->
     <g class="scene-2">
-      <text x="0" y="230" font-size="22" font-weight="700" fill="#64e2d5" letter-spacing="2">KIẾN TRÚC MỘT ĐIỂM KẾT NỐI</text>
-      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Nhiều MCP.</text>
-      <text x="0" y="415" font-size="64" font-weight="800" fill="#64e2d5">Một contract.</text>
-      <text x="0" y="505" font-size="64" font-weight="800" fill="#edf5fa">Gateway-Only.</text>
-      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Xác thực OAuth 1 lần, phân quyền chặt chẽ.</text>
-      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">Tự động định tuyến các provider chuyên biệt.</text>
+      <text x="0" y="230" font-size="22" font-weight="700" fill="#64e2d5" letter-spacing="2">GIAO VIỆC TỰ NHIÊN</text>
+      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Tự đọc code,</text>
+      <text x="0" y="415" font-size="64" font-weight="800" fill="#64e2d5">sửa file chuẩn xác.</text>
+      <text x="0" y="505" font-size="64" font-weight="800" fill="#edf5fa">Chạy thử tại chỗ.</text>
+      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Bạn chỉ cần giao việc bằng lời tự nhiên.</text>
+      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">AI tự tìm file, sửa code và kiểm tra kết quả ngay.</text>
     </g>
 
-    <!-- Sub-scene 3: Workspace Protection -->
+    <!-- Sub-scene 3: An toàn -->
     <g class="scene-3">
-      <text x="0" y="230" font-size="22" font-weight="700" fill="#ff977c" letter-spacing="2">KIỂM SOÁT TÁC TỬ LOCAL</text>
-      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Đọc code.</text>
-      <text x="0" y="415" font-size="64" font-weight="800" fill="#edf5fa">Sửa tệp tin.</text>
-      <text x="0" y="505" font-size="64" font-weight="800" fill="#ff977c">Bảo vệ SHA-256.</text>
-      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Không lo ghi đè mất mát nhờ hash-anchor.</text>
-      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">Thực thi lệnh an toàn trong sandbox workspace.</text>
+      <text x="0" y="230" font-size="22" font-weight="700" fill="#ff977c" letter-spacing="2">AN TÂM TUYỆT ĐỐI</text>
+      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Toàn quyền kiểm soát.</text>
+      <text x="0" y="415" font-size="64" font-weight="800" fill="#edf5fa">Dữ liệu không</text>
+      <text x="0" y="505" font-size="64" font-weight="800" fill="#ff977c">rời khỏi máy.</text>
+      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Chỉ truy cập đúng thư mục và lệnh bạn cho phép.</text>
+      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">Không gửi mã nguồn lên đám mây ngoài ý muốn.</text>
     </g>
 
-    <!-- Sub-scene 4: Multi-Agent Collaboration -->
+    <!-- Sub-scene 4: Mở rộng -->
     <g class="scene-4">
-      <text x="0" y="230" font-size="22" font-weight="700" fill="#38bdf8" letter-spacing="2">DEBATE & CỘNG TÁC TỰ HÀNH</text>
-      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Cùng phản biện.</text>
-      <text x="0" y="415" font-size="64" font-weight="800" fill="#38bdf8">Cùng làm việc.</text>
-      <text x="0" y="505" font-size="64" font-weight="800" fill="#edf5fa">Kiểm định độc lập.</text>
-      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Planner ➔ Reviewer ➔ Worker Model.</text>
-      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">Phối hợp mô hình lớn và nhỏ tối ưu hiệu năng.</text>
+      <text x="0" y="230" font-size="22" font-weight="700" fill="#38bdf8" letter-spacing="2">MỞ RỘNG DỄ DÀNG</text>
+      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Cắm là chạy.</text>
+      <text x="0" y="415" font-size="64" font-weight="800" fill="#38bdf8">Kết nối mọi</text>
+      <text x="0" y="505" font-size="64" font-weight="800" fill="#edf5fa">công cụ bạn có.</text>
+      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Một cổng duy nhất mở sang thiết kế CAD/3D,</text>
+      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">trí nhớ CyberBrain hay các công cụ cá nhân.</text>
     </g>
 
-    <!-- Sub-scene 5: Production Ready -->
+    <!-- Sub-scene 5: Phối hợp -->
     <g class="scene-5">
-      <text x="0" y="230" font-size="22" font-weight="700" fill="#64e2d5" letter-spacing="2">TIÊU CHUẨN SẢN XUẤT</text>
-      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Windows Native.</text>
-      <text x="0" y="415" font-size="64" font-weight="800" fill="#edf5fa">Linux Container.</text>
-      <text x="0" y="505" font-size="64" font-weight="800" fill="#64e2d5">Owner Console.</text>
-      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">Hỗ trợ đầy đủ Desktop GUI và Headless CLI.</text>
-      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">Mã nguồn mở tại github.com/SlncTrZ/SlncTrZ-MCP.</text>
+      <text x="0" y="230" font-size="22" font-weight="700" fill="#64e2d5" letter-spacing="2">LÀM VIỆC THEO NHÓM</text>
+      <text x="0" y="325" font-size="64" font-weight="800" fill="#edf5fa">Nhiều AI cùng làm.</text>
+      <text x="0" y="415" font-size="64" font-weight="800" fill="#edf5fa">Tự phản biện,</text>
+      <text x="0" y="505" font-size="64" font-weight="800" fill="#64e2d5">tránh làm ẩu.</text>
+      <text x="0" y="595" font-size="26" font-weight="400" fill="#9eafc0">AI lên kế hoạch ➔ AI phản biện soát lỗi ➔ AI thực thi.</text>
+      <text x="0" y="645" font-size="26" font-weight="400" fill="#9eafc0">Giảm thiểu tối đa sai sót và nhầm lẫn khi làm việc.</text>
     </g>
 
     <!-- Feature Pill Badges -->
     <g transform="translate(0, 720)">
       <rect x="0" y="0" width="180" height="42" rx="21" fill="#142237" stroke="#293d55" stroke-width="1.5" />
-      <text x="90" y="27" font-size="16" font-weight="600" fill="#64e2d5" text-anchor="middle">TypeScript 6.x</text>
+      <text x="90" y="27" font-size="16" font-weight="600" fill="#64e2d5" text-anchor="middle">Windows &amp; Linux</text>
 
       <rect x="195" y="0" width="180" height="42" rx="21" fill="#142237" stroke="#293d55" stroke-width="1.5" />
-      <text x="285" y="27" font-size="16" font-weight="600" fill="#38bdf8" text-anchor="middle">MCP 2.x Standard</text>
+      <text x="285" y="27" font-size="16" font-weight="600" fill="#38bdf8" text-anchor="middle">Cài đặt 1 phút</text>
 
       <rect x="390" y="0" width="180" height="42" rx="21" fill="#142237" stroke="#293d55" stroke-width="1.5" />
-      <text x="480" y="27" font-size="16" font-weight="600" fill="#edf5fa" text-anchor="middle">Apache-2.0</text>
+      <text x="480" y="27" font-size="16" font-weight="600" fill="#edf5fa" text-anchor="middle">Mã nguồn mở</text>
 
       <rect x="585" y="0" width="160" height="42" rx="21" fill="#142237" stroke="#293d55" stroke-width="1.5" />
-      <text x="665" y="27" font-size="16" font-weight="600" fill="#ff977c" text-anchor="middle">Local-First</text>
+      <text x="665" y="27" font-size="16" font-weight="600" fill="#ff977c" text-anchor="middle">Riêng tư 100%</text>
     </g>
   </g>
 
@@ -179,18 +179,18 @@
     <circle cx="36" cy="32" r="7" fill="#ff5f56" />
     <circle cx="58" cy="32" r="7" fill="#ffbd2e" />
     <circle cx="80" cy="32" r="7" fill="#27c93f" />
-    <text x="110" y="38" font-size="18" font-weight="700" fill="#9eafc0" letter-spacing="1">CONTROLLED CAPABILITY PIPELINE</text>
-    <rect x="740" y="18" width="150" height="28" rx="14" fill="#0b1726" stroke="#223b5c" stroke-width="1" />
-    <text x="815" y="37" font-size="14" font-weight="600" fill="#64e2d5" text-anchor="middle">POLICY ACTIVE</text>
+    <text x="110" y="38" font-size="18" font-weight="700" fill="#9eafc0" letter-spacing="1">TỪ Ý TƯỞNG ĐẾN KẾT QUẢ THẬT</text>
+    <rect x="730" y="18" width="160" height="28" rx="14" fill="#0b1726" stroke="#223b5c" stroke-width="1" />
+    <text x="810" y="37" font-size="14" font-weight="600" fill="#64e2d5" text-anchor="middle">SẴN SÀNG LÀM VIỆC</text>
     <line x1="0" y1="65" x2="920" y2="65" stroke="#223650" stroke-width="1.5" />
 
     <!-- Layer 1: AI Clients Box -->
     <g transform="translate(40, 95)">
       <rect x="0" y="0" width="840" height="105" rx="16" fill="#182b46" stroke="#2b476e" stroke-width="2" />
-      <text x="35" y="42" font-size="24" font-weight="700" fill="#edf5fa">AI Clients &amp; Agent Workspaces</text>
-      <text x="35" y="78" font-size="18" font-weight="400" fill="#9eafc0">OpenCode · Pi Assistant · Claude Code · Codex · Local Web Agents</text>
+      <text x="35" y="42" font-size="24" font-weight="700" fill="#edf5fa">Ứng dụng AI bạn yêu thích</text>
+      <text x="35" y="78" font-size="18" font-weight="400" fill="#9eafc0">ChatGPT trên web · Claude · Cursor · Pi Assistant · Coding Agents</text>
       <rect x="690" y="32" width="115" height="38" rx="8" fill="#102035" stroke="#38bdf8" stroke-width="1.5" />
-      <text x="747" y="56" font-size="15" font-weight="700" fill="#38bdf8" text-anchor="middle">CLIENT</text>
+      <text x="747" y="56" font-size="15" font-weight="700" fill="#38bdf8" text-anchor="middle">BẠN CHỌN</text>
     </g>
 
     <!-- Central Connecting Bus 1 -->
@@ -204,23 +204,23 @@
       
       <!-- Core Title & Sub -->
       <g transform="translate(35, 45)">
-        <text x="0" y="0" font-size="32" font-weight="800" fill="#64e2d5">SlncTrZ-MCP Gateway</text>
-        <text x="0" y="36" font-size="18" font-weight="400" fill="#edf5fa">Unified Authority Gatekeeper &amp; Pluggable Capability Broker</text>
+        <text x="0" y="0" font-size="32" font-weight="800" fill="#64e2d5">SlncTrZ-MCP — Trợ lý thực thi</text>
+        <text x="0" y="36" font-size="18" font-weight="400" fill="#edf5fa">Cầu nối thông minh: Bảo vệ máy tính · Điều phối công việc tự động</text>
       </g>
       
       <!-- Feature Pills inside Gateway Core -->
       <g transform="translate(35, 115)">
         <rect x="0" y="0" width="170" height="36" rx="8" fill="#0b1a2e" stroke="#214269" stroke-width="1" />
-        <text x="85" y="23" font-size="15" font-weight="600" fill="#64e2d5" text-anchor="middle">OAuth 2.0 Auth</text>
+        <text x="85" y="23" font-size="15" font-weight="600" fill="#64e2d5" text-anchor="middle">Cấp quyền an toàn</text>
 
         <rect x="185" y="0" width="200" height="36" rx="8" fill="#0b1a2e" stroke="#214269" stroke-width="1" />
-        <text x="285" y="23" font-size="15" font-weight="600" fill="#38bdf8" text-anchor="middle">Authority Guard</text>
+        <text x="285" y="23" font-size="15" font-weight="600" fill="#38bdf8" text-anchor="middle">Chống ghi đè lỗi</text>
 
         <rect x="400" y="0" width="180" height="36" rx="8" fill="#0b1a2e" stroke="#214269" stroke-width="1" />
-        <text x="490" y="23" font-size="15" font-weight="600" fill="#ff977c" text-anchor="middle">Atomic Mutations</text>
+        <text x="490" y="23" font-size="15" font-weight="600" fill="#ff977c" text-anchor="middle">Dữ liệu tại máy</text>
 
         <rect x="595" y="0" width="175" height="36" rx="8" fill="#0b1a2e" stroke="#214269" stroke-width="1" />
-        <text x="682" y="23" font-size="15" font-weight="600" fill="#9eafc0" text-anchor="middle">SHA-256 Verifier</text>
+        <text x="682" y="23" font-size="15" font-weight="600" fill="#9eafc0" text-anchor="middle">Cài 1 lần dùng mãi</text>
       </g>
     </g>
 
@@ -234,39 +234,39 @@
     <path d="M 460 520 L 460 545" fill="none" stroke="#293d55" stroke-width="2.5" />
     <path d="M 460 520 L 745 520 L 745 545" fill="none" stroke="#293d55" stroke-width="2.5" />
 
-    <!-- Layer 3: Providers & Target Systems -->
+    <!-- Layer 3: Capabilities & Output -->
     <g transform="translate(40, 545)">
-      <!-- Provider 1: Core System Capabilities -->
+      <!-- Card 1: Mã nguồn & File -->
       <g transform="translate(0, 0)">
         <rect x="0" y="0" width="265" height="145" rx="14" fill="#14263f" stroke="#243f66" stroke-width="2" />
         <rect x="18" y="16" width="44" height="28" rx="6" fill="#0d1b2d" stroke="#64e2d5" stroke-width="1" />
-        <text x="40" y="35" font-size="14" font-weight="700" fill="#64e2d5" text-anchor="middle">I/O</text>
-        <text x="72" y="36" font-size="18" font-weight="700" fill="#edf5fa">Machine Core</text>
-        <text x="18" y="75" font-size="15" font-weight="600" fill="#64e2d5">Filesystem &amp; Native</text>
-        <text x="18" y="102" font-size="14" font-weight="400" fill="#9eafc0">Safe disk ops, diff patch,</text>
-        <text x="18" y="124" font-size="14" font-weight="400" fill="#9eafc0">auditable shell commands</text>
+        <text x="40" y="35" font-size="14" font-weight="700" fill="#64e2d5" text-anchor="middle">CODE</text>
+        <text x="72" y="36" font-size="18" font-weight="700" fill="#edf5fa">Mã nguồn &amp; File</text>
+        <text x="18" y="75" font-size="15" font-weight="600" fill="#64e2d5">Đọc &amp; Sửa trực tiếp</text>
+        <text x="18" y="102" font-size="14" font-weight="400" fill="#9eafc0">Tìm file thông minh, sửa code</text>
+        <text x="18" y="124" font-size="14" font-weight="400" fill="#9eafc0">chuẩn xác, chạy lệnh test</text>
       </g>
 
-      <!-- Provider 2: CDT Engineering OS -->
+      <!-- Card 2: Phần mềm kỹ thuật -->
       <g transform="translate(285, 0)">
         <rect x="0" y="0" width="265" height="145" rx="14" fill="#14263f" stroke="#243f66" stroke-width="2" />
         <rect x="18" y="16" width="44" height="28" rx="6" fill="#0d1b2d" stroke="#ff977c" stroke-width="1" />
         <text x="40" y="35" font-size="14" font-weight="700" fill="#ff977c" text-anchor="middle">CAD</text>
-        <text x="72" y="36" font-size="18" font-weight="700" fill="#edf5fa">CDT Suite</text>
+        <text x="72" y="36" font-size="18" font-weight="700" fill="#edf5fa">Phần mềm kỹ thuật</text>
         <text x="18" y="75" font-size="15" font-weight="600" fill="#ff977c">AutoCAD · SolidWorks</text>
         <text x="18" y="102" font-size="14" font-weight="400" fill="#9eafc0">SketchUp, Blender, KiCad</text>
-        <text x="18" y="124" font-size="14" font-weight="400" fill="#9eafc0">via Managed .NET &amp; COM</text>
+        <text x="18" y="124" font-size="14" font-weight="400" fill="#9eafc0">tự động vẽ và tạo mô hình</text>
       </g>
 
-      <!-- Provider 3: CyberBrain Memory -->
+      <!-- Card 3: Bộ nhớ & Công cụ riêng -->
       <g transform="translate(570, 0)">
         <rect x="0" y="0" width="270" height="145" rx="14" fill="#14263f" stroke="#243f66" stroke-width="2" />
         <rect x="18" y="16" width="44" height="28" rx="6" fill="#0d1b2d" stroke="#38bdf8" stroke-width="1" />
         <text x="40" y="35" font-size="14" font-weight="700" fill="#38bdf8" text-anchor="middle">AI</text>
-        <text x="72" y="36" font-size="18" font-weight="700" fill="#edf5fa">CyberBrain</text>
-        <text x="18" y="75" font-size="15" font-weight="600" fill="#38bdf8">Episodic &amp; Knowledge</text>
-        <text x="18" y="102" font-size="14" font-weight="400" fill="#9eafc0">Qdrant Schema V2,</text>
-        <text x="18" y="124" font-size="14" font-weight="400" fill="#9eafc0">Dreaming Engine &amp; Recall</text>
+        <text x="72" y="36" font-size="18" font-weight="700" fill="#edf5fa">Trí nhớ &amp; Mở rộng</text>
+        <text x="18" y="75" font-size="15" font-weight="600" fill="#38bdf8">CyberBrain Memory</text>
+        <text x="18" y="102" font-size="14" font-weight="400" fill="#9eafc0">Lưu nhớ thói quen làm việc,</text>
+        <text x="18" y="124" font-size="14" font-weight="400" fill="#9eafc0">kết nối script và API riêng</text>
       </g>
     </g>
   </g>
@@ -275,7 +275,7 @@
   <g class="text-base">
     <line x1="100" y1="970" x2="1820" y2="970" stroke="#293d55" stroke-width="2" />
     <rect x="100" y="968" height="4" rx="2" fill="#64e2d5" class="timeline-bar" filter="url(#cyanGlow)" />
-    <text x="100" y="1015" font-size="20" font-weight="700" fill="#9eafc0" letter-spacing="1">AI → CÔNG VIỆC THẬT  |  LOCAL-FIRST CAPABILITY GATEWAY</text>
+    <text x="100" y="1015" font-size="20" font-weight="700" fill="#9eafc0" letter-spacing="1">SLNCTRZ-MCP  |  CẦU NỐI AI VÀ MÁY TÍNH CỦA BẠN</text>
     <text x="1820" y="1015" font-size="20" font-weight="700" fill="#64e2d5" text-anchor="end" class="mono">github.com/SlncTrZ/SlncTrZ-MCP</text>
   </g>
 </svg>
