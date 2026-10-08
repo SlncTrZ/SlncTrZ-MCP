@@ -110,6 +110,13 @@ source = source.replace(
     '  const encoded = Buffer.from(launcher, "utf16le").toString("base64");'
   ].join("\n")
 );
+source = source
+  .replace(
+    /    join\(systemRoot, "System32", "cmd.exe"\),[\s\S]*?\n    \],/u,
+    '    powershell,\n    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],'
+  )
+  .replace("      detached: true,", "      detached: false,")
+  .replace("      windowsVerbatimArguments: true,", "      windowsVerbatimArguments: false,");
 if (source === original || !source.includes("outer-error"))
   throw new Error("instrumentation failed");
 await writeFile(src, source);
