@@ -38,17 +38,18 @@ from license/provenance review.
 
 ## Development/build dependency snapshot
 
-| Package               | Locked version | License    | Purpose                 |
-| --------------------- | -------------: | ---------- | ----------------------- |
-| `typescript`          |          6.0.3 | Apache-2.0 | compiler/typechecking   |
-| `@types/node`         |         26.3.0 | MIT        | Node type definitions   |
-| `vitest`              |         4.1.11 | MIT        | unit/conformance tests  |
-| `@vitest/coverage-v8` |         4.1.11 | MIT        | coverage                |
-| `eslint`              |         10.9.1 | MIT        | lint                    |
-| `typescript-eslint`   |         8.68.0 | MIT        | TypeScript lint rules   |
-| `prettier`            |          3.9.6 | MIT        | formatting              |
-| `esbuild`             |         0.28.2 | MIT        | standalone bundle       |
-| `postject`            |  1.0.0-alpha.6 | MIT        | Node SEA blob injection |
+| Package               | Locked version | License      | Purpose                                              |
+| --------------------- | -------------: | ------------ | ---------------------------------------------------- |
+| `typescript`          |          6.0.3 | Apache-2.0   | compiler/typechecking                                |
+| `@types/node`         |         26.3.0 | MIT          | Node type definitions                                |
+| `vitest`              |         4.1.11 | MIT          | unit/conformance tests                               |
+| `@vitest/coverage-v8` |         4.1.11 | MIT          | coverage                                             |
+| `eslint`              |         10.9.1 | MIT          | lint                                                 |
+| `typescript-eslint`   |         8.68.0 | MIT          | TypeScript lint rules                                |
+| `prettier`            |          3.9.6 | MIT          | formatting                                           |
+| `esbuild`             |         0.28.2 | MIT          | standalone bundle                                    |
+| `source-map-js`       |          1.2.2 | BSD-3-Clause | transitive dev sourcemaps; GHSA-68fv-2mgg-jv7q patch |
+| `postject`            |  1.0.0-alpha.6 | MIT          | Node SEA blob injection                              |
 
 Versions above are documentation snapshots. The lockfile + generated CI inventory are authoritative for a particular commit.
 
@@ -60,6 +61,8 @@ Before a public release:
 
 - locked dependencies must be installed;
 - production dependency audit must pass according to release policy;
+- inspect the full dev/build audit too; source-map-js was locked to 1.2.2 after a High advisory;
+- record audit timestamp/registry because zero findings is a point-in-time result;
 - dependency/license inventory must be reviewed;
 - new NOTICE/copyright obligations must be added when required.
 

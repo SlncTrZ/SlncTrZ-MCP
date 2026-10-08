@@ -79,12 +79,13 @@ See [Security](SECURITY.md) and [Backup and Restore](docs/BACKUP_RESTORE.md).
 | Add MCP providers or custom skills    | [MCP Servers](MCP_SERVERS.md) · [Harness](docs/HARNESS.md)        |
 | Diagnose or update an installation    | [Troubleshooting](docs/TROUBLESHOOTING.md)                        |
 | Contribute or inspect the design      | [Contributing](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md) |
-| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.0.md)        |
+| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.1.md)        |
 | Browse all documentation              | [Documentation index](docs/README.md)                             |
 
 Linux x64 and Windows x64 are the standalone release targets. The new Gateway-only consent
-flow is currently an unreleased source change; check the [changelog](CHANGELOG.md) and
-published release before expecting it in an installed binary.
+flow is currently an unreleased source change. Source version 0.4.1, a public release and the
+running gateway can differ; see [Project Status](docs/PROJECT_STATUS.md),
+[QA evidence](QA_QC_REPORT_v0.4.1.md) and the published release before expecting new behavior.
 
 ## Development
 

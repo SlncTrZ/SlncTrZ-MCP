@@ -4,6 +4,8 @@ This guide is for maintainers building and publishing releases. For installing/u
 use [README](README.md) or [User Guide](docs/USER_GUIDE.md).
 
 It defines release requirements; it does not certify that every external acceptance gate has passed.
+See [Project Status](docs/PROJECT_STATUS.md) and [QA report](QA_QC_REPORT_v0.4.1.md) for dated
+source/native evidence and outstanding release gates.
 
 The active release line is **0.4.x**. Source history, package version, standalone binary identity, release manifest, and public tag must agree before publication.
 
@@ -82,6 +84,9 @@ The bundle, SEA configuration, preparation blob, and signing private key are nev
 npm run docs:check
 npm run check
 npm run build
+npm audit --omit=dev
+npm audit
+npm run provenance:inventory -- --out /tmp/slnctrz-dependencies.json
 
 cd dist/standalone/linux-x64
 sha256sum --check SHA256SUMS
@@ -91,8 +96,15 @@ sha256sum --check SHA256SUMS
 cd ../../..
 
 npm run smoke:sea:linux-x64
+node scripts/smoke-uninstall.mjs linux-x64
 npm run release:gate -- dist/standalone/linux-x64
 ```
+
+Run equivalent commands on native Windows with win32-x64. Native uninstall checks all
+three retention modes, quoted paths and, on Windows, minimal shell PATH and cwd inside the
+install root. Deferred Windows removal must finish after process exit; a helper startup
+acknowledgement alone is not removal completion. Source regression tests cover startup
+failure preserving all managed files. Never run these fixtures against a real customer install.
 
 For an official build, `--build-info` must contain a non-`unknown` commit matching the release commit.
 
@@ -134,6 +146,13 @@ repository with push permission, and `docs/releases/v<version>.md` exists. Run r
 using native paths for the platform executing them; do not assume a contributor shares the
 maintainer's mounted development tree.
 
+Automated maintainers may perform the equivalent preflight from an isolated clean checkout:
+main branch, exact HEAD = remote main, supported Node, tag-specific notes, authenticated
+GitHub repository push permission and usable Git SSH transport. An authenticated GitHub
+connector may supply the API permission check when the workstation's gh credential is
+unusable. Record those checks separately; do not mark the native Windows script as passed.
+This alternative does not change the protected signing Environment or public acceptance gates.
+
 ### Quality
 
 Node 22 and Node 24:
@@ -142,7 +161,7 @@ Node 22 and Node 24:
 - `npm run check`;
 - `npm run docs:check`;
 - developer build;
-- production dependency audit.
+- production dependency audit and review of full dev/build audit/license inventory.
 
 ### Build/verify
 
@@ -304,7 +323,11 @@ Release acceptance for update/rollback requires:
 - installed/running identity = A;
 - state remains compatible/preserved.
 
-A future state migration must explicitly define rollback compatibility. Never silently roll an incompatible state schema backwards.
+OAuth schema v1/v2 migrates to v3 in v0.4.0. Existing finite grants remain finite; fresh
+Gateway-only consent adopts the new durable policy. Pre-v3 binaries reject schema v3:
+rollback to v0.3.7 therefore requires restoring coherent pre-migration state/config while
+stopped. Binary-only rollback is insufficient. Never silently downgrade a live schema.
+See [Backup and Restore](docs/BACKUP_RESTORE.md).
 
 ## Doctor/repair fault injection
 
@@ -351,7 +374,7 @@ OAuth connect/owner approval
 tool discovery
 core.ping
 read/search
-write/edit preview + apply
+write/edit with explicit dryRun:true preview, then authorized apply
 core.exec per policy
 gateway restart/reconnect behavior
 MCP provider discovery/invocation
@@ -395,7 +418,9 @@ Every public release should state:
 
 ## Final release blocking rule
 
-A green unit suite is necessary but not sufficient.
+A green unit suite is necessary but not sufficient. Fixes made after a failed tag must be
+reviewed/committed and tested under a new appropriate candidate ref/version; do not move
+immutable published tags or describe an old tag as containing working-tree patches.
 
 General-user release readiness remains blocked when critical evidence required by the claimed support level is missing. Narrow the support claim rather than silently waiving:
 

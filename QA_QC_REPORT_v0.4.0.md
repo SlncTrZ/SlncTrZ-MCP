@@ -1,9 +1,15 @@
 # Báo Cáo QA/QC Đợt Cuối Trước Release v0.4.0
 
+Current follow-up: [v0.4.1 QA](QA_QC_REPORT_v0.4.1.md) records benchmark isolation remediation
+and the new release review. The evidence below retains its original snapshot.
+
 **Dự án:** SlncTrZ-MCP Gateway  
 **Môi trường kiểm thử:** Windows x64 (Node.js 22.x, Vitest 4.1.11, TypeScript 6.0.3)  
 **Thời gian thực hiện:** 2026-10-08  
-**Trạng thái kết luận:** ĐẠT YÊU CẦU RELEASE (PASSED - READY FOR RELEASE)
+**Trạng thái kết luận:** SOURCE QA PASSED — CHƯA ĐỦ BẰNG CHỨNG RELEASE STABLE
+
+> Các mục 1–4 ghi lại source QA trước khi bump version, tại commit báo cáo 6055dfd.
+> Kết quả này không chứng nhận artifact công khai. Xem phụ lục xác minh release bên dưới.
 
 ---
 
@@ -122,4 +128,161 @@ All matched files use Prettier code style!
 
 1. **Tính Ổn Định:** Toàn bộ các phân hệ chính (OAuth 2.1, Ranh giới Filesystem, Task Runner, Provider Supervisor, Owner Dashboard, Standalone Layout và Lifecycle Ledger) hoạt động chính xác theo đặc tả.
 2. **Khắc Phục Hoàn Tất:** Toàn bộ khiếm khuyết được phát hiện đã được khắc phục trực tiếp trong mã nguồn và tài liệu, có commit định danh rõ ràng.
-3. **Mức Độ Sẵn Sàng:** Kho lưu trữ `H:\Develop\SlncTrZ-MCP` đạt trạng thái ổn định tuyệt đối, đáp ứng đầy đủ tiêu chí chấp thuận phát hành (Release Acceptance) cho bản v0.4.0.
+3. **Mức Độ Sẵn Sàng:** Kho nguồn vượt qua các kiểm tra source QA được ghi nhận ở mục 3. Release Acceptance còn yêu cầu native artifact, signing và các cổng public installed-artifact tại RELEASE.md; kết quả source QA không thay thế các bằng chứng này.
+
+---
+
+## 5. Kiểm chứng findings và điều kiện release — 2026-10-08
+
+Kiểm chứng tại kho đã chuyển sang `H:\Develop\SlncTrZ\SlncTrZ-MCP`
+(gateway: `/mnt/pc-dev/SlncTrZ/SlncTrZ-MCP`). Baseline là
+`554ba3c1014b54203a41c314eb13f3814c3bd6ef`; các bản vá dưới đây còn ở working tree,
+chưa commit, push, thay tag hoặc deploy.
+
+### 5.1. Findings đã xử lý
+
+| Finding                                                                 | Bản vá và bằng chứng                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows uninstall báo đã schedule nhưng helper chưa khởi tạo thành công | Dùng đường dẫn tuyệt đối tới CMD/PowerShell, cwd bên ngoài thư mục bị xóa, handshake ready/go có thời hạn; lỗi khởi động trả lỗi và giữ nguyên dữ liệu. Native baseline tái hiện lỗi khi PATH thiếu PowerShell. Nguyên nhân chính xác trên GitHub hosted runner chưa được chứng minh. |
+| Thiếu coverage cho startup failure và môi trường uninstall              | Thêm ba regression test giữ nguyên file khi spawn lỗi, helper thoát sớm hoặc không xác nhận ready. Native smoke thêm PATH tối giản, cwd trong install root và đường dẫn chứa ký tự đặc biệt; đợi tất cả mục cần xóa hoàn tất.                                                         |
+| OAuth legacy migration vượt timeout 5 giây trên Windows CI              | Seed SQLite fixture trong một transaction; timeout riêng Windows 15 giây, giữ nguyên assertions migration. Không đổi production OAuth logic.                                                                                                                                          |
+| source-map-js 1.2.1 có advisory High trong dependency phát triển        | Lock riêng dependency bắc cầu lên 1.2.2, theo GHSA-68fv-2mgg-jv7q. Cài lại từ lockfile và audit đầy đủ trên hai nền tảng: 0 vulnerabilities.                                                                                                                                          |
+| Báo cáo source QA bị hiểu như chứng nhận stable release                 | Thu hẹp trạng thái báo cáo và ghi riêng các cổng release còn thiếu ở mục 5.3.                                                                                                                                                                                                         |
+
+### 5.2. Kết quả kiểm chứng tại máy
+
+| Cổng kiểm chứng                                               | Windows x64                  | Linux x64                      |
+| ------------------------------------------------------------- | ---------------------------- | ------------------------------ |
+| Node cho kiểm chứng                                           | 24.21.0                      | 24.19.0                        |
+| Typecheck, lint, format, test sau cài lại lockfile            | PASS; 724 passed, 25 skipped | PASS; 739 passed, 10 skipped   |
+| Test files                                                    | 100 passed, 1 skipped        | 100 passed, 1 skipped          |
+| Docs check                                                    | PASS, version 0.4.0          | PASS, version 0.4.0            |
+| Build TypeScript                                              | PASS                         | PASS trước bản vá lockfile dev |
+| Native SEA build, coding harness smoke, release identity gate | PASS                         | PASS                           |
+| Native uninstall matrix                                       | 33/33 PASS                   | 27/27 PASS                     |
+| npm audit đầy đủ sau bản vá lockfile                          | 0 vulnerabilities            | 0 vulnerabilities              |
+
+Linux kiểm chứng trong checkout tạm độc lập để không thay dependency Windows trong
+kho dùng chung. Các SEA được build từ mã nguồn đã vá trước thay đổi lockfile chỉ dành
+cho dev; dùng public verification key dùng một lần và release URL example.invalid.
+Đây là artifact kiểm chứng tại máy, chưa phải artifact release đã ký và công bố.
+
+| Artifact kiểm chứng          | Build identity             | SHA-256                                                          |
+| ---------------------------- | -------------------------- | ---------------------------------------------------------------- |
+| win32-x64, 95,640,576 bytes  | 554ba3c-native-repro       | eb31f7b9dc8b4fab64e1637e3163a049e4ebea0688ac5ccc068933d4a02b0870 |
+| linux-x64, 127,995,072 bytes | 554ba3c-local-verification | eea5dcfe6183f65be2a3baf69543be17b69621a32a4722e66994bbe42c330ab4 |
+
+### 5.3. Các điều kiện release chưa hoàn tất
+
+- Main CI [run 37712521964](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37712521964)
+  ghi nhận failure ở OAuth legacy migration; chưa có CI chạy bản vá working tree.
+- Release [run 37712555541](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37712555541)
+  ghi nhận failure Windows native uninstall. Signing/publish và các cổng phụ thuộc
+  chưa hoàn tất; cần kiểm chứng lại trên hosted runner.
+- Tag `v0.4.0` hiện trỏ về baseline 554ba3c, chưa chứa bản vá. Cần chọn cách
+  phát hành phù hợp trước khi tạo release candidate mới; báo cáo này không thay tag.
+- Chưa có public release v0.4.0 tại thời điểm kiểm tra; public release mới nhất là
+  v0.3.7. Gateway đang chạy v0.3.7, chưa được nâng cấp.
+- Còn cần signed public candidate, clean-install acceptance trên Windows/Linux,
+  kiểm chứng `/usage` theo RELEASE.md và promotion gate.
+
+**Kết luận hiện tại:** Source QA và các native checks tại máy PASS; chưa đủ bằng
+chứng để xác nhận stable release v0.4.0.
+
+---
+
+## 6. Đồng bộ docs và kiểm chuẩn đầy đủ — 2026-10-08
+
+### 6.1. Phạm vi và kết quả rà tài liệu
+
+Rà 77 tài liệu Markdown (76 đã tracked và 1 tài liệu trạng thái mới); cập nhật 32
+tài liệu hiện hành (tính cả báo cáo này và docs/PROJECT_STATUS.md). ADR/release notes cũ
+được giữ như bằng chứng lịch sử; bổ sung current-contract note cho OAuth v3 ở ADR-011/012.
+
+- Sửa CLI start/stop không tồn tại, hướng dẫn launcher/systemd, backup và uninstall retention.
+- Đồng bộ state/config layout, hash/token metadata, giới hạn context, Full/Gateway-only và rollback schema.
+- Phân biệt hai skill embedded/seed mặc định với các skill chỉ có trong repo.
+- Làm rõ STDIO/HTTP, protocol server/discover, provider authority/recovery và credential rotation.
+- Sửa claim ký SEA thành Ed25519 ký manifest, với size/SHA-256 ràng buộc binary.
+- Ghi đúng lifecycle ledger chưa wired, giới hạn shutdown và telemetry.
+- Đồng bộ roadmap, dependency provenance, release gates và source/public/running identities.
+- Mở rộng docs:check tới tài liệu skills và self-anchor; chặn lệnh CLI tưởng tượng,
+  chấp nhận line wrapping mà vẫn kiểm tra required text.
+
+### 6.2. Ma trận chạy lại sau đồng bộ docs
+
+| Cổng                                      | Windows x64            | Linux x64 Node 24      | Linux x64 Node 22                             |
+| ----------------------------------------- | ---------------------- | ---------------------- | --------------------------------------------- |
+| Runtime                                   | 24.21.0                | 24.19.0                | 22.23.3                                       |
+| Full check: typecheck/lint/format/tests   | PASS                   | PASS                   | PASS                                          |
+| Test cases                                | 724 passed, 25 skipped | 739 passed, 10 skipped | 739 passed, 10 skipped                        |
+| Test files                                | 100 passed, 1 skipped  | 100 passed, 1 skipped  | 100 passed, 1 skipped                         |
+| Docs contract                             | PASS                   | PASS                   | PASS                                          |
+| Developer build                           | PASS                   | PASS                   | PASS                                          |
+| Full npm audit                            | 0 vulnerabilities      | 0 vulnerabilities      | 0 vulnerabilities                             |
+| License inventory                         | 209 entries, 0 UNKNOWN | 209 entries, 0 UNKNOWN | 209 entries, 0 UNKNOWN                        |
+| Harness benchmark                         | PASS                   | PASS                   | PASS                                          |
+| Native SEA rebuild                        | PASS                   | PASS                   | Không phải SEA build target trong ma trận này |
+| Native gateway/assets/OAuth/harness smoke | PASS                   | PASS                   | Source conformance trong full suite           |
+| Native uninstall                          | 33/33 PASS             | 27/27 PASS             | Không chạy SEA uninstall                      |
+| Native identity/hash gate                 | PASS                   | PASS                   | Không chạy SEA identity                       |
+| Optional image-path conformance           | 5/5 PASS               | 5/5 PASS               | Fixture image tests trong full suite          |
+
+Các skip theo platform/test điều kiện được ghi riêng, không được tính là PASS. Optional
+SLNCTRZ_IMAGE_SMOKE_PATH đã được bật thêm trên Windows/Linux Node 24 với ảnh intro thuộc repo;
+test transport/read đạt 5/5 trên mỗi máy. Kết quả này không chứng minh model perception,
+attachment display hay installed public-artifact image acceptance.
+
+Linux chạy trong checkout/dependency tách biệt để không thay node_modules Windows trên
+repo dùng chung. Node 22.23.3 được tải từ nodejs.org và kiểm tra SHA-256 theo SHASUMS256.txt.
+
+Hai SEA đã rebuild vì Model Guide được nhúng trong binary. Dùng verification public key
+dùng một lần, example.invalid URL và build marker local; không dùng private signing key
+production và không publish. Fingerprinting mới:
+
+| Target    | Build marker               |     Bytes | SHA-256                                                          |
+| --------- | -------------------------- | --------: | ---------------------------------------------------------------- |
+| win32-x64 | 554ba3c-docs-refresh-local |  95642112 | d75dc4fde9decba154fc489b3aa1a4e40e261f82a1132f12a8dd9726b4738945 |
+| linux-x64 | 554ba3c-docs-refresh-local | 127995072 | d58a05cf338214533df5e8dc897dae6516c7d300bf127a9ac0642dfd47d0a838 |
+
+SHA-256 Model Guide nguồn đã đối chiếu trên ba checkout:
+a4187d90b4c56cff952a79d68dbc7184c72f448a4f18b2362f0f47af5204f496.
+Build marker là định danh kiểm chứng local, không phải một commit đã tồn tại.
+
+### 6.3. Latency / Scalability tại máy
+
+Harness fixture: 128 skills, 30 preflight tuần tự; concurrency 8, 64 requests.
+
+| Nền tảng        | Sequential p95 (ms) | Concurrent p95 (ms) | Requests/s |
+| --------------- | ------------------: | ------------------: | ---------: |
+| Windows Node 24 |               27.91 |               26.12 |     337.22 |
+| Linux Node 24   |              110.87 |               72.83 |     135.90 |
+| Linux Node 22   |               81.28 |               61.92 |     151.40 |
+
+Đây là số đo fixture tại máy, không phải SLO, dispatch Latency của CAD provider hay chứng
+nhận production capacity. Không suy diễn so sánh hiệu năng OS từ các lần đo khác tải/máy.
+
+Cold-start Linux Node 24: warmup 1, samples 5; CLI help p95 633.41 ms, gateway readiness
+p95 810.29 ms. Loopback MCP protocol ping: 100 samples, p50 5.75 ms, p95 7.58 ms.
+Field authenticatedCorePing trong benchmark JSON hiện gọi protocol method ping, không
+phải tools/call core.ping; không dùng nó như số đo tool-dispatch overhead.
+
+**Finding còn mở trong benchmark gốc:** scripts/benchmark.mjs dựng child environment
+không chỉ định stateRoot, nên gateway child có thể dùng state/policy/providers thật của
+tài khoản. Lượt kiểm chứng Linux ban đầu đã dừng trước benchmark; số đo trên chạy bằng
+bản sao fixture tạm có explicit private stateRoot và cleanup. Không sửa source benchmark
+trong phạm vi docs này. ENGINEERING.md giới hạn script gốc vào disposable account.
+Full source tests/native gates không phụ thuộc bản sao benchmark này.
+
+### 6.4. Release và deployment
+
+GitHub API được đối chiếu lại trong lượt này: public latest vẫn v0.3.7, public v0.4.0 trả
+404, hai hosted runs ở mục 5.3 vẫn failure trên baseline 554ba3c.
+core.ping của gateway đang phục vụ vẫn v0.3.7, build
+141a26ab43d7eda357ff2ab6ef1114641650853f.
+
+**Đã hoàn tất:** đồng bộ docs hiện hành, full supported source matrix, native trial gateway,
+OAuth/harness, uninstall/identity và audit tại máy.
+**Còn:** harden benchmark gốc nếu cần chạy trên tài khoản có installation; commit/review,
+hosted CI trên ref có bản vá, ký/public candidate, clean public install/Usage browser acceptance
+và các claim System Install/real-client/signing custody tương ứng. Chưa commit/push/tag/deploy.

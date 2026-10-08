@@ -1,5 +1,5 @@
 /** Installed product status, diagnostics, configuration, update, recovery and uninstall.
- * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-07 23:02
+ * Wing: standalone | Topic: coding-harness-integration | Updated: 2026-10-08 11:43
  */
 
 import { ensureHarnessLayout } from "../context/provisioning.js";
@@ -12,6 +12,7 @@ import {
   copyFile,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   realpath,
@@ -22,7 +23,8 @@ import {
   writeFile
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { readRuntimeConfig } from "../app/config.js";
 import { compileCommandCatalog, parseCommandAllowlist } from "../kernel/command-catalog.js";
 import { loadPolicyDocument } from "../policy/policy-config.js";
@@ -1268,42 +1270,88 @@ async function existingRemovalTargets(
 }
 
 async function scheduleWindowsInstallRootRemoval(targets: readonly string[]): Promise<void> {
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  if (!systemRoot || !isAbsolute(systemRoot) || /["\r\n]/u.test(systemRoot))
+    throw new Error("windows_uninstall_helper_failed");
+  const powershell = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const handshakeRoot = await mkdtemp(join(tmpdir(), "slnctrz-uninstall-"));
+  const readyFile = join(handshakeRoot, "ready");
+  const goFile = join(handshakeRoot, "go");
+  // Detached Windows PowerShell does not reliably inherit redirected stdio. Use bounded
+  // startup markers; without parent acknowledgement a late helper cannot remove anything.
   const script = [
     `$parentPid=${process.pid}`,
-    "Wait-Process -Id $parentPid -ErrorAction SilentlyContinue",
-    `$targets=@(${targets.map(powershellLiteral).join(",")})`,
-    "for ($i = 0; $i -lt 40; $i++) {",
-    "  try { foreach ($target in $targets) { if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop } }; exit 0 }",
-    "  catch { Start-Sleep -Milliseconds 250 }",
-    "}",
-    "exit 1"
+    "try {",
+    `  [IO.File]::WriteAllText(${powershellLiteral(readyFile)}, 'ready')`,
+    "  $deadline = [DateTime]::UtcNow.AddSeconds(20)",
+    `  while (-not [IO.File]::Exists(${powershellLiteral(goFile)})) {`,
+    "    if ([DateTime]::UtcNow -ge $deadline) { exit 1 }",
+    "    Start-Sleep -Milliseconds 50",
+    "  }",
+    `  if ([IO.File]::ReadAllText(${powershellLiteral(goFile)}) -ne 'go') { exit 1 }`,
+    "  Wait-Process -Id $parentPid -ErrorAction SilentlyContinue",
+    `  $targets=@(${targets.map(powershellLiteral).join(",")})`,
+    "  for ($i = 0; $i -lt 40; $i++) {",
+    "    try { foreach ($target in $targets) { if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop } }; exit 0 }",
+    "    catch { Start-Sleep -Milliseconds 250 }",
+    "  }",
+    "  exit 1",
+    `} finally { Remove-Item -LiteralPath ${powershellLiteral(handshakeRoot)} -Recurse -Force -ErrorAction SilentlyContinue }`
   ].join("\n");
   const encoded = Buffer.from(script, "utf16le").toString("base64");
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(
-      "cmd.exe",
-      [
-        "/d",
-        "/s",
-        "/c",
-        "powershell.exe",
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-EncodedCommand",
-        encoded
-      ],
-      // The detached cmd host lets PowerShell initialize and survive the executable's exit.
-      // Paths occur only inside the encoded script, never in cmd syntax.
-      { detached: true, stdio: "ignore", windowsHide: true }
-    );
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolvePromise();
-    });
+  const child = spawn(
+    join(systemRoot, "System32", "cmd.exe"),
+    [
+      "/d",
+      "/s",
+      "/c",
+      `""${powershell}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}"`
+    ],
+    // Keep the console host and its cwd outside every planned deletion target.
+    {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      windowsVerbatimArguments: true,
+      cwd: dirname(handshakeRoot)
+    }
+  );
+  let helperFailed = false;
+  child.once("error", () => {
+    helperFailed = true;
   });
+  child.once("exit", () => {
+    helperFailed = true;
+  });
+  try {
+    const deadline = performance.now() + 15_000;
+    for (;;) {
+      if (helperFailed) throw new Error("windows_uninstall_helper_failed");
+      const ready = await readFile(readyFile, "utf8").catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (ready === "ready") break;
+      if (performance.now() >= deadline) throw new Error("windows_uninstall_helper_start_timeout");
+      await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 50));
+    }
+    if (helperFailed) throw new Error("windows_uninstall_helper_failed");
+    await atomicText(goFile, "go", 0o600);
+    child.unref();
+  } catch (error) {
+    if (child.pid !== undefined) {
+      spawnSync(
+        join(systemRoot, "System32", "taskkill.exe"),
+        ["/PID", String(child.pid), "/T", "/F"],
+        { stdio: "ignore", windowsHide: true, timeout: 5000 }
+      );
+      child.kill();
+    }
+    await rm(handshakeRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (error instanceof Error && error.message === "windows_uninstall_helper_start_timeout")
+      throw error;
+    throw new Error("windows_uninstall_helper_failed");
+  }
 }
 
 export async function uninstallProduct(

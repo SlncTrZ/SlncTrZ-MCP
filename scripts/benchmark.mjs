@@ -5,9 +5,9 @@
 
 import { randomBytes, scryptSync } from "node:crypto";
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { cpus, release as operatingSystemRelease } from "node:os";
+import { tmpdir, cpus, release as operatingSystemRelease } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGatewayServer, listenGateway } from "../dist/app/http-server.js";
@@ -20,6 +20,7 @@ const entry = join(root, "dist", "app", "entry.js");
 const DEFAULT_ITERATIONS = 5;
 const DEFAULT_WARMUP = 1;
 const STARTUP_TIMEOUT_MS = 10_000;
+const benchmarkStateRoot = await mkdtemp(join(tmpdir(), "slnctrz-benchmark-state-"));
 
 async function reserveLoopbackPort() {
   return new Promise((resolvePromise, reject) => {
@@ -97,6 +98,9 @@ function verifier() {
 function cleanEnvironment(port = 43_123) {
   return {
     PATH: process.env.PATH ?? "",
+    SystemRoot: process.env.SystemRoot ?? "",
+    WINDIR: process.env.WINDIR ?? "",
+    SLNCTRZ_STATE_ROOT: benchmarkStateRoot,
     SLNCTRZ_OWNER_SECRET_HASH: verifier(),
     SLNCTRZ_PUBLIC_URL: "https://mcp.benchmark.invalid/mcp",
     SLNCTRZ_HOST: "127.0.0.1",
@@ -168,6 +172,7 @@ async function spawnGateway() {
       env: cleanEnvironment(gatewayPort),
       stdio: ["ignore", "pipe", "pipe"]
     });
+    const childExit = new Promise((resolveExit) => child.once("exit", resolveExit));
     let stdout = "";
     let stderr = "";
     let ready = false;
@@ -195,9 +200,12 @@ async function spawnGateway() {
           (rssBytes) => {
             const elapsedMs = performance.now() - started;
             child.kill("SIGTERM");
-            child.once("exit", () => settle(() => resolvePromise({ elapsedMs, rssBytes })));
+            void childExit.then(() => settle(() => resolvePromise({ elapsedMs, rssBytes })));
           },
-          (error) => settle(() => reject(error))
+          (error) => {
+            child.kill("SIGKILL");
+            void childExit.then(() => settle(() => reject(error)));
+          }
         );
       }
     });
@@ -350,53 +358,57 @@ async function runRequestBenchmark(iterations) {
   }
 }
 
-const options = parseArguments(process.argv.slice(2));
-const cliSamples = await runSamples(options.warmup, options.iterations, spawnCli);
-const gatewaySamples = await runSamples(options.warmup, options.iterations, spawnGateway);
-const requestBaseline = await runRequestBenchmark(options.iterations);
-const result = {
-  schemaVersion: 2,
-  measuredAt: new Date().toISOString(),
-  environment: {
-    platform: process.platform,
-    architecture: process.arch,
-    nodeVersion: process.version,
-    iterations: options.iterations,
-    warmup: options.warmup,
-    protocolVersion: "2025-06-18",
-    commitSha: process.env.SLNCTRZ_BUILD_COMMIT ?? process.env.GITHUB_SHA ?? "unknown",
-    operatingSystemRelease: operatingSystemRelease(),
-    cpuModel: cpus()[0]?.model ?? "unknown",
-    logicalCpuCount: cpus().length
-  },
-  cliHelpColdStart: {
-    samplesMs: cliSamples,
-    summary: summarize(cliSamples)
-  },
-  gatewayReadiness: {
-    samplesMs: gatewaySamples.map((sample) => sample.elapsedMs),
-    summary: summarize(gatewaySamples.map((sample) => sample.elapsedMs)),
-    rssBytes: gatewaySamples
-      .map((sample) => sample.rssBytes)
-      .filter((value) => value !== undefined),
-    peakRssBytes: Math.max(...gatewaySamples.map((sample) => sample.rssBytes ?? 0))
-  },
-  requestBaseline
-};
-const serialized = `${JSON.stringify(result, null, 2)}\n`;
-JSON.parse(serialized);
-if (options.output !== undefined) {
-  await writeFile(options.output, serialized, "utf8");
-  process.stdout.write(
-    `${JSON.stringify({
-      output: options.output,
-      cliHelpColdStart: result.cliHelpColdStart.summary,
-      gatewayReadiness: result.gatewayReadiness.summary,
-      authenticatedCorePing: result.requestBaseline.authenticatedCorePing.summary,
-      concurrentCorePing: result.requestBaseline.concurrency.latency,
-      memory: result.requestBaseline.memory
-    })}\n`
-  );
-} else {
-  process.stdout.write(serialized);
+try {
+  const options = parseArguments(process.argv.slice(2));
+  const cliSamples = await runSamples(options.warmup, options.iterations, spawnCli);
+  const gatewaySamples = await runSamples(options.warmup, options.iterations, spawnGateway);
+  const requestBaseline = await runRequestBenchmark(options.iterations);
+  const result = {
+    schemaVersion: 2,
+    measuredAt: new Date().toISOString(),
+    environment: {
+      platform: process.platform,
+      architecture: process.arch,
+      nodeVersion: process.version,
+      iterations: options.iterations,
+      warmup: options.warmup,
+      protocolVersion: "2025-06-18",
+      commitSha: process.env.SLNCTRZ_BUILD_COMMIT ?? process.env.GITHUB_SHA ?? "unknown",
+      operatingSystemRelease: operatingSystemRelease(),
+      cpuModel: cpus()[0]?.model ?? "unknown",
+      logicalCpuCount: cpus().length
+    },
+    cliHelpColdStart: {
+      samplesMs: cliSamples,
+      summary: summarize(cliSamples)
+    },
+    gatewayReadiness: {
+      samplesMs: gatewaySamples.map((sample) => sample.elapsedMs),
+      summary: summarize(gatewaySamples.map((sample) => sample.elapsedMs)),
+      rssBytes: gatewaySamples
+        .map((sample) => sample.rssBytes)
+        .filter((value) => value !== undefined),
+      peakRssBytes: Math.max(...gatewaySamples.map((sample) => sample.rssBytes ?? 0))
+    },
+    requestBaseline
+  };
+  const serialized = `${JSON.stringify(result, null, 2)}\n`;
+  JSON.parse(serialized);
+  if (options.output !== undefined) {
+    await writeFile(options.output, serialized, "utf8");
+    process.stdout.write(
+      `${JSON.stringify({
+        output: options.output,
+        cliHelpColdStart: result.cliHelpColdStart.summary,
+        gatewayReadiness: result.gatewayReadiness.summary,
+        authenticatedCorePing: result.requestBaseline.authenticatedCorePing.summary,
+        concurrentCorePing: result.requestBaseline.concurrency.latency,
+        memory: result.requestBaseline.memory
+      })}\n`
+    );
+  } else {
+    process.stdout.write(serialized);
+  }
+} finally {
+  await rm(benchmarkStateRoot, { recursive: true, force: true });
 }

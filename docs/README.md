@@ -16,12 +16,17 @@ everyday use. Technical references explain the implementation without replacing 
 | Preserve or restore your data                     | [Backup and Restore](BACKUP_RESTORE.md)                                                                  |
 | Understand permissions                            | [Autonomy](AUTONOMY.md), [Security](../SECURITY.md), [Threat Model](THREAT_MODEL.md)                     |
 | Develop the project                               | [Contributing](../CONTRIBUTING.md), [Engineering](../ENGINEERING.md), [Architecture](../ARCHITECTURE.md) |
+| Check current source/release/runtime evidence     | [Project Status](PROJECT_STATUS.md), [QA report](../QA_QC_REPORT_v0.4.1.md)                              |
 | Review priorities                                 | [Product Plan](../PLAN.md)                                                                               |
 | Prepare a release                                 | [Release Process](../RELEASE.md), [Acceptance](RELEASE_ACCEPTANCE.md)                                    |
 | Inspect dependency origins                        | [Provenance](../PROVENANCE.md)                                                                           |
 | Understand a past design decision                 | [Architecture decisions](adr/README.md)                                                                  |
 | Inspect lifecycle ledger wiring                   | [Lifecycle Wiring](LIFECYCLE_WIRING.md)                                                                  |
 | Give an agent operational guidance                | [Model Guide](MODEL_GUIDE.md)                                                                            |
+
+Current docs were reconciled against the v0.4.0 source on 2026-10-08. Additional repository
+skills are not all embedded defaults; the lifecycle ledger is not wired into live controllers.
+See [Harness](HARNESS.md) and [Lifecycle Wiring](LIFECYCLE_WIRING.md).
 
 Release notes and architecture decisions retain historical behavior. A note marked superseded
 describes a past contract. Current guides identify unreleased changes explicitly; a source

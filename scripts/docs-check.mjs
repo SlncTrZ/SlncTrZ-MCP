@@ -73,7 +73,7 @@ const [userGuide, adrIndex, standaloneWorkflow, ciWorkflow, changelog, release03
   ]);
 
 function requireText(haystack, needle, label) {
-  if (!haystack.includes(needle)) {
+  if (!haystack.replace(/\s+/gu, " ").includes(needle.replace(/\s+/gu, " "))) {
     throw new Error(`docs_contract_failed: ${label} missing ${JSON.stringify(needle)}`);
   }
 }
@@ -408,6 +408,25 @@ for (const value of [
   requireText(gatewayOnly, value, "GATEWAY_ONLY");
 requireText(backup, "schema v3", "BACKUP_RESTORE");
 
+// Operational commands must match the real standalone CLI, not imagined service verbs.
+for (const [guide, label] of [
+  [userGuide, "USER_GUIDE"],
+  [backup, "BACKUP_RESTORE"],
+  [troubleshooting, "TROUBLESHOOTING"]
+]) {
+  for (const command of ["slnctrz-mcp start", "slnctrz-mcp stop"]) {
+    forbidText(guide, command, label);
+  }
+}
+requireText(userGuide, "uninstall --yes --purge", "USER_GUIDE purge semantics");
+requireText(backup, "Binary-only rollback", "BACKUP_RESTORE schema compatibility");
+requireText(
+  mcpServers,
+  "not an internal endpoint for scanning machines",
+  "MCP_SERVERS protocol discovery boundary"
+);
+requireText(threatModel, "not direct SEA", "THREAT_MODEL manifest signing boundary");
+
 // Public navigation integrity: every relative markdown link must resolve and every
 // anchor must exist. Substring assertions alone let dead links ship (see AUDIT 37, F-A2).
 const stripCode = (text) => text.replace(/```[\s\S]*?```/gu, "").replace(/`[^`\n]*`/gu, "");
@@ -429,7 +448,7 @@ const publicMarkdown = [];
 for (const entry of await readdir(root, { withFileTypes: true })) {
   if (entry.isFile() && entry.name.endsWith(".md")) publicMarkdown.push(join(root, entry.name));
 }
-for (const directory of ["docs"]) {
+for (const directory of ["docs", "skills"]) {
   for (const entry of await readdir(join(root, directory), {
     withFileTypes: true,
     recursive: true
@@ -452,7 +471,7 @@ for (const file of publicMarkdown) {
   if (text === undefined) continue;
   for (const match of stripCode(text).matchAll(/\]\(([^)\s]+)\)/gu)) {
     const target = match[1];
-    if (/^(?:[a-z][a-z0-9+.-]*:|#)/iu.test(target)) continue;
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(target)) continue;
     const [rawPath, rawAnchor] = target.split("#");
     const linkPath = decodeURIComponent(rawPath ?? "");
     const resolved = linkPath.length === 0 ? file : resolve(dirname(file), linkPath);

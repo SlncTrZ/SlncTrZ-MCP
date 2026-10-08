@@ -57,6 +57,7 @@ Source lives under `src/`, mapping to ARCHITECTURE components:
 | `src/router`        | Request router                              |
 | `src/shared`        | Shared contracts and utilities              |
 | `src/standalone`    | Verified manifest/install/rollback          |
+| `src/lifecycle`     | Unwired durable operation ledger foundation |
 | `src/context`       | Global instructions, Agent Skills, receipts |
 | `src/task`          | Managed Runner + Task Coordinator           |
 
@@ -84,6 +85,7 @@ Sample configuration lives under `config/`.
 | `npm run docs:check`           | Verify public docs/CLI contract                   |
 | `npm run provenance:inventory` | Generate locked dependency/license inventory      |
 | `npm run release:gate`         | Verify standalone version/build/hash identity     |
+| `npm run benchmark:harness`    | Bounded catalog/concurrency preflight baseline    |
 | `npm run benchmark`            | Build then record local performance baseline JSON |
 
 ESM-only (`"type": "module"`). Source imports must use explicit `.js` extensions for
@@ -91,11 +93,17 @@ NodeNext resolution (e.g. `import { x } from "../kernel/tool-identity.js"`).
 
 ## Performance baselines
 
-`npm run benchmark` launches clean child processes from `dist/` with an ephemeral
-owner verifier and deny-all policy. It records raw samples plus ceiling-rank p50/p95/p99 for
-CLI `--help` cold start and gateway readiness. On Linux it also records RSS at readiness.
-It does not contact external services and does not impose a failing budget before CI has a
-stable baseline. CI Node 24 uploads the JSON as `performance-baseline-linux-x64-node24`.
+npm run benchmark creates private temporary managed state for its gateway children and
+removes the fixture on completion or failure. It does not load the account's live policy,
+provider configuration or credentials. The loopback request fixture is deny-all.
+
+It records CLI cold-start, gateway readiness/RSS and request percentiles. The JSON field
+authenticatedCorePing measures the MCP protocol ping method, not a tools/call invocation
+of core.ping. Do not label that number as tool-dispatch latency.
+
+npm run benchmark:harness creates its own bounded skill fixture and measures preflight
+Latency with 128 skills and stated concurrency/requests. Both are local baselines, not
+remote-provider speed, SLOs or production capacity. Record node/OS and p50/p95/p99.
 
 ## Code conventions
 
@@ -114,11 +122,29 @@ stable baseline. CI Node 24 uploads the JSON as `performance-baseline-linux-x64-
 
 ## Pre-commit checks
 
-Run the full gate before opening a PR:
+Run the full source gate before opening a PR:
 
 ```bash
+npm ci
 npm run check
+npm run docs:check
+npm run build
+npm audit --omit=dev
+npm audit
+npm run provenance:inventory -- --out /tmp/slnctrz-dependencies.json
 ```
+
+Install dependencies on the OS executing the checks. A Windows-backed shared checkout's
+node_modules cannot be reused for Linux native bindings; use an isolated Linux checkout.
+Do not run simultaneous npm installs against the same dependency directory.
+
+For packaged/embedded changes, rebuild SEA on each native target and run gateway/harness
+smoke, scripts/smoke-uninstall.mjs and release:gate. Use a disposable verification key for
+unpublished checks; production signing stays in the protected environment. Full checks also
+cover conformance/integration suites selected by Vitest, not just unit tests.
+
+See [Release Acceptance](docs/RELEASE_ACCEPTANCE.md) and [QA report](QA_QC_REPORT_v0.4.1.md).
+Local PASS is not hosted CI or exact public-candidate acceptance.
 
 ## Adding dependencies
 

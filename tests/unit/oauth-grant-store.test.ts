@@ -375,7 +375,9 @@ describe("connection display labels", () => {
       directories.push(directory);
       const path = join(directory, "oauth-grants.sqlite3");
       const legacy = new DatabaseSync(path);
+      // Seed the legacy snapshot atomically instead of fsyncing every fixture statement.
       legacy.exec(`
+      BEGIN;
       CREATE TABLE client_defaults (
         clientId TEXT PRIMARY KEY, surfaceProfile TEXT NOT NULL CHECK(surfaceProfile IN ('full','gateway-only'))
       ) STRICT;
@@ -417,6 +419,7 @@ describe("connection display labels", () => {
         );
         legacy.prepare("UPDATE grants SET label=? WHERE grantId=?").run("Named grant", "older");
       }
+      legacy.exec("COMMIT");
       legacy.close();
       const store = createSqliteOAuthGrantStore(path);
       stores.push(store);
@@ -438,7 +441,9 @@ describe("connection display labels", () => {
       expect(owner.listConnections()[0]?.surfaceProfile).toBe("full");
       owner.setConnectionLabel("older", "Legacy Pi");
       expect(owner.listConnections()[0]?.label).toBe("Legacy Pi");
-    }
+    },
+    // Real durable SQLite I/O and ACL subprocesses on hosted Windows are not a 5s latency gate.
+    process.platform === "win32" ? 15_000 : 5_000
   );
 });
 

@@ -1,21 +1,35 @@
 # Development Roadmap
 
-Engineering milestones for SlncTrZ-MCP Gateway.
+Priorities for the v0.4.1 source line. [Project Status](docs/PROJECT_STATUS.md) separates source
+implementation, local verification, public release and deployed runtime.
 
----
+## 1. Current Checkpoint (v0.4.1 source)
 
-## 1. Current Checkpoint (v0.3.x)
+- Owner-controlled Linux/Windows gateway, OAuth PKCE, Owner Console, Paths and Commands.
+- Full and Gateway-only profiles; first-consent selection and durable Gateway-only grants.
+- Structured onboarding through the canonical Product Agent Harness and progressive skills.
+- In-memory Runner and Task Coordinator multi-client claim; durable two-participant Debate.
+- Usage charts based on gateway-observed numeric telemetry.
+- Native Linux/Windows SEA packaging, signed-manifest release workflow and public acceptance gates.
+- Durable lifecycle ledger foundation with sanitization and identity checks; controller wiring is pending.
 
-- Stable hybrid distributed architecture between Windows CAD (.171) and Linux control center (.227).
-- Gateway core (`:3100`) running OAuth 2.1 PKCE and Owner web console.
-- Structured agent onboarding using canonical Product Agent Harness and progressive skills.
-- Multi-agent coordination runtime with Task Coordinator multi-client claim.
-- Automated Ed25519-signed standalone builds (SEA) for Linux and Windows.
+Local QA passes do not establish an exact-candidate stable release. The existing v0.4.0 tag
+does not contain the working-tree fixes; the failed hosted runs need fresh candidate evidence.
 
----
+## 2. Immediate Release Work
 
-## 2. Next Objectives
+1. Review and commit the verified fixes/docs, then obtain Linux Node 22/24 and Windows Node 24 CI evidence.
+2. Select a release-candidate version/ref that includes the fixes; preserve immutable published tags.
+3. Build native artifacts from that exact ref, aggregate/sign the canonical manifest through the protected environment.
+4. Pass public Windows/Linux clean User Install and installed Usage browser acceptance before promotion.
+5. Record deployed version/build and real-client acceptance separately; source changes do not upgrade a running gateway.
 
-1. **Lower Dispatch Latency**: Optimize event round-trips to downstream CAD providers.
-2. **Owner Observability**: Streamline live subagent telemetry in the web console.
-3. **Provider Expansion**: Integrate next-gen CDT domain execution engines.
+## 3. Next Objectives
+
+| Priority | Work | Acceptance |
+| --- | --- | --- |
+| Reliability | Wire the lifecycle ledger into an explicitly owned execution controller | Restart reconciliation, process identity, ownership-safe stop and no credential persistence |
+| Latency | Measure provider dispatch before optimizing it | Reproducible p50/p95/p99 under stated load; no inferred speedup |
+| Scalability | Bound concurrent provider/context/task work | Limits, cancellation and exhaustion tests; no horizontal multi-process claim |
+| Observability | Improve operational visibility | Numeric telemetry, privacy boundaries and installed browser evidence |
+| Provider expansion | Integrate additional domain engines | Runtime discovery and each provider's native acceptance |

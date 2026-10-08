@@ -7,12 +7,14 @@ Use this guide only when `core.ping` or the current MCP tool catalog shows the C
 
 ## Start with runtime discovery
 
-1. Bootstrap the SlncTrZ task context as usual.
+1. Inspect core.ping and the live catalog. Full coding sessions bootstrap as usual;
+   Gateway-only provider calls do not expose or require gateway context tools.
 2. Confirm the provider is present in the current tool catalog.
 3. Call `kb.help` before relying on provider-specific schemas, versions or advanced operations.
 4. Use the canonical `kb.*` tools advertised by the running provider.
 
-The gateway namespace is `kb` for the current owner-managed CyberBrain integration. The provider itself owns memory/knowledge business logic; SlncTrZ-MCP owns gateway routing, namespace, authorization and lifecycle.
+The examples use the owner-managed namespace `kb`. Verify the actual advertised namespace;
+provider IDs are owner configuration, not a universal gateway constant. The provider itself owns memory/knowledge business logic; SlncTrZ-MCP owns gateway routing, namespace, authorization and lifecycle.
 
 ## Normal agent workflow
 

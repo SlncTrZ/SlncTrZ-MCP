@@ -18,7 +18,7 @@ of a coding harness and MCP capability gateway. Please read this before opening 
 ## Prerequisites
 
 - Node.js `>=22.13.0 <25` (see `package.json` and `ENGINEERING.md`)
-- npm `11.x`
+- npm `11.16.0` (packageManager contract)
 - Git, with commits authored under your own identity
 
 ## Workflow
@@ -35,6 +35,9 @@ of a coding harness and MCP capability gateway. Please read this before opening 
    npm ci
    npm run check       # typecheck + lint + format:check + test
    npm run docs:check  # public docs/CLI contract
+   npm run build
+   npm audit --omit=dev
+   npm audit
    ```
 3. Follow the project conventions in `ENGINEERING.md`.
 4. Commit with a `Conventional Commits` style message
@@ -55,7 +58,9 @@ handling are **security-sensitive**. They require:
 
 Update the guide that serves the affected reader. Keep everyday setup/operation in README and
 User Guide, developer detail in Architecture/Engineering, and historical decisions in ADRs.
-Check commands against the implementation and run `npm run docs:check`. Improve confusing
+Check commands against the implementation and run `npm run docs:check`. Review current
+status in [Project Status](docs/PROJECT_STATUS.md); keep source and installed-artifact
+claims separate. Rebuild SEA when embedded guidance changes. Improve confusing
 wording even when behavior stays unchanged; do not turn a historical test result into a current
 support claim.
 

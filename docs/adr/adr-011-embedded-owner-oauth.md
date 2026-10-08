@@ -6,6 +6,8 @@
 
 > Current-contract note (2026-09-24): this ADR records the original Phase 1 bootstrap. The current v0.3.5 contract persists dynamic client registrations in the managed state file, persists grant families/access+refresh token hashes/client-default profiles in the OAuth SQLite store, and keeps only pending authorization transactions and authorization codes in memory. A normal gateway restart therefore preserves acknowledged clients and durable grants/tokens but drops unfinished authorization transactions/codes. The current durability contract supersedes the historical restart statements below; the owner-only/single-process and strict PKCE/redirect/resource-binding decisions remain active.
 
+> Current-contract update (2026-10-08): v0.4.0 source migrates OAuth schemas v1/v2 to v3. Existing grants retain finite lifetimes and profiles. Fresh Gateway-only consent creates a durable grant with single-use rotating refresh tokens until revocation; pending transactions/codes remain in memory. Rollback to pre-v3 binaries requires coherent pre-migration state/config restoration. See [Gateway-only](../GATEWAY_ONLY.md) and [Backup](../BACKUP_RESTORE.md).
+
 ## Context
 
 The Phase 1 public MCP endpoint must connect to web clients without allowing anonymous

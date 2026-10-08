@@ -2,6 +2,28 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.4.1
+
+Date: 2026-10-08
+
+### Changed
+
+- Carry forward the unpromoted v0.4.0 consent/Usage/source feature set without moving its existing tag.
+- Reconcile operational, architecture, skills, security and release documentation against source.
+
+### Fixed
+
+- Bounded Windows uninstall helper startup with absolute system shell paths and ready/go acknowledgement.
+- Native uninstall verification for quoted paths, minimal Windows shell PATH and install cwd.
+- Transactional legacy OAuth fixtures and a Windows-specific migration-test timeout.
+- Patch source-map-js dev/build lock to 1.2.2 (GHSA-68fv-2mgg-jv7q).
+- Isolate the source benchmark from real account state and clean its private fixture on success/failure.
+
+### Verification / promotion
+
+- Final local review/test evidence is in QA_QC_REPORT_v0.4.1.md.
+- Protected signing, exact public candidate clean installs and installed Usage browser acceptance remain promotion gates.
+
 ## 0.4.0
 
 Date: 2026-10-08
@@ -11,7 +33,7 @@ Date: 2026-10-08
 - Choose Gateway-only at first OAuth consent, before any Full token is issued.
 - New Gateway-only grants stay connected until revoked: short access tokens, single-use rotating refresh tokens with no fixed/idle expiry, durable restart/offline recovery.
 - Usage dashboard charts and Owner connection ceiling controls.
-- Bundled repository reconnaissance, architectural planning, context slicing, invariant checking and technical-video skills.
+- Additional repository reconnaissance, architectural planning, context slicing, invariant checking and technical-video skills for explicit project discovery/owner installation. The SEA still embeds/seeds code-review and debug-and-test only.
 - Native OAuth connection guidance for OpenCode, Pi, Codex and Claude Code; Pi's native MCP client does not require a separate bridge.
 - Shorter README, task-oriented documentation index and a 60-second portrait introduction.
 - Durable lifecycle operation ledger with append-only storage, fsync, bounded sanitization and process-identity verification. Execution-controller integration remains future work.
@@ -23,6 +45,10 @@ Date: 2026-10-08
 - Preserve legacy roots during native uninstall and canonicalize Windows self-removal paths.
 - Gate native uninstall in Linux/Windows CI and guard unsupported Windows symlink creation in tests.
 - Include ESM scripts in the formatting gate.
+- Windows self-removal resolves absolute CMD/PowerShell binaries, uses a bounded ready/go handshake and preserves managed files on startup failure. Native smoke adds shell-PATH, install-cwd and quoted-path cases.
+- Seed legacy OAuth migration fixtures transactionally and allow a Windows-specific 15-second test timeout without changing migration assertions.
+- Lock transitive dev dependency source-map-js to 1.2.2 to address GHSA-68fv-2mgg-jv7q.
+- Correct operational docs for launcher/service restart, backup, uninstall retention, provider negotiation and manifest-signing boundaries.
 - Version bump now updates Deployment/Troubleshooting release-line markers and the README release-notes link.
 
 ### Migration / rollback
@@ -33,6 +59,7 @@ Date: 2026-10-08
 
 ### Verification / promotion
 
+- Local Windows/Linux quality and native checks passed on the patched source; see QA_QC_REPORT_v0.4.0.md for dated results. The current v0.4.0 tag predates the working-tree fixes; hosted CI and public acceptance must exercise a ref containing them.
 - This section records source preparation. Native SEA build/identity checks, protected signed publication, exact-candidate public Linux/Windows clean install and installed Usage browser acceptance remain required before stable promotion.
 - Named real-client and System Install claims require separate evidence; source QA alone does not certify them.
 

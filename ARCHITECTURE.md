@@ -1,58 +1,87 @@
 # SlncTrZ-MCP Architecture
 
-A single gateway providing owner-controlled access between Web AI and local development machines (Linux/Windows).
-
----
+The gateway gives authenticated Web AI and coding clients owner-controlled access to one
+Linux or Windows account. This describes the v0.4.0 source tree; publication and installed
+runtime identity are separate facts recorded in [Project Status](docs/PROJECT_STATUS.md).
 
 ## 1. System Overview
 
-SlncTrZ-MCP exposes files, commands, skills, tasks, and downstream MCP providers through a single authenticated port (`:3100`).
+The MCP endpoint is `:3100/mcp`; the same HTTP listener serves the optional Owner homepage,
+`/owner`, `/debate` and `/usage`. A separate loopback control plane defaults to port 3101.
 
-```text
-Client (Web AI / IDE / Subagent)
-  │ (OAuth 2.1 PKCE)
-  ▼
-SlncTrZ-MCP Gateway (:3100)
-  ├─ Policy Engine (Paths, Commands, Providers, Autonomy)
-  ├─ Context Service (context.bootstrap → Product Agent Harness + Skills)
-  ├─ Core Tools (core.read, core.search, core.write, core.edit, core.exec)
-  ├─ Managed Task Runtime (task.start, task.create, coordination)
-  ├─ Debate Engine (durable SQLite multi-agent debate)
-  └─ Provider Supervisor (isolated downstream MCP processes)
-```
+| Component | Responsibility | Authority / persistence |
+| --- | --- | --- |
+| OAuth server | PKCE, exact redirect/resource binding, consent and refresh | Durable client/grant state; pending authorization transactions/codes in memory |
+| Policy engine | Paths, command catalog, provider grants and autonomy | Owner-managed files; immutable per-request snapshots |
+| Context service | Product Agent Harness, instructions, progressive skills | Principal/workspace/revision-bound four-hour receipts in memory |
+| Core tools | Text/image inspection, atomic file changes, bounded execution | Current policy and gateway OS account |
+| Managed Task Runtime | Background Runner and logical Task Coordinator | In-memory; Runner creator-private, Coordinator workspace-visible |
+| Debate | Two-participant turn/sequence coordination | Durable SQLite history |
+| Provider supervisor | STDIO children or remote Streamable HTTP endpoints | Per-provider isolation, deadlines, recovery budgets |
+| Usage / audit | Numeric traffic estimates and bounded event records | Separate SQLite stores; no prompt/argument/output capture in Usage |
+| Standalone product | Setup, verified update, rollback, doctor and uninstall | Managed install/state/config roots |
+| Lifecycle ledger | Append-only operation records and identity comparison | Foundation module; not wired into this gateway runtime |
 
-The owner controls four core boundaries:
-- **Autonomy**: Restricted (catalog-enforced) or Autonomous (OS-user level).
-- **Paths**: Allowed filesystem roots for read/write.
-- **Commands**: Allowed binaries in Restricted mode (`command.json`).
-- **MCP Servers**: Registered downstream providers.
+The owner controls Autonomy, Paths, Commands and MCP Servers. Restricted file tools enforce
+configured Paths and protected-name rules. Restricted execution authorizes catalog binaries;
+allowing a shell/interpreter gives that executable the OS account's powers. Autonomous mode
+uses that account's authority directly. Neither mode supplies an OS sandbox or silent elevation.
 
----
+Full exposes available coding/context/task surfaces. Gateway-only hides those surfaces and
+retains `core.ping`, `connection.restrict`, Debate and enabled provider tools. Provider authority
+is a separate boundary; hiding gateway tools does not sandbox a provider.
 
 ## 2. Core Components
 
 ### Core Tools
-- `core.ping`: Connection verification and profile inspection.
-- `core.read`, `core.search`: Scoped file inspection.
-- `core.write`, `core.edit`: Exact-match, atomic file updates.
-- `core.exec`: Command execution governed by autonomy settings.
+
+- `core.ping`: Running identity, profile, capability inventory and embedded model guidance.
+- `core.read`, `core.search`: Scoped text inspection; search is case-insensitive.
+- `media.read_image`: Original bounded PNG/JPEG bytes under file-read authority.
+- `core.write`, `core.edit`: Atomic updates; explicit `dryRun:true` previews without applying.
+- `core.exec`: Direct platform-native execution with cwd, timeout and output bounds.
 
 ### Coding Context & Skills
-- `context.bootstrap`: Session initialization providing the Product Agent Harness and skills catalog.
-- `skills.read`: Progressive disclosure of individual skills on demand.
+
+`context.bootstrap` returns global instructions, optional authorized project instructions,
+catalog metadata and a context receipt. `skills.read` activates one skill before its resources
+are read. Instruction/skill changes, policy changes, expiry or restart require a new receipt.
+Instructions remain guidance and do not grant capabilities.
+
+Fresh provisioning embeds/seeds `code-review` and `debug-and-test` only. Other repository skills
+can be discovered from an explicit projectRoot or installed into the owner-managed harness.
+See [Harness](docs/HARNESS.md) for discovery paths and size limits.
 
 ### Managed Task Runtime
-- Manages background runners and multi-agent coordination.
-- `task.start`: Launches background processes with timeouts and output bounds.
-- `task.create`: Creates coordination milestones between agents.
-- Runtime state is kept `in-memory` and clears cleanly on shutdown.
+
+`task.start` starts one policy-authorized background command; `task.get`, `task.wait` and
+`task.cancel` manage its creator-private Runner record. `task.create` creates a logical
+coordination task; another authenticated client in the same workspace may claim it.
+Claiming a task does not start a process or increase permissions. State is in-memory and
+clears on restart; clients reconcile prior effects before recreating work.
 
 ### Extension & Provider Supervisor
-- Manages external MCP providers (AutoCAD, SolidWorks, KiCAD, CyberBrain).
-- Runs providers in isolated processes with per-call timeouts.
-- Failures are bounded: recurrent `session_invalid` incidents are additionally bounded by a rolling incident budget.
-- Credential rotation stages a new opaque ref to avoid downtime or leaked credentials.
+
+STDIO adapters supervise child processes; Streamable HTTP adapters connect to remote
+endpoints. Modern `server/discover` negotiation falls back to supported legacy initialization.
+The catalog namespaces exposed tools by provider ID and has a catalog Fingerprinting field.
+No CAD/CyberBrain provider is bundled or guaranteed available merely because it is named here.
+
+Calls are bounded and are not automatically replayed after failure. Failures are bounded:
+recurrent `session_invalid`
+incidents are additionally bounded by a rolling incident budget. Credential rotation stages
+a new opaque ref and attempts transactional activation/rollback; it is not a zero-downtime guarantee.
 
 ### Operations & Lifecycle
-- Web Owner console at `http://127.0.0.1:3100/owner`.
-- Graceful application shutdown: Handles SIGTERM/SIGINT, terminates child runners cleanly, flushes persistent SQLite state.
+
+Graceful application shutdown handles SIGTERM/SIGINT, closes servers/stores and requests
+termination of managed child runners. It cannot promise cleanup after forced process kill,
+OS failure or actions performed independently by a remote provider.
+
+`src/lifecycle/operation-ledger.ts` is intentionally unwired: it registers no MCP tools,
+does not make Task Runtime durable and does not control CAD applications. Its proposed
+integration points are in [Lifecycle Wiring](docs/LIFECYCLE_WIRING.md).
+
+New Gateway-only consents use durable grants and rotating single-use refresh tokens until
+revocation. Existing finite grants stay finite during OAuth schema-v3 migration. Restore a
+coherent pre-migration backup before rollback to a pre-v3 binary; see [Backup](docs/BACKUP_RESTORE.md).

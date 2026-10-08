@@ -6,6 +6,8 @@
 
 > Current-contract note (2026-09-24): the revocation/audit decisions remain active, but the historical in-memory token durability statements are superseded. v0.3.5 stores grant families and token hashes in the OS-protected OAuth SQLite store; dynamic clients are durable managed state; pending authorization transactions and authorization codes remain in memory. The store persists hashes/metadata, not plaintext bearer/refresh credentials. Durable auth audit also persists privacy-reviewed operation/reason enums.
 
+> Current-contract update (2026-10-08): v0.4.0 source migrates OAuth schemas v1/v2 to v3. Existing grants retain finite lifetimes and profiles. Fresh Gateway-only consent creates a durable grant with single-use rotating refresh tokens until revocation; pending transactions/codes remain in memory. Rollback to pre-v3 binaries requires coherent pre-migration state/config restoration. See [Gateway-only](../GATEWAY_ONLY.md) and [Backup](../BACKUP_RESTORE.md).
+
 ## Context
 
 PLAN Phase 2 requires an explicit token revocation lifecycle, immediate revocation,

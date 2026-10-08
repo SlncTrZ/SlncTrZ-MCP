@@ -17,7 +17,14 @@ const cases = [
   ["shared roots", "shared", "shared", "shared"],
   ["program in state", "state/program", "state", "config"],
   ["state in config", "program", "config/state", "config"],
-  ["config in state", "program", "state", "state/config"]
+  ["config in state", "program", "state", "state/config"],
+  ["quoted paths", "program space &'[x]", "state space", "config space"],
+  ...(win
+    ? [
+        ["without shell PATH", "program", "state", "config", "system-path"],
+        ["inside install cwd", "program", "state", "config", "install-cwd"]
+      ]
+    : [])
 ];
 async function exists(p) {
   try {
@@ -28,7 +35,7 @@ async function exists(p) {
   }
 }
 let count = 0;
-for (const [name, program, state, config] of cases)
+for (const [name, program, state, config, environment] of cases)
   for (const mode of ["default", "remove-config", "purge"]) {
     const root = await mkdtemp(join(tmpdir(), "slnctrz-fa4-artifact-"));
     try {
@@ -73,9 +80,12 @@ for (const [name, program, state, config] of cases)
         executable,
         ["uninstall", "--yes", ...(mode === "default" ? [] : ["--" + mode])],
         {
-          cwd: root,
+          cwd: environment === "install-cwd" ? installRoot : root,
           env: {
-            PATH: process.env.PATH ?? "",
+            PATH:
+              environment === "system-path"
+                ? join(process.env.SystemRoot ?? process.env.WINDIR, "System32")
+                : (process.env.PATH ?? ""),
             SystemRoot: process.env.SystemRoot ?? "",
             WINDIR: process.env.WINDIR ?? "",
             SLNCTRZ_STATE_ROOT: stateRoot
@@ -86,10 +96,24 @@ for (const [name, program, state, config] of cases)
       );
       assert.equal(run.status, 0, name + " " + mode + ": " + run.stderr);
       if (win) assert.match(run.stdout, /Program removal deferred: yes/);
+      const expectedRemoved = [
+        executable,
+        launcher,
+        join(installRoot, "current.json"),
+        ...(mode === "purge" ? [join(stateRoot, "retained-state.txt")] : []),
+        ...(mode !== "default" ? [join(configRoot, "gateway.env")] : [])
+      ];
       const until = Date.now() + 15000;
-      while ((await exists(executable)) && Date.now() < until)
-        await new Promise((r) => setTimeout(r, 100));
-      assert.equal(await exists(executable), false, name + " executable not removed");
+      let remaining = expectedRemoved;
+      while (remaining.length > 0 && Date.now() < until) {
+        remaining = (
+          await Promise.all(
+            expectedRemoved.map(async (path) => ((await exists(path)) ? path : undefined))
+          )
+        ).filter((path) => path !== undefined);
+        if (remaining.length > 0) await new Promise((r) => setTimeout(r, 100));
+      }
+      assert.deepEqual(remaining, [], name + " " + mode + ": removal incomplete");
       assert.equal(await exists(join(installRoot, "current.json")), false);
       assert.equal(await exists(launcher), false);
       assert.equal(await exists(join(stateRoot, "retained-state.txt")), mode !== "purge");
