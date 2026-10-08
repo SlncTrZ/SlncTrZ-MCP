@@ -87,9 +87,25 @@ source = source.replace(
   [
     '  const workerCommand = \'"\' + powershell + \'" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand \' + Buffer.from(script, "utf16le").toString("base64");',
     "  const launcher = [",
+    '    "try {",',
+    "    " + JSON.stringify(psLog("launcher-start")) + ",",
     '    "$launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = " + powershellLiteral(workerCommand) + "; CurrentDirectory = " + powershellLiteral(dirname(handshakeRoot)) + " } -ErrorAction Stop",',
-    '    "if ($launch.ReturnValue -ne 0) { exit 1 }",',
-    '    "Wait-Process -Id $launch.ProcessId -ErrorAction SilentlyContinue"',
+    "    " +
+      JSON.stringify(
+        "[IO.File]::AppendAllText(" +
+          literal +
+          ", ('cim-return=' + $launch.ReturnValue + '; pid=' + $launch.ProcessId + [Environment]::NewLine))"
+      ) +
+      ",",
+    "    \"if ($launch.ReturnValue -ne 0) { throw 'cim_create_failed' }\",",
+    '    "Wait-Process -Id $launch.ProcessId -ErrorAction SilentlyContinue",',
+    "    " +
+      JSON.stringify(
+        "} catch { [IO.File]::AppendAllText(" +
+          literal +
+          ", ('launcher-error=' + $_.FullyQualifiedErrorId + '; hresult=' + $_.Exception.HResult + [Environment]::NewLine)); exit 1 }"
+      ) +
+      ",",
     '  ].join("\\n");',
     '  const encoded = Buffer.from(launcher, "utf16le").toString("base64");'
   ].join("\n")
