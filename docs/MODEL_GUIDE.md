@@ -26,6 +26,12 @@ and productGuidance; it does not eagerly include every skill body.
 Fresh installed defaults contain code-review/debug-and-test only. Other repository skills
 need explicit authorized projectRoot discovery or owner installation.
 
+The Owner Console controls result delivery per connection. The checked StructuredContent
+default retains existing text and the complete structured result. Unchecked FullContent
+also includes the complete structured result as JSON text, preserving media and metadata.
+Text-only clients can read that JSON for stdout/stderr and other structured fields.
+Existing tool output limits still apply; delivery mode does not expand tool access.
+
 ## 3. Tasks & Denials
 
 Use task.start for bounded background commands and get/wait/cancel for creator-private Runner

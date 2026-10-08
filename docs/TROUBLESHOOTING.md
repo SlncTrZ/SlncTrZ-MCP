@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Diagnostics for SlncTrZ-MCP (v0.4.x source). Check the running artifact and profile first;
+Diagnostics for SlncTrZ-MCP (v0.5.x source). Check the running artifact and profile first;
 repository version alone does not identify an installed process.
 
 ## 1. Version Mismatch

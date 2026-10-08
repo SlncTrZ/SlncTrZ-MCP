@@ -7,17 +7,25 @@ Use runtime core.ping and the published GitHub release when making operational d
 
 | Layer                        | Observed state                                                                                                                        |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Source package               | 0.4.1; main 29419d6398d5b88ea6050fb404680dab8d416a5f; local HEAD matches GitHub main                                                  |
-| Working checkout             | Two untracked owner Windows diagnostic files; no tracked modifications before this docs update                                        |
+| Source package               | 0.5.0 release preparation on main; Windows probe and CI verification-key branches merged                                              |
+| Working checkout             | Result delivery upgrade and release preparation; two untracked owner diagnostic files preserved                                       |
 | Latest public stable release | [v0.4.1](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.1); published 2026-10-08 13:51 (+07), draft=false, prerelease=false |
 | Running gateway              | core.ping: 0.3.7, build 141a26ab43d7eda357ff2ab6ef1114641650853f                                                                      |
-| Exact-commit CI              | [37738890530](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37738890530): SUCCESS, all five jobs                                |
-| Exact-commit release         | [37739304058](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37739304058): SUCCESS, all thirteen jobs                            |
+| Prior v0.4.1 CI              | [37738890530](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37738890530): SUCCESS, all five jobs                                |
+| Prior v0.4.1 release         | [37739304058](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37739304058): SUCCESS, all thirteen jobs                            |
 
 Current gateway-side source path: `/mnt/pc-dev/SlncTrZ/SlncTrZ-MCP`.
 Release commands must use the current native repo path, never a hard-coded workstation mount.
 Earlier OAuth migration timeout and Windows uninstall failures remain historical evidence;
 the worker correction and fresh exact-commit CI supersede their release-blocking status.
+
+## v0.5.0 Release Preparation
+
+- Per-connection StructuredContent / FullContent preferences persist through refresh/restart.
+- All tool registrations use the same delivery formatter; FullContent appends complete JSON text while preserving media and metadata.
+- Connection mode and content save immediately; rename saves on Enter. Feedback follows backend confirmation.
+- Source and browser verification passed before release preparation. The new tag must pass native build, signing and exact installed-target acceptance before stable promotion.
+- Latest-public and running-gateway rows above record the observed baseline; preparing v0.5.0 does not upgrade the running gateway.
 
 ## Implemented Source Contract
 

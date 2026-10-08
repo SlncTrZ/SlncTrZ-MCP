@@ -589,3 +589,62 @@ describe("gateway-only onboarding", () => {
     expect(f.owner.listConnections()[0]?.profileCeiling).toBe("gateway-only");
   });
 });
+
+describe("per-connection result delivery", () => {
+  it("defaults to structured and preserves independent delivery through refresh and reopen", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const first = issue(f.service, client);
+    const second = issue(f.service, client);
+    const a = await f.service.authenticateConnection(first.access_token);
+    expect(a.resultDelivery).toBe("structured");
+    f.owner.setResultDelivery(a.grantId, "full-content");
+    expect((await f.service.authenticateConnection(first.access_token)).resultDelivery).toBe(
+      "full-content"
+    );
+    expect((await f.service.authenticateConnection(second.access_token)).resultDelivery).toBe(
+      "structured"
+    );
+    f.service.restrictConnection(first.access_token, "gateway-only");
+    expect((await f.service.authenticateConnection(first.access_token)).resultDelivery).toBe(
+      "full-content"
+    );
+    f.store.close();
+    const reopened = f.open();
+    const rotated = refresh(reopened.service, client, first.refresh_token);
+    expect(
+      (await reopened.service.authenticateConnection(rotated.access_token)).resultDelivery
+    ).toBe("full-content");
+    reopened.owner.setResultDelivery(a.grantId, "structured");
+    expect(
+      (await reopened.service.authenticateConnection(rotated.access_token)).resultDelivery
+    ).toBe("structured");
+    expect(() => reopened.owner.setResultDelivery("missing", "full-content")).toThrow(
+      "oauth_grant_not_found"
+    );
+    expect(() => reopened.owner.setResultDelivery(a.grantId, "invalid" as "structured")).toThrow(
+      "invalid_result_delivery"
+    );
+    reopened.owner.revokeGrant(a.grantId);
+    expect(() => reopened.owner.setResultDelivery(a.grantId, "full-content")).toThrow(
+      "oauth_grant_not_found"
+    );
+  });
+
+  it("adds presentation state to an existing v3 database without changing authority schema", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client);
+    f.store.close();
+    const db = new DatabaseSync(f.path);
+    db.exec("DROP TABLE grant_result_delivery");
+    db.close();
+    const reopened = f.open();
+    expect((await reopened.service.authenticateConnection(token.access_token)).resultDelivery).toBe(
+      "structured"
+    );
+    const inspect = new DatabaseSync(f.path);
+    expect(inspect.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
+    inspect.close();
+  });
+});

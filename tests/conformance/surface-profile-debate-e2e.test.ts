@@ -142,6 +142,7 @@ describe("surface profile and Debate integration", () => {
     const kernelPolicy = {
       ...createKernelPolicySnapshot({
         workspaceId: "surface-profile",
+        authorityMode: "autonomous",
         readRoots: [project],
         writeRoots: [project]
       }),
@@ -217,6 +218,67 @@ describe("surface profile and Debate integration", () => {
     });
     expect(fullProviderWithoutHarness.result?.isError).toBe(true);
     expect(fullProviderWithoutHarness.result?.content?.[0]?.text).toContain("context_required");
+
+    const bootstrap = await rpc(firstToken, "tools/call", {
+      name: "context.bootstrap",
+      arguments: { projectRoot: project }
+    });
+    const contextReceipt = bootstrap.result?.structuredContent?.contextToken;
+    const execArgs = {
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.stdout.write('delivery-output');process.stderr.write('delivery-error');process.exitCode=2"
+      ],
+      root: project,
+      slnctrzContext: contextReceipt
+    };
+    const execStructured = await rpc(firstToken, "tools/call", {
+      name: "core.exec",
+      arguments: execArgs
+    });
+    expect(execStructured.result?.content?.map((b) => b.text).join("")).not.toContain(
+      "delivery-output"
+    );
+    expect(execStructured.result?.structuredContent).toMatchObject({
+      stdout: "delivery-output",
+      stderr: "delivery-error",
+      exitCode: 2
+    });
+    grantStore.setResultDelivery(
+      firstConnection.grantId,
+      "full-content",
+      Math.floor(Date.now() / 1000)
+    );
+    const execFull = await rpc(firstToken, "tools/call", {
+      name: "core.exec",
+      arguments: execArgs
+    });
+    const textPayload: unknown = JSON.parse(execFull.result?.content?.at(-1)?.text ?? "{}");
+    expect(textPayload).toEqual(execFull.result?.structuredContent);
+    const bootstrapFull = await rpc(firstToken, "tools/call", {
+      name: "context.bootstrap",
+      arguments: { projectRoot: project }
+    });
+    expect(JSON.parse(bootstrapFull.result?.content?.at(-1)?.text ?? "{}")).toEqual(
+      bootstrapFull.result?.structuredContent
+    );
+    const isolatedPing = await rpc(secondToken, "tools/call", { name: "core.ping", arguments: {} });
+    expect(isolatedPing.result?.content?.at(-1)?.text).not.toBe(
+      JSON.stringify(isolatedPing.result?.structuredContent)
+    );
+    grantStore.setResultDelivery(
+      firstConnection.grantId,
+      "structured",
+      Math.floor(Date.now() / 1000)
+    );
+    const execRestored = await rpc(firstToken, "tools/call", {
+      name: "core.exec",
+      arguments: execArgs
+    });
+    expect(execRestored.result?.content?.map((b) => b.text).join("")).not.toContain(
+      "delivery-output"
+    );
 
     const restricted = await rpc(firstToken, "tools/call", {
       name: "connection.restrict",

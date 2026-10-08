@@ -8,6 +8,8 @@ import * as z from "zod/v4";
 import { ensureWindowsPrivateAcl } from "../shared/windows-private-acl.js";
 import {
   resolveSurfaceProfile,
+  validateResultDelivery,
+  type ResultDelivery,
   validateSurfaceProfile,
   type AuthenticatedConnection,
   type SurfaceProfile
@@ -31,6 +33,7 @@ const grantSchema = z.object({
   resource: z.string().url().max(2048),
   scopes: z.array(z.string().min(1).max(256)).min(1).max(32),
   surfaceProfile: profileSchema,
+  resultDelivery: z.enum(["structured", "full-content"]),
   profileCeiling: profileSchema,
   label: labelSchema,
   createdAt: timeSchema,
@@ -86,6 +89,7 @@ export interface OAuthGrantStore {
   ): AuthenticatedConnection;
   listConnections(now: number): readonly GrantRecord[];
   setConnectionLabel(grantId: string, label: string, now: number): void;
+  setResultDelivery(grantId: string, delivery: ResultDelivery, now: number): void;
   getClientDefault(clientId: string): SurfaceProfile | undefined;
   setClientDefault(clientId: string, profile: SurfaceProfile): void;
   setGrantProfile(grantId: string, profile: SurfaceProfile, now: number): void;
@@ -105,7 +109,11 @@ function validTime(now: number): void {
 }
 function grantFromRow(row: Record<string, unknown>): GrantRecord {
   try {
-    const parsed = grantSchema.parse({ ...row, scopes: JSON.parse(String(row.scopes)) as unknown });
+    const parsed = grantSchema.parse({
+      ...row,
+      resultDelivery: row.resultDelivery ?? "structured",
+      scopes: JSON.parse(String(row.scopes)) as unknown
+    });
     if (parsed.profileCeiling === "gateway-only" && parsed.surfaceProfile !== "gateway-only")
       throw new Error("invalid_profile_ceiling");
     return { ...parsed, connectionId: parsed.grantId };
@@ -229,6 +237,14 @@ export function createSqliteOAuthGrantStore(
         `);
       });
     }
+    // Additive presentation state preserves OAuth-v3 authority and downgrade compatibility.
+    transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS grant_result_delivery (
+        grantId TEXT PRIMARY KEY REFERENCES grants(grantId) ON DELETE CASCADE,
+        resultDelivery TEXT NOT NULL CHECK(resultDelivery IN ('structured','full-content'))
+      ) STRICT;`);
+    });
+    db.prepare("SELECT grantId, resultDelivery FROM grant_result_delivery LIMIT 0").all();
     if (
       db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok" ||
       db.prepare("PRAGMA foreign_key_check").get() !== undefined
@@ -283,7 +299,9 @@ export function createSqliteOAuthGrantStore(
     const row = db
       .prepare(
         `
-      SELECT g.*, t.expiresAt FROM tokens t JOIN grants g ON g.grantId=t.grantId
+      SELECT g.*, t.expiresAt, COALESCE(d.resultDelivery,'structured') AS resultDelivery
+      FROM tokens t JOIN grants g ON g.grantId=t.grantId
+      LEFT JOIN grant_result_delivery d ON d.grantId=g.grantId
       WHERE t.tokenHash=? AND t.kind=? AND (t.expiresAt>? OR (t.expiresAt IS NULL AND t.kind='refresh'))
     `
       )
@@ -350,6 +368,7 @@ export function createSqliteOAuthGrantStore(
           ...grant,
           surfaceProfile,
           profileCeiling: ceiling,
+          resultDelivery: "structured",
           label,
           createdAt: now,
           lastSeenAt: now
@@ -410,7 +429,8 @@ export function createSqliteOAuthGrantStore(
           connectionId: record.connectionId,
           resource: record.resource,
           scopes: record.scopes,
-          surfaceProfile: profile
+          surfaceProfile: profile,
+          resultDelivery: record.resultDelivery ?? "structured"
         };
       });
     },
@@ -418,7 +438,11 @@ export function createSqliteOAuthGrantStore(
       return transaction(() => {
         prune(now);
         return db
-          .prepare("SELECT * FROM grants ORDER BY createdAt, grantId")
+          .prepare(
+            `SELECT g.*, COALESCE(d.resultDelivery,'structured') AS resultDelivery
+            FROM grants g LEFT JOIN grant_result_delivery d ON d.grantId=g.grantId
+            ORDER BY g.createdAt, g.grantId`
+          )
           .all()
           .map(grantFromRow);
       });
@@ -453,6 +477,18 @@ export function createSqliteOAuthGrantStore(
         ) {
           throw new Error("oauth_grant_not_found");
         }
+      });
+    },
+    setResultDelivery(grantId, delivery, now) {
+      validateResultDelivery(delivery);
+      transaction(() => {
+        prune(now);
+        if (db.prepare("SELECT grantId FROM grants WHERE grantId=?").get(grantId) === undefined)
+          throw new Error("oauth_grant_not_found");
+        db.prepare(
+          `INSERT INTO grant_result_delivery(grantId,resultDelivery) VALUES(?,?)
+          ON CONFLICT(grantId) DO UPDATE SET resultDelivery=excluded.resultDelivery`
+        ).run(grantId, delivery);
       });
     },
     setConnectionLabel(grantId, label, now) {

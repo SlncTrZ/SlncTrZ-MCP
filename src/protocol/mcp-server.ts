@@ -11,7 +11,8 @@ import * as z from "zod/v4";
 import {
   isToolVisibleForProfile,
   type AuthenticatedConnection,
-  type SurfaceProfile
+  type SurfaceProfile,
+  type ResultDelivery
 } from "../auth/connection-profile.js";
 import {
   DebateError,
@@ -460,6 +461,22 @@ async function editWithin(
   throw last ?? new EditError("not_found", "File not found");
 }
 
+/** Preserve media/error metadata; supply complete JSON to clients that only consume text. */
+export function deliverToolResult<T>(result: T, delivery: ResultDelivery): T {
+  if (
+    delivery === "structured" ||
+    typeof result !== "object" ||
+    result === null ||
+    !("structuredContent" in result) ||
+    result.structuredContent === undefined
+  )
+    return result;
+  const text = JSON.stringify(result.structuredContent);
+  const content = (result as { content?: { type: string; text?: string }[] }).content ?? [];
+  if (content.some((block) => block.type === "text" && block.text === text)) return result;
+  return { ...result, content: [...content, { type: "text", text }] };
+}
+
 /** Build a fresh MCP server whose tool surface is filtered by principal and policy snapshot. */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const surfaceProfile = options.authenticatedConnection?.surfaceProfile ?? "full";
@@ -473,6 +490,15 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       .filter(Boolean)
       .join("\n\n")
   });
+  // All tools, including harness and providers, use the same connection-bound formatter.
+  const delivery = options.authenticatedConnection?.resultDelivery ?? "structured";
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = ((...args: Parameters<typeof server.registerTool>) => {
+    const callback = args[2];
+    return registerTool(args[0], args[1], async (...callArgs: Parameters<typeof callback>) =>
+      deliverToolResult(await callback(...callArgs), delivery)
+    );
+  }) as typeof server.registerTool;
   const kernelPolicy =
     options.kernelPolicy ??
     createKernelPolicySnapshot({

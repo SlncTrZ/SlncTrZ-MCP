@@ -353,64 +353,89 @@ describe("Owner asynchronous state acceptance", () => {
     expect(runInContext("lastSequence", context)).toBe(2);
     expect(get("transcript").children).toHaveLength(0);
   });
-  it.each(["label", "profile"])(
-    "reports %s failure, refreshes authoritative state and blocks duplicate pending clicks",
+  it.each(["label", "profile", "result-delivery"])(
+    "autosave %s reports failure and blocks duplicate pending writes",
     async (action) => {
       const source = readFileSync(
         new URL("../../src/owner/web-console.ts", import.meta.url),
         "utf8"
       );
-      const lines = source
-        .split("\n")
-        .filter(
-          (line) =>
-            line.startsWith("function renderConnections(") ||
-            line.startsWith("async function mutateConnection(")
-        );
-      const buttons: (Element & { onclick: () => Promise<void> })[] = [];
-      const error = element();
+      const helper = source.slice(
+        source.indexOf("async function saveConnectionRow("),
+        source.indexOf("function renderConnections(")
+      );
+      const control = element();
+      const row = { dataset: {}, querySelectorAll: () => [control] };
+      const status = element();
       let reject!: (error: Error) => void;
       const api = vi.fn(
         () =>
-          new Promise<void>((_resolve, fail) => {
+          new Promise((_resolve, fail) => {
             reject = fail;
           })
       );
-      const refresh = vi.fn(async () => undefined);
-      const showError = vi.fn((_element: unknown, message: string) => {
-        error.textContent = message;
-      });
-      const context = createContext({
-        document: { createElement: element },
-        q: (id: string) => (id === "connections-error" ? error : element()),
-        btn: (text: string, _className: string, onclick: () => Promise<void>) => {
-          const button = { ...element(), textContent: text, onclick };
-          buttons.push(button);
-          return button;
-        },
-        api,
-        refresh,
-        showError,
-        clearError: () => undefined
-      });
-      runInContext(
-        lines.join("\n") +
-          ";renderConnections([{grantId:'fixture',label:'Agent',surfaceProfile:'full'}]);",
+      const rollback = vi.fn();
+      const saved = vi.fn();
+      const context = createContext({ api, clearTimeout: () => undefined, setTimeout: () => 0 });
+      runInContext(helper, context);
+      context.row = row;
+      context.status = status;
+      context.rollback = rollback;
+      context.saved = saved;
+      context.path = "/owner/api/connections/" + action;
+      const pending = runInContext(
+        "saveConnectionRow(row,status,path,{grantId:'fixture'},saved,rollback)",
+        context
+      ) as Promise<void>;
+      await runInContext(
+        "saveConnectionRow(row,status,path,{grantId:'fixture'},saved,rollback)",
         context
       );
-      const button = required(
-        buttons.filter((b) => b.textContent === "Apply")[action === "label" ? 0 : 1]
-      );
-      const pending = button.onclick();
-      await button.onclick();
       expect(api).toHaveBeenCalledTimes(1);
-      expect(button.disabled).toBe(true);
+      expect(control.disabled).toBe(true);
+      expect(status.textContent).toBe("Saving…");
       reject(new Error("private failure"));
       await pending;
-      expect(error.textContent).toContain("Could not confirm connection change");
-      expect(error.textContent).not.toContain("private failure");
-      expect(refresh).toHaveBeenCalledTimes(1);
-      expect(button.disabled).toBe(false);
+      expect(status.textContent).toContain("Save could not be confirmed");
+      expect(status.textContent).not.toContain("private failure");
+      expect(rollback).toHaveBeenCalledTimes(1);
+      expect(saved).not.toHaveBeenCalled();
+      expect(control.disabled).toBe(false);
     }
   );
+  it("shows SAVED only after persistence is acknowledged and preserves disabled controls", async () => {
+    const source = readFileSync(new URL("../../src/owner/web-console.ts", import.meta.url), "utf8");
+    const helper = source.slice(
+      source.indexOf("async function saveConnectionRow("),
+      source.indexOf("function renderConnections(")
+    );
+    const control = element();
+    control.disabled = true;
+    const row = { dataset: {}, querySelectorAll: () => [control] };
+    const status = element();
+    let resolve!: (result: unknown) => void;
+    const saved = vi.fn();
+    const context = createContext({
+      row,
+      status,
+      saved,
+      api: () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+      clearTimeout: () => undefined,
+      setTimeout: () => 0
+    });
+    runInContext(helper, context);
+    const pending = runInContext(
+      "saveConnectionRow(row,status,'/fixture',{},saved,()=>{})",
+      context
+    ) as Promise<void>;
+    expect(status.textContent).toBe("Saving…");
+    resolve({ resultDelivery: "full-content" });
+    await pending;
+    expect(status.textContent).toBe("SAVED");
+    expect(saved).toHaveBeenCalledWith({ resultDelivery: "full-content" });
+    expect(control.disabled).toBe(true);
+  });
 });

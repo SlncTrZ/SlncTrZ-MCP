@@ -82,6 +82,22 @@ Restricted applies Paths and the command catalog; Autonomous follows the gateway
 A catalog-authorized shell is not an OS sandbox. Gateway-only hides coding/context/task
 tools and retains enabled providers, Debate and connection self-restriction.
 
+### Connection controls and result delivery
+
+In the Owner Console's Connections panel, mode and content changes save immediately.
+Click the edit icon, enter a name and press Enter to save; Escape cancels. `SAVED` appears
+after the server confirms the change. If saving cannot be confirmed, reload to verify
+the stored state before retrying.
+
+Each connection defaults to a checked **StructuredContent** checkbox. Checked keeps
+the existing tool text and complete `structuredContent`. Unchecked selects **FullContent**:
+the gateway also appends the complete structured result as JSON text for clients that
+only display `content[].text`, while preserving existing text, images and error metadata.
+This includes `core.exec` stdout/stderr within the tool's existing output limits.
+Result delivery is independent of Full / Gateway-only mode and is stored per connection,
+surviving token refresh and gateway restart. Changes apply to subsequent requests.
+OAuth redirect URIs do not select this setting.
+
 ## 5. Agent Context & Skills
 
 Call `context.bootstrap` before Full coding work and read its instructions/catalog.

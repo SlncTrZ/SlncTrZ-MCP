@@ -1,4 +1,10 @@
 /** Internal connection policy; deliberately separate from MCP SDK AuthInfo. */
+export type ResultDelivery = "structured" | "full-content";
+export function validateResultDelivery(value: unknown): ResultDelivery {
+  if (value !== "structured" && value !== "full-content")
+    throw new Error("invalid_result_delivery");
+  return value;
+}
 export type SurfaceProfile = "full" | "gateway-only";
 export interface AuthenticatedConnection {
   readonly clientId: string;
@@ -8,6 +14,7 @@ export interface AuthenticatedConnection {
   readonly scopes: readonly string[];
   readonly resource: string;
   readonly surfaceProfile: SurfaceProfile;
+  readonly resultDelivery?: ResultDelivery;
 }
 export function validateSurfaceProfile(value: unknown): SurfaceProfile {
   if (value !== "full" && value !== "gateway-only") throw new Error("invalid_surface_profile");

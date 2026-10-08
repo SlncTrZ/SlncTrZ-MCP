@@ -86,6 +86,11 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
         setGrantProfile(grantId, profile) {
           profiles.push({ grantId, profile });
         },
+        setResultDelivery(grantId, delivery) {
+          if (grantId !== "grant-1") throw new Error("oauth_grant_not_found");
+          if (delivery !== "structured" && delivery !== "full-content")
+            throw new Error("invalid_result_delivery");
+        },
         setClientDefault(clientId, profile) {
           defaults.push({ clientId, profile });
         },
@@ -344,6 +349,55 @@ describe("Owner v0.3.3 connection and Debate surfaces", () => {
     });
     expect(profile.status).toBe(200);
     expect(profiles).toEqual([{ grantId: "grant-1", profile: "gateway-only" }]);
+
+    const deliveryEndpoint = origin + "/owner/api/connections/result-delivery";
+    expect(
+      (
+        await fetch(deliveryEndpoint, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ grantId: "grant-1", resultDelivery: "full-content" })
+        })
+      ).status
+    ).toBe(401);
+    expect(
+      (
+        await fetch(deliveryEndpoint, {
+          method: "PUT",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify({ grantId: "grant-1", resultDelivery: "full-content" })
+        })
+      ).status
+    ).toBe(403);
+    const deliveryHeaders = { cookie, "content-type": "application/json", "x-slnctrz-csrf": csrf };
+    const deliveryResponse = await fetch(deliveryEndpoint, {
+      method: "PUT",
+      headers: deliveryHeaders,
+      body: JSON.stringify({ grantId: "grant-1", resultDelivery: "full-content" })
+    });
+    expect(deliveryResponse.status).toBe(200);
+    expect(await deliveryResponse.json()).toEqual({
+      grantId: "grant-1",
+      resultDelivery: "full-content"
+    });
+    expect(
+      (
+        await fetch(deliveryEndpoint, {
+          method: "PUT",
+          headers: deliveryHeaders,
+          body: JSON.stringify({ grantId: "grant-1", resultDelivery: "invalid" })
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await fetch(deliveryEndpoint, {
+          method: "PUT",
+          headers: deliveryHeaders,
+          body: JSON.stringify({ grantId: "missing", resultDelivery: "structured" })
+        })
+      ).status
+    ).toBe(404);
 
     const clientDefault = await fetch(`${origin}/owner/api/connections/default`, {
       method: "PUT",

@@ -1005,7 +1005,8 @@ export class OAuthService implements OAuthTokenVerifier {
       connectionId: record.connectionId,
       scopes: [...record.scopes],
       resource: record.resource,
-      surfaceProfile: record.surfaceProfile
+      surfaceProfile: record.surfaceProfile,
+      resultDelivery: record.resultDelivery ?? "structured"
     };
   }
 

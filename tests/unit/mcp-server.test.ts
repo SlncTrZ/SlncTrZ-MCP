@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildExtensionStructuredContent } from "../../src/protocol/mcp-server.js";
+import {
+  buildExtensionStructuredContent,
+  deliverToolResult
+} from "../../src/protocol/mcp-server.js";
 
 describe("buildExtensionStructuredContent", () => {
   it("decodes a JSON text payload alongside truncated", () => {
@@ -46,5 +49,38 @@ describe("buildExtensionStructuredContent", () => {
       truncated: false,
       text: "{not json"
     });
+  });
+});
+
+describe("connection result delivery", () => {
+  it("supplies complete bounded output and metadata to text-only consumers without losing media", () => {
+    const structuredContent = {
+      stdout: "output",
+      stderr: "failure",
+      exitCode: 2,
+      timedOut: false,
+      stdoutTruncated: true
+    };
+    const image = { type: "image" as const, data: "fixture", mimeType: "image/png" };
+    const result = {
+      isError: true,
+      _meta: { receipt: "fixture" },
+      content: [{ type: "text" as const, text: "exit 2" }, image],
+      structuredContent
+    };
+    expect(deliverToolResult(result, "structured")).toBe(result);
+    const full = deliverToolResult(result, "full-content");
+    const last = full.content.at(-1);
+    expect(JSON.parse(last?.type === "text" ? last.text : "")).toEqual(structuredContent);
+    expect(full.content[1]).toBe(image);
+    expect(full.isError).toBe(true);
+    expect(full._meta).toEqual(result._meta);
+    expect(deliverToolResult(full, "full-content").content).toHaveLength(3);
+  });
+  it("preserves text errors and protocol input-required results with no structured payload", () => {
+    const error = { isError: true, content: [{ type: "text", text: "denied" }] };
+    expect(deliverToolResult(error, "full-content")).toBe(error);
+    const input = { resultType: "input_required", requests: [] };
+    expect(deliverToolResult(input, "full-content")).toBe(input);
   });
 });

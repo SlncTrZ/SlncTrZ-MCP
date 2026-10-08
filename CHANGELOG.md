@@ -2,6 +2,27 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.5.0
+
+Date: 2026-10-08
+
+### Added
+
+- Per-connection StructuredContent / FullContent delivery for MCP clients with different result rendering.
+- Persistent result delivery preferences, defaulting to StructuredContent for new and existing connections.
+- Complete structured results as additional JSON text in FullContent, preserving existing text, media and metadata.
+
+### Changed
+
+- Connection mode and content controls save immediately with confirmed SAVED feedback.
+- Rename connections using the edit icon and Enter; Escape cancels.
+- Responsive connection controls and reduced-motion-aware save feedback.
+
+### Integration
+
+- Merge hosted Windows uninstall probe history and the disposable source-CI verification-key branch.
+- Reconcile duplicate release guidance introduced by the older CI branch.
+
 ## 0.4.1
 
 Date: 2026-10-08

@@ -1,6 +1,6 @@
 /** Owner-only foundation. Callers MUST authenticate the Owner before invoking mutations. */
 import type { OAuthGrantStore } from "./oauth-grant-store.js";
-import type { SurfaceProfile } from "./connection-profile.js";
+import type { ResultDelivery, SurfaceProfile } from "./connection-profile.js";
 
 export class OwnerConnectionService {
   constructor(
@@ -13,6 +13,9 @@ export class OwnerConnectionService {
   }
   setGrantProfile(grantId: string, profile: SurfaceProfile): void {
     this.store.setGrantProfile(grantId, profile, this.now());
+  }
+  setResultDelivery(grantId: string, delivery: ResultDelivery): void {
+    this.store.setResultDelivery(grantId, delivery, this.now());
   }
   setConnectionLabel(grantId: string, label: string): void {
     this.store.setConnectionLabel(grantId, label, this.now());
