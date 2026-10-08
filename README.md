@@ -7,7 +7,7 @@ AI can access, and work with your projects through one MCP endpoint.
 
 <p align="center">
   <a href="docs/SlncTrZ-MCP-intro.mp4">
-    <img src="docs/SlncTrZ-MCP-intro.svg" alt="SlncTrZ-MCP Architecture & 60s Introduction" width="100%">
+    <img src="docs/SlncTrZ-MCP-intro.svg" alt="SlncTrZ-MCP gateway, built-in harness and default skills" width="100%">
   </a>
 </p>
 
@@ -17,19 +17,26 @@ AI can access, and work with your projects through one MCP endpoint.
 
 ## What can you do?
 
-| You want to…                               | SlncTrZ-MCP provides                                             |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| Work with a local project from Web AI      | Read, search and edit files; run authorized commands             |
-| Bring your working habits to the agent     | Global/project instructions and custom skills loaded when needed |
-| Use several MCP servers from one client    | One endpoint and a consistent tool contract                      |
-| Keep a coding agent's own harness          | Gateway-only: provider tools and Debate, with native OAuth       |
-| Compare ideas or share work between agents | Native two-agent Debate and task coordination                    |
-| Keep control of your machine               | Owner Console for Paths, Commands, MCP servers and connections   |
+| You want to…                               | SlncTrZ-MCP provides                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Work with a local project from Web AI      | Read, search and edit files; run authorized commands                                 |
+| Bring your working habits to the agent     | Built-in working guidance, global/project instructions and skills loaded when needed |
+| Use several MCP servers from one client    | One endpoint and a consistent tool contract                                          |
+| Keep a coding agent's own harness          | Gateway-only: provider tools and Debate, with native OAuth                           |
+| Compare ideas or share work between agents | Native two-agent Debate and task coordination                                        |
+| Keep control of your machine               | Owner Console for Paths, Commands, MCP servers and connections                       |
 
 Use **Full** for the gateway's coding tools and harness. Use **Gateway-only** when OpenCode,
 Pi, Codex or Claude Code already handles local coding and you only need shared MCP providers.
 Choose Gateway-only on the first OAuth approval: it stays connected until revoked, refreshes
 automatically, and cannot be promoted to Full. See [Connect coding agents](docs/GATEWAY_ONLY.md).
+
+The **built-in harness** supplies product working guidance to Full connections. Fresh installs
+also seed the **code-review** and **debug-and-test** skills, preserving existing owner files.
+Instructions and skills load progressively through `context.bootstrap` and `skills.read`;
+additional repository skills are discovered for an authorized project or installed explicitly.
+See [Harness & Skills](docs/HARNESS.md) and [bundled defaults](skills/README.md).
+Gateway-only clients keep their own harness.
 
 ## Why I built it
 
