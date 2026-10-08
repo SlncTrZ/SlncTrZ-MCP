@@ -1277,26 +1277,38 @@ async function scheduleWindowsInstallRootRemoval(targets: readonly string[]): Pr
   const handshakeRoot = await mkdtemp(join(tmpdir(), "slnctrz-uninstall-"));
   const readyFile = join(handshakeRoot, "ready");
   const goFile = join(handshakeRoot, "go");
-  // Detached Windows PowerShell does not reliably inherit redirected stdio. Use bounded
-  // startup markers; without parent acknowledgement a late helper cannot remove anything.
+  // Keep this worker free of cmdlets: cold PowerShell module loading can stall after READY.
+  // Pin the live parent handle before acknowledgement; bound every subsequent wait.
   const script = [
     `$parentPid=${process.pid}`,
+    "$parent = $null",
+    "function RemoveManaged([string]$path) {",
+    "  $attributes = [IO.File]::GetAttributes($path)",
+    "  if (($attributes -band [IO.FileAttributes]::Directory) -ne 0) {",
+    "    if (($attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($path)) { RemoveManaged $entry } }",
+    "    [IO.File]::SetAttributes($path, $attributes -band (-bnot [IO.FileAttributes]::ReadOnly))",
+    "    [IO.Directory]::Delete($path, $false)",
+    "  } else { [IO.File]::SetAttributes($path, $attributes -band (-bnot [IO.FileAttributes]::ReadOnly)); [IO.File]::Delete($path) }",
+    "}",
     "try {",
+    "  $parent = [Diagnostics.Process]::GetProcessById($parentPid)",
+    "  $null = $parent.Handle",
     `  [IO.File]::WriteAllText(${powershellLiteral(readyFile)}, 'ready')`,
     "  $deadline = [DateTime]::UtcNow.AddSeconds(20)",
     `  while (-not [IO.File]::Exists(${powershellLiteral(goFile)})) {`,
     "    if ([DateTime]::UtcNow -ge $deadline) { exit 1 }",
-    "    Start-Sleep -Milliseconds 50",
+    "    [Threading.Thread]::Sleep(50)",
     "  }",
     `  if ([IO.File]::ReadAllText(${powershellLiteral(goFile)}) -ne 'go') { exit 1 }`,
-    "  Wait-Process -Id $parentPid -ErrorAction SilentlyContinue",
+    "  $exitDeadline = [DateTime]::UtcNow.AddSeconds(30)",
+    "  while (-not $parent.HasExited) { if ([DateTime]::UtcNow -ge $exitDeadline) { exit 1 }; [Threading.Thread]::Sleep(50); $parent.Refresh() }",
     `  $targets=@(${targets.map(powershellLiteral).join(",")})`,
     "  for ($i = 0; $i -lt 40; $i++) {",
-    "    try { foreach ($target in $targets) { if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop } }; exit 0 }",
-    "    catch { Start-Sleep -Milliseconds 250 }",
+    "    try { foreach ($target in $targets) { if ([IO.File]::Exists($target) -or [IO.Directory]::Exists($target)) { RemoveManaged $target } }; exit 0 }",
+    "    catch { [Threading.Thread]::Sleep(250) }",
     "  }",
     "  exit 1",
-    `} finally { Remove-Item -LiteralPath ${powershellLiteral(handshakeRoot)} -Recurse -Force -ErrorAction SilentlyContinue }`
+    `} finally { if ($null -ne $parent) { $parent.Dispose() }; if ([IO.Directory]::Exists(${powershellLiteral(handshakeRoot)})) { [IO.Directory]::Delete(${powershellLiteral(handshakeRoot)}, $true) } }`
   ].join("\n");
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   const child = spawn(

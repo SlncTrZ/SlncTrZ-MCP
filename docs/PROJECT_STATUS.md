@@ -7,7 +7,7 @@ Use runtime core.ping and the published GitHub release when making operational d
 
 | Layer                        | Observed state                                                                          |
 | ---------------------------- | --------------------------------------------------------------------------------------- |
-| Source package               | 0.4.1; baseline main HEAD 554ba3c1014b54203a41c314eb13f3814c3bd6ef                      |
+| Source package               | 0.4.1; reviewed main baseline 358d14f77b680d2211eb57c1a0f2daf516989b33                  |
 | Follow-up source/docs        | Working-tree patches; not committed or included in the current tag                      |
 | Existing v0.4.0 tag          | Points to the baseline, before the uninstall/test/dependency follow-up                  |
 | Latest public stable release | [v0.3.7](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.3.7)                    |
@@ -41,13 +41,15 @@ hard-coded workstation mount.
 
 Final local v0.4.1 QA is approved: Linux Node 22.23.3/24.19.0 each passed 739 tests
 with 10 explicit skips; Windows Node 24.21.0 passed 724 with 25 skips. Full static/docs/build
-gates passed. Native SEA smoke/identity and uninstall passed Linux 27/27 and Windows 33/33.
+gates passed. Native SEA smoke/identity and uninstall passed Linux 27/27 and Windows 36/36.
 The full dependency audit found zero vulnerabilities; inventory contains 209 packages,
 no UNKNOWN licenses. Direct benchmark success/failure isolation/cleanup passed all three hosts.
 
 [Current QA report](../QA_QC_REPORT_v0.4.1.md) records fingerprints, initial concurrent Linux
-timeouts, sequential reruns and the AI technical approval. Fresh hosted CI, protected signing
-and exact public install/browser gates remain required before stable release.
+timeouts, sequential reruns and the AI technical approval. Fresh hosted [CI 37733745830](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37733745830)
+failed Windows native uninstall although source tests and Linux native passed. A cmdlet-free pinned-parent worker correction passed the full local matrix, including Windows
+36/36 native uninstall; fresh hosted CI is pending. No v0.4.1 tag or candidate was published. Protected signing and exact public install/browser gates
+remain required after the Windows failure is fixed.
 
 ## Documentation Scope
 

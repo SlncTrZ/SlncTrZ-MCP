@@ -22,7 +22,8 @@ const cases = [
   ...(win
     ? [
         ["without shell PATH", "program", "state", "config", "system-path"],
-        ["inside install cwd", "program", "state", "config", "install-cwd"]
+        ["inside install cwd", "program", "state", "config", "install-cwd"],
+        ["readonly managed files", "program", "state", "config", "readonly-files"]
       ]
     : [])
 ];
@@ -76,6 +77,14 @@ for (const [name, program, state, config, environment] of cases)
       await writeFile(join(stateRoot, "retained-state.txt"), "state");
       await writeFile(join(configRoot, "gateway.env"), "");
       await writeFile(join(configRoot, "client.env"), "");
+      if (environment === "readonly-files") {
+        for (const path of [
+          launcher,
+          join(stateRoot, "retained-state.txt"),
+          join(configRoot, "gateway.env")
+        ])
+          await chmod(path, 0o400);
+      }
       const run = spawnSync(
         executable,
         ["uninstall", "--yes", ...(mode === "default" ? [] : ["--" + mode])],

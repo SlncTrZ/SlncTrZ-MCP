@@ -13,6 +13,8 @@ Date: 2026-10-08
 
 ### Fixed
 
+- Windows cleanup uses .NET process/thread/filesystem APIs directly, avoiding cold cmdlet loading after READY. It pins the parent handle, bounds waits and preserves readonly removal semantics without following directory reparse points.
+
 - Bounded Windows uninstall helper startup with absolute system shell paths and ready/go acknowledgement.
 - Native uninstall verification for quoted paths, minimal Windows shell PATH and install cwd.
 - Transactional legacy OAuth fixtures and a Windows-specific migration-test timeout.
