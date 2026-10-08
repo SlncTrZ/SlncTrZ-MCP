@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Deployment contract for SlncTrZ-MCP (v0.5.x source). Verify published and running identities
+Deployment contract for SlncTrZ-MCP (v0.4.x source). Verify published and running identities
 separately; [Project Status](PROJECT_STATUS.md) records current evidence.
 
 ## 1. Linux System Install (systemd)

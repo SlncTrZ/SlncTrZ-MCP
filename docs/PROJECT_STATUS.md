@@ -7,7 +7,7 @@ Use runtime core.ping and the published GitHub release when making operational d
 
 | Layer                        | Observed state                                                                                                                        |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Source package               | 0.5.0 release preparation on main; Windows probe and CI verification-key branches merged                                              |
+| Source package               | 0.4.2 release preparation on main; Windows probe and CI verification-key branches merged                                              |
 | Working checkout             | Result delivery upgrade and release preparation; two untracked owner diagnostic files preserved                                       |
 | Latest public stable release | [v0.4.1](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.1); published 2026-10-08 13:51 (+07), draft=false, prerelease=false |
 | Running gateway              | core.ping: 0.3.7, build 141a26ab43d7eda357ff2ab6ef1114641650853f                                                                      |
@@ -19,13 +19,17 @@ Release commands must use the current native repo path, never a hard-coded works
 Earlier OAuth migration timeout and Windows uninstall failures remain historical evidence;
 the worker correction and fresh exact-commit CI supersede their release-blocking status.
 
-## v0.5.0 Release Preparation
+The v0.5.0 candidate passed source, native build/signing and clean Linux/Windows installs,
+but its installed Usage browser gate failed while starting Chrome. It was not promoted
+stable. The owner selected v0.4.2; v0.5.0 history remains unchanged.
+
+## v0.4.2 Release Preparation
 
 - Per-connection StructuredContent / FullContent preferences persist through refresh/restart.
 - All tool registrations use the same delivery formatter; FullContent appends complete JSON text while preserving media and metadata.
 - Connection mode and content save immediately; rename saves on Enter. Feedback follows backend confirmation.
 - Source and browser verification passed before release preparation. The new tag must pass native build, signing and exact installed-target acceptance before stable promotion.
-- Latest-public and running-gateway rows above record the observed baseline; preparing v0.5.0 does not upgrade the running gateway.
+- Latest-public and running-gateway rows above record the observed baseline; preparing v0.4.2 does not upgrade the running gateway.
 
 ## Implemented Source Contract
 

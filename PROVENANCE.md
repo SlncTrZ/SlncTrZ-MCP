@@ -5,7 +5,7 @@ This document records source/dependency provenance and license obligations for t
 ## Project
 
 - **Project:** SlncTrZ-MCP — coding harness and MCP capability gateway
-- **Current release line:** 0.5.x
+- **Current release line:** 0.4.x
 - **License:** Apache-2.0 (`LICENSE`)
 - **Implementation:** independent/clean-room project implementation based on project requirements, public MCP protocol specifications, measured behavior, and independently written tests.
 
@@ -24,7 +24,7 @@ When an external source influences a decision, attribute the idea rather than co
 
 ## Direct runtime dependency inventory
 
-Snapshot from the locked dependency tree for the 0.5.x release line:
+Snapshot from the locked dependency tree for the 0.4.x release line:
 
 | Package                        | Locked version | License | Purpose                           |
 | ------------------------------ | -------------: | ------- | --------------------------------- |

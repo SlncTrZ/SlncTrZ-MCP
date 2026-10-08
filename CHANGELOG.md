@@ -2,7 +2,28 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
-## 0.5.0
+## 0.4.2
+
+Date: 2026-10-08
+
+### Added
+
+- Per-connection StructuredContent / FullContent delivery, defaulting to checked StructuredContent.
+- Persist delivery preferences across token refresh and gateway restart.
+- FullContent appends complete structured JSON as text while preserving existing content and media.
+
+### Changed
+
+- Connection mode and checkbox save immediately with confirmed SAVED feedback.
+- Rename with the edit icon and Enter; Escape cancels.
+- Responsive controls and reduced-motion-aware feedback.
+
+### Release identity
+
+- Publish this upgrade as v0.4.2 at the owner's request.
+- The existing v0.5.0 tag/candidate remains unchanged as a superseded prerelease; its browser startup gate failed before stable promotion.
+
+## 0.5.0 (superseded prerelease)
 
 Date: 2026-10-08
 
