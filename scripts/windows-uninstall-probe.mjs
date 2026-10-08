@@ -82,38 +82,37 @@ source = source.replace(
     JSON.stringify(log) +
     ', "cmd-pid=" + child.pid + "\\nparent-pid=" + process.pid + "\\n", { flag: "a" });\n    child.unref();'
 );
+const nativeSource =
+  'using System;\nusing System.Text;\nusing System.ComponentModel;\nusing System.Runtime.InteropServices;\npublic static class UninstallWorkerLauncher {\n  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]\n  public struct StartupInfo {\n    public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;\n    public int dwX; public int dwY; public int dwXSize; public int dwYSize;\n    public int dwXCountChars; public int dwYCountChars; public int dwFillAttribute;\n    public int dwFlags; public short wShowWindow; public short cbReserved2;\n    public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError;\n  }\n  [StructLayout(LayoutKind.Sequential)]\n  public struct ProcessInfo { public IntPtr hProcess; public IntPtr hThread; public int processId; public int threadId; }\n  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]\n  static extern bool CreateProcess(string application, StringBuilder command, IntPtr processAttributes,\n    IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory,\n    ref StartupInfo startup, out ProcessInfo process);\n  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);\n  public static int Start(string application, string command, string directory) {\n    StartupInfo startup = new StartupInfo(); startup.cb = Marshal.SizeOf(typeof(StartupInfo));\n    startup.dwFlags = 1; startup.wShowWindow = 0;\n    ProcessInfo process;\n    if (!CreateProcess(application, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false,\n      0x01000010, IntPtr.Zero, directory, ref startup, out process))\n      throw new Win32Exception(Marshal.GetLastWin32Error());\n    CloseHandle(process.hThread); CloseHandle(process.hProcess); return process.processId;\n  }\n}';
+const bootstrapLines = [
+  "Add-Type -TypeDefinition @'",
+  nativeSource,
+  "'@",
+  "try {",
+  psLog("launcher-start")
+];
+const bootstrapSuffix = [
+  psLog("launcher-worker-started"),
+  "Wait-Process -Id $workerPid -ErrorAction SilentlyContinue",
+  "} catch { [IO.File]::AppendAllText(" +
+    literal +
+    ", ('launcher-error=' + $_.FullyQualifiedErrorId + '; hresult=' + $_.Exception.HResult + [Environment]::NewLine)); exit 1 }"
+];
 source = source.replace(
   '  const encoded = Buffer.from(script, "utf16le").toString("base64");',
   [
     '  const workerCommand = \'"\' + powershell + \'" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand \' + Buffer.from(script, "utf16le").toString("base64");',
-    "  const launcher = [",
-    '    "try {",',
-    "    " + JSON.stringify(psLog("launcher-start")) + ",",
-    '    "$launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = " + powershellLiteral(workerCommand) + "; CurrentDirectory = " + powershellLiteral(dirname(handshakeRoot)) + " } -ErrorAction Stop",',
-    "    " +
-      JSON.stringify(
-        "[IO.File]::AppendAllText(" +
-          literal +
-          ", ('cim-return=' + $launch.ReturnValue + '; pid=' + $launch.ProcessId + [Environment]::NewLine))"
-      ) +
-      ",",
-    "    \"if ($launch.ReturnValue -ne 0) { throw 'cim_create_failed' }\",",
-    '    "Wait-Process -Id $launch.ProcessId -ErrorAction SilentlyContinue",',
-    "    " +
-      JSON.stringify(
-        "} catch { [IO.File]::AppendAllText(" +
-          literal +
-          ", ('launcher-error=' + $_.FullyQualifiedErrorId + '; hresult=' + $_.Exception.HResult + [Environment]::NewLine)); exit 1 }"
-      ) +
-      ",",
-    '  ].join("\\n");',
-    '  const encoded = Buffer.from(launcher, "utf16le").toString("base64");'
+    '  const launcherFile = join(handshakeRoot, "launcher.ps1");',
+    "  const bootstrap = [" + bootstrapLines.map(JSON.stringify).join(",") + ",",
+    '    "$workerPid = [UninstallWorkerLauncher]::Start(" + powershellLiteral(powershell) + ", " + powershellLiteral(workerCommand) + ", " + powershellLiteral(dirname(handshakeRoot)) + ")",',
+    bootstrapSuffix.map(JSON.stringify).join(",") + '].join("\\n");',
+    '  await writeFile(launcherFile, bootstrap, { encoding: "utf8", mode: 0o600, flag: "wx" });'
   ].join("\n")
 );
 source = source
   .replace(
     /    join\(systemRoot, "System32", "cmd.exe"\),[\s\S]*?\n    \],/u,
-    '    powershell,\n    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],'
+    '    powershell,\n    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", launcherFile],'
   )
   .replace("      detached: true,", "      detached: false,")
   .replace("      windowsVerbatimArguments: true,", "      windowsVerbatimArguments: false,");
