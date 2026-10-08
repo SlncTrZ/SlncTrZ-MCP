@@ -5,9 +5,15 @@
 SlncTrZ-MCP is a self-hosted gateway for Linux and Windows. Connect once, choose what the
 AI can access, and work with your projects through one MCP endpoint.
 
-<a href="docs/SlncTrZ-MCP-intro.mp4"><img src="docs/SlncTrZ-MCP-intro.jpg" alt="Watch the 60-second introduction" width="260"></a>
+<p align="center">
+  <a href="docs/SlncTrZ-MCP-intro.mp4">
+    <img src="docs/SlncTrZ-MCP-intro.svg" alt="SlncTrZ-MCP Architecture & 60s Introduction" width="100%">
+  </a>
+</p>
 
-[60-second introduction](docs/SlncTrZ-MCP-intro.mp4) · [Editable video source](docs/SlncTrZ-MCP-intro-source.zip) · [Setup walkthrough](docs/SlncTrZ-MCP.mp4) · [User Guide](docs/USER_GUIDE.md) · [Releases](https://github.com/SlncTrZ/SlncTrZ-MCP/releases)
+<p align="center">
+  <a href="docs/SlncTrZ-MCP-intro.mp4">▶ Watch 60-second video (16:9 MP4)</a> · <a href="docs/SlncTrZ-MCP-intro-source.zip">Editable source</a> · <a href="docs/SlncTrZ-MCP.mp4">Setup walkthrough</a> · <a href="docs/USER_GUIDE.md">User Guide</a> · <a href="https://github.com/SlncTrZ/SlncTrZ-MCP/releases">Releases</a>
+</p>
 
 ## What can you do?
 
