@@ -72,6 +72,16 @@ source = source.replace(
     JSON.stringify(log) +
     ', "parent-wrote-go\\n", { flag: "a" });'
 );
+source = source.replace(
+  "      windowsHide: true,\n      windowsVerbatimArguments: true,",
+  "      windowsHide: false,\n      windowsVerbatimArguments: true,"
+);
+source = source.replace(
+  "    child.unref();",
+  "    await writeFile(" +
+    JSON.stringify(log) +
+    ', "cmd-pid=" + child.pid + "\\nparent-pid=" + process.pid + "\\n", { flag: "a" });\n    child.unref();'
+);
 if (source === original || !source.includes("outer-error"))
   throw new Error("instrumentation failed");
 await writeFile(src, source);
