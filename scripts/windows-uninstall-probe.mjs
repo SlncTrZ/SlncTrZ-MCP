@@ -85,9 +85,11 @@ source = source.replace(
 const nativeSource =
   'using System;\nusing System.Text;\nusing System.ComponentModel;\nusing System.Runtime.InteropServices;\npublic static class UninstallWorkerLauncher {\n  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]\n  public struct StartupInfo {\n    public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;\n    public int dwX; public int dwY; public int dwXSize; public int dwYSize;\n    public int dwXCountChars; public int dwYCountChars; public int dwFillAttribute;\n    public int dwFlags; public short wShowWindow; public short cbReserved2;\n    public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError;\n  }\n  [StructLayout(LayoutKind.Sequential)]\n  public struct ProcessInfo { public IntPtr hProcess; public IntPtr hThread; public int processId; public int threadId; }\n  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]\n  static extern bool CreateProcess(string application, StringBuilder command, IntPtr processAttributes,\n    IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory,\n    ref StartupInfo startup, out ProcessInfo process);\n  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);\n  public static int Start(string application, string command, string directory) {\n    StartupInfo startup = new StartupInfo(); startup.cb = Marshal.SizeOf(typeof(StartupInfo));\n    startup.dwFlags = 1; startup.wShowWindow = 0;\n    ProcessInfo process;\n    if (!CreateProcess(application, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false,\n      0x01000010, IntPtr.Zero, directory, ref startup, out process))\n      throw new Win32Exception(Marshal.GetLastWin32Error());\n    CloseHandle(process.hThread); CloseHandle(process.hProcess); return process.processId;\n  }\n}';
 const bootstrapLines = [
+  psLog("before-add-type"),
   "Add-Type -TypeDefinition @'",
   nativeSource,
   "'@",
+  psLog("after-add-type"),
   "try {",
   psLog("launcher-start")
 ];
@@ -116,6 +118,7 @@ source = source
   )
   .replace("      detached: true,", "      detached: false,")
   .replace("      windowsVerbatimArguments: true,", "      windowsVerbatimArguments: false,");
+source = source.replace("performance.now() + 15_000", "performance.now() + 90_000");
 if (source === original || !source.includes("outer-error"))
   throw new Error("instrumentation failed");
 await writeFile(src, source);
@@ -127,7 +130,10 @@ const smoke = (await readFile("scripts/smoke-uninstall.mjs", "utf8"))
     "env: {",
     'env: { ...Object.fromEntries(["ComSpec","PATHEXT","SystemDrive","TEMP","TMP","USERPROFILE","APPDATA","LOCALAPPDATA","ProgramData","HOMEDRIVE","HOMEPATH"].flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]])),'
   );
-await writeFile("_runtime/hosted-uninstall-first-case.mjs", smoke);
+await writeFile(
+  "_runtime/hosted-uninstall-first-case.mjs",
+  smoke.replace(/timeout: 30000/g, "timeout: 120000")
+);
 try {
   const { publicKey } = generateKeyPairSync("ed25519");
   const env = {
@@ -150,7 +156,7 @@ try {
   }
   const run = spawnSync(process.execPath, ["_runtime/hosted-uninstall-first-case.mjs"], {
     encoding: "utf8",
-    timeout: 90000
+    timeout: 180000
   });
   console.log(
     JSON.stringify({ smokeExitCode: run.status, stdout: run.stdout, stderr: run.stderr })
