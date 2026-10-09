@@ -483,12 +483,14 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const fullSurface = surfaceProfile === "full";
   const agentHarness = options.gatewayInfo?.agentHarness;
   const server = new McpServer(SERVER_INFO, {
-    instructions: [
-      !fullSurface || agentHarness === undefined ? "" : buildAgentHarnessInstructions(agentHarness),
-      !fullSurface || options.harnessRuntime === undefined ? "" : HARNESS_GUIDANCE
-    ]
-      .filter(Boolean)
-      .join("\n\n")
+    instructions: fullSurface
+      ? [
+          agentHarness === undefined ? "" : buildAgentHarnessInstructions(agentHarness),
+          options.harnessRuntime === undefined ? "" : HARNESS_GUIDANCE
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : "You are connected with the Gateway-only surface profile. Coding/file/media/context/skills/task tools are hidden. Use core.ping, debate.*, connection.restrict, and owner-enabled provider tools. Provider calls do not require a gateway harness context."
   });
   // All tools, including harness and providers, use the same connection-bound formatter.
   const delivery = options.authenticatedConnection?.resultDelivery ?? "structured";
@@ -863,8 +865,9 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     "core.ping",
     {
       title: "Gateway Ping",
-      description:
-        "Return gateway liveness and the active workspace capability summary. For coding tools, initialize context.bootstrap first.",
+      description: fullSurface
+        ? "Return gateway liveness and the active workspace capability summary. For coding tools, initialize context.bootstrap first."
+        : "Return gateway liveness and the active workspace capability summary. Coding tools and harness bootstrap are disabled for this connection profile.",
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -896,12 +899,13 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         const docs = gi?.docs ?? [];
         const modelGuide = gi?.modelGuide;
         const productAgentHarness = gi?.agentHarness;
-        const docsLabel =
-          docs.length > 0
+        const docsLabel = fullSurface
+          ? docs.length > 0
             ? docs.join(", ")
             : modelGuide === undefined
               ? "(none)"
-              : "embedded docs/MODEL_GUIDE.md (structuredContent.modelGuide)";
+              : "embedded docs/MODEL_GUIDE.md (structuredContent.modelGuide)"
+          : "(none for gateway-only profile)";
         const authorityMode = kp?.authorityMode ?? "restricted";
         const guidance = fullSurface
           ? (harnessRuntime === undefined ? "" : HARNESS_GUIDANCE + " ") +
@@ -1032,12 +1036,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             ...(!fullSurface || productAgentHarness === undefined
               ? {}
               : { agentHarness: productAgentHarness }),
-            ...(config === undefined &&
-            docs.length === 0 &&
-            modelGuide === undefined &&
-            productAgentHarness === undefined
-              ? {}
-              : { guidance })
+            guidance
           }
         };
         emitToolAuditSafely(toolAudit, {
@@ -2248,7 +2247,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             idempotentHint: false,
             openWorldHint: tool.riskClass === "network"
           },
-          inputSchema: z.object({ ...harnessContextShape }).passthrough()
+          inputSchema: (fullSurface
+            ? z.object({ ...harnessContextShape })
+            : z.object({})
+          ).passthrough()
         },
         async (args, context) =>
           observeToolInvocation(options.metrics, async () => {
