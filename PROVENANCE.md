@@ -7,7 +7,7 @@ This document records source/dependency provenance and license obligations for t
 - **Project:** SlncTrZ-MCP — coding harness and MCP capability gateway
 - **Current release line:** 0.4.x
 - **License:** Apache-2.0 (`LICENSE`)
-- **Implementation:** independent/clean-room project implementation based on project requirements, public MCP protocol specifications, measured behavior, and independently written tests.
+- **Implementation:** independent project implementation based on project requirements, public MCP protocol specifications, measured behavior, and independently written tests.
 
 Historical research/reference material is kept outside tracked production source.
 

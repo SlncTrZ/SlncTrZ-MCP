@@ -6,7 +6,7 @@ coverage/
 *.tsbuildinfo
 *.map
 
-# Reference repositories and research notes — PLAN section 2.1 (clean-room).
+# Reference repositories and research notes
 # These MUST remain outside tracked project source.
 _reference/
 research/

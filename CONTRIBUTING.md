@@ -1,19 +1,15 @@
 # Contributing to SlncTrZ-MCP
 
-Thanks for contributing. This project is an **independent, clean-room implementation**
-of a coding harness and MCP capability gateway. Please read this before opening an issue or pull request.
+Thanks for contributing. This project is an **original, independent implementation**
+of a coding harness and MCP capability gateway authored by SlncTrZ. Please read this before opening an issue or pull request.
 
-## Independent implementation
+## Original work and licensing
 
-- Do not copy source code, comments, documentation, UI text, naming conventions, or
-  test fixtures from reference implementations (including `aki-mcp-sv` and research
-  notes).
-- Reference repositories and research notes live outside tracked source (excluded via
-  `.gitignore`).
-- Every production module must have clear provenance: a project requirement, a protocol
-  requirement, or an independently recorded architecture decision.
-- If you derived an idea from external material, attribute it in the commit message or
-  the linked ADR; do not bring the text in verbatim.
+- All contributions must be your own original work, authored under your own identity.
+- Do not copy third-party proprietary source code, documentation, UI text, or test assets.
+- Every production module must have clear provenance: a project requirement, an MCP
+  protocol specification, or an independently recorded architecture decision.
+- All contributions are licensed under the Apache License, Version 2.0 (`LICENSE`).
 
 ## Prerequisites
 
