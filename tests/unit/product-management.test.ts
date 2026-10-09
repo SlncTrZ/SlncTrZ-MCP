@@ -22,7 +22,16 @@ import { TEST_RELEASE_TRUST_KEYS, signedManifestResponse } from "../helpers/rele
 const cleanup: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(
+    cleanup.splice(0).map((path) =>
+      rm(path, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === "win32" ? 5 : 0,
+        retryDelay: 100
+      })
+    )
+  );
 });
 
 async function directory(prefix: string): Promise<string> {
@@ -110,20 +119,25 @@ async function rollbackCompatibilityFixture() {
 }
 
 describe("installed product management", () => {
-  it("keeps activation unchanged when client config preparation fails", async () => {
-    const f = await fixture();
-    const activationFile = join(f.installRoot, "current.json");
-    const before = await readFile(activationFile, "utf8");
-    await rm(join(f.configRoot, "client.env"));
-    await mkdir(join(f.configRoot, "client.env"));
-    await expect(
-      updateProduct(
-        { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
-        { stateRoot: f.stateRoot, fetch: f.fetch, releaseTrustKeys: TEST_RELEASE_TRUST_KEYS }
-      )
-    ).rejects.toThrow();
-    expect(await readFile(activationFile, "utf8")).toBe(before);
-  });
+  it(
+    "keeps activation unchanged when client config preparation fails",
+    async () => {
+      const f = await fixture();
+      const activationFile = join(f.installRoot, "current.json");
+      const before = await readFile(activationFile, "utf8");
+      await rm(join(f.configRoot, "client.env"));
+      await mkdir(join(f.configRoot, "client.env"));
+      await expect(
+        updateProduct(
+          { manifestUrl: "https://updates.example.test/1.1.0/manifest.json" },
+          { stateRoot: f.stateRoot, fetch: f.fetch, releaseTrustKeys: TEST_RELEASE_TRUST_KEYS }
+        )
+      ).rejects.toThrow();
+      expect(await readFile(activationFile, "utf8")).toBe(before);
+      // Fixture setup and rollback exercise native filesystem/ACL boundaries.
+    },
+    process.platform === "win32" ? 15_000 : 5_000
+  );
 
   it("reports status and read-only diagnostics without exposing secrets", async () => {
     const f = await fixture();
