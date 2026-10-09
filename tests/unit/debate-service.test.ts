@@ -62,79 +62,87 @@ async function bundleDebateServiceForWorker(path: string): Promise<string> {
 }
 
 describe("durable Debate service", () => {
-  it("creates and joins exactly two connection-bound participants without persisting membership plaintext", async () => {
-    const path = await databasePath();
-    const service = createDebateService(path, {
-      id: (() => {
-        const ids = ["debate-1", "participant-a", "participant-b"];
-        return () => ids.shift() ?? "unexpected-id";
-      })()
-    });
+  it(
+    "creates and joins exactly two connection-bound participants without persisting membership plaintext",
+    async () => {
+      const path = await databasePath();
+      const service = createDebateService(path, {
+        id: (() => {
+          const ids = ["debate-1", "participant-a", "participant-b"];
+          return () => ids.shift() ?? "unexpected-id";
+        })()
+      });
 
-    const created = service.create({
-      topic: "Should the gateway use durable turn state?",
-      nickname: "Alpha",
-      connectionId: "grant-a",
-      maxTurns: 4,
-      finalizerRole: "creator"
-    });
-    expect(created.debate.status).toBe("waiting");
-    expect(created.debate.participants).toEqual([
-      expect.objectContaining({
-        participantId: "participant-a",
-        nickname: "Alpha",
-        role: "creator"
-      })
-    ]);
+      try {
+        const created = service.create({
+          topic: "Should the gateway use durable turn state?",
+          nickname: "Alpha",
+          connectionId: "grant-a",
+          maxTurns: 4,
+          finalizerRole: "creator"
+        });
+        expect(created.debate.status).toBe("waiting");
+        expect(created.debate.participants).toEqual([
+          expect.objectContaining({
+            participantId: "participant-a",
+            nickname: "Alpha",
+            role: "creator"
+          })
+        ]);
 
-    expectDebateError(
-      () =>
-        service.join({
+        expectDebateError(
+          () =>
+            service.join({
+              debateId: created.debate.debateId,
+              nickname: "Same grant",
+              connectionId: "grant-a"
+            }),
+          "same_connection_not_allowed"
+        );
+
+        const joined = service.join({
           debateId: created.debate.debateId,
-          nickname: "Same grant",
-          connectionId: "grant-a"
-        }),
-      "same_connection_not_allowed"
-    );
+          nickname: "Alpha",
+          connectionId: "grant-b"
+        });
+        expect(joined.debate.status).toBe("active");
+        expect(joined.debate.currentParticipantId).toBe("participant-a");
+        expect(joined.debate.participants.map((participant) => participant.nickname)).toEqual([
+          "Alpha",
+          "Alpha"
+        ]);
 
-    const joined = service.join({
-      debateId: created.debate.debateId,
-      nickname: "Alpha",
-      connectionId: "grant-b"
-    });
-    expect(joined.debate.status).toBe("active");
-    expect(joined.debate.currentParticipantId).toBe("participant-a");
-    expect(joined.debate.participants.map((participant) => participant.nickname)).toEqual([
-      "Alpha",
-      "Alpha"
-    ]);
+        const creatorAuth = auth(
+          created.debate.debateId,
+          created.membership.participantId,
+          created.membership.membershipCredential,
+          "grant-a"
+        );
+        expect(service.read({ auth: creatorAuth }).currentParticipantId).toBe("participant-a");
+        expectDebateError(
+          () => service.read({ auth: { ...creatorAuth, connectionId: "grant-b" } }),
+          "membership_invalid"
+        );
+        expectDebateError(
+          () =>
+            service.read({ auth: { ...creatorAuth, membershipCredential: "wrong-credential" } }),
+          "membership_invalid"
+        );
 
-    const creatorAuth = auth(
-      created.debate.debateId,
-      created.membership.participantId,
-      created.membership.membershipCredential,
-      "grant-a"
-    );
-    expect(service.read({ auth: creatorAuth }).currentParticipantId).toBe("participant-a");
-    expectDebateError(
-      () => service.read({ auth: { ...creatorAuth, connectionId: "grant-b" } }),
-      "membership_invalid"
-    );
-    expectDebateError(
-      () => service.read({ auth: { ...creatorAuth, membershipCredential: "wrong-credential" } }),
-      "membership_invalid"
-    );
+        const raw = await readFile(path);
+        expect(raw.includes(Buffer.from(created.membership.membershipCredential))).toBe(false);
+        expect(raw.includes(Buffer.from(joined.membership.membershipCredential))).toBe(false);
 
-    const raw = await readFile(path);
-    expect(raw.includes(Buffer.from(created.membership.membershipCredential))).toBe(false);
-    expect(raw.includes(Buffer.from(joined.membership.membershipCredential))).toBe(false);
-
-    if (process.platform !== "win32") {
-      expect((await stat(path)).mode & 0o777).toBe(0o600);
-    }
-
-    service.close();
-  });
+        if (process.platform !== "win32") {
+          expect((await stat(path)).mode & 0o777).toBe(0o600);
+        }
+      } finally {
+        service.close();
+      }
+      // Native ACL setup can exceed the default 5s budget on Windows CI.
+    },
+    process.platform === "win32" ? 15_000 : 5_000
+  );
 
   it("persists transcript, sequence, deadlines and stopped state across restart", async () => {
     const path = await databasePath("slnctrz-debate-restart-");
