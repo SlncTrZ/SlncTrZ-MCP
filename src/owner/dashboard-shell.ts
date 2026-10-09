@@ -1,4 +1,6 @@
 /** Shared native dashboard shell for the authenticated owner surfaces. */
+import { thinkingOrbHtml, thinkingOrbCss, thinkingOrbScript } from "./thinking-orb.js";
+
 export type DashboardPage = "owner" | "usage" | "debate";
 
 const icons: Record<string, string> = {
@@ -42,7 +44,7 @@ export function dashboardChrome(page: DashboardPage): string {
     })
     .join("")}</nav>
 <div class="sidebar-bottom"><div class="sidebar-note">Your tools. Your machine.<br>Your control.</div><button type="button" class="intro-replay">Play introduction ${icon("debate")}</button><span class="sidebar-footer">SlncTrZ-MCP / Owner console</span></div></aside>
-<div class="dashboard-body"><header class="dashboard-header"><button type="button" id="nav-toggle" aria-controls="dashboard-sidebar" aria-expanded="false" aria-label="Toggle navigation"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="breadcrumb">Workspace <span>/</span> <b id="dashboard-title">${page === "owner" ? "Overview" : page === "usage" ? "Usage" : "Debate"}</b></div><div class="header-owner"><div class="gateway-status" id="gateway-status" role="status" aria-live="polite" data-state="ready"><span class="gateway-status-dot" aria-hidden="true"></span><span class="gateway-status-text" id="gateway-status-text">Owner access</span></div><div id="thinking-orb-container" class="thinking-orb-container"><span class="owner-avatar" aria-hidden="true">O</span></div></div></header>
+<div class="dashboard-body"><header class="dashboard-header"><button type="button" id="nav-toggle" aria-controls="dashboard-sidebar" aria-expanded="false" aria-label="Toggle navigation"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="breadcrumb">Workspace <span>/</span> <b id="dashboard-title">${page === "owner" ? "Overview" : page === "usage" ? "Usage" : "Debate"}</b></div><div class="header-owner"><div class="gateway-status" id="gateway-status" role="status" aria-live="polite" data-state="ready"><span class="gateway-status-dot" aria-hidden="true"></span><span class="gateway-status-text" id="gateway-status-text">Owner access</span></div><div id="thinking-orb-container" class="thinking-orb-container">${thinkingOrbHtml}</div></div></header>
 <main id="dashboard-main" class="dashboard-main" tabindex="-1">`;
 }
 export const dashboardEnd = `</main></div><div class="startup-intro hidden" id="startup-intro" aria-hidden="true"><div class="intro-orbit"></div><div class="intro-copy"><span class="intro-kicker">YOUR AI. CONNECTED.</span><span class="intro-wordmark">SlncTrZ</span><span class="intro-rule"></span><span class="intro-tagline">One gateway. Endless possibilities.</span></div><button type="button" id="intro-skip" aria-label="Skip introduction">Skip intro</button></div>`;
@@ -137,6 +139,7 @@ document.getElementById('intro-skip').addEventListener('click',hideIntro);docume
 try{if(!sessionStorage.getItem('slnctrz-intro-seen')){sessionStorage.setItem('slnctrz-intro-seen','1');playIntro()}}catch{}
 ${workspaceCardControllerScript}
 createWorkspaceCard();
+${thinkingOrbScript}
 })();</script>`;
 
 export const dashboardCss = `
@@ -395,4 +398,5 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 
 /* Reduced motion */
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.startup-intro{display:none!important}.dashboard-sidebar,button,a{transition:none!important;animation:none!important}[data-owner-panel] .page-heading,[data-owner-panel] .card,#dashboard .hero,#dashboard .card,#app>.hero,#app>.workspace,.panel,.mcp-form,.dashboard-nav a svg,.quick-links a span{animation:none!important;transition:none!important;transform:none!important}.card button,.action,.range button,.button-link,.debate-item{transition:none!important;transform:none!important}}
+${thinkingOrbCss}
 `;
