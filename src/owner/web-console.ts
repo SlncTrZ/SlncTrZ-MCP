@@ -12,15 +12,26 @@ import type { OwnerConnectionService } from "../auth/owner-connection-service.js
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
 import { DebateError, type DebateService } from "../debate/index.js";
 import { compileCommandCatalog, parseCommandAllowlist } from "../kernel/command-catalog.js";
-import type { ExtensionManifestV1 } from "../extension/manifest.js";
+import { EXTENSION_ID_PATTERN, type ExtensionManifestV1 } from "../extension/manifest.js";
 import { readBoundedJson } from "../shared/http-body.js";
 import { withPolicyMutation, type PolicySnapshotStore } from "../policy/policy-store.js";
-import type { ManagedStatePaths } from "./managed-state.js";
+import { DEFAULT_WORKSPACE_ID, type ManagedStatePaths } from "./managed-state.js";
 import type { PolicyMutationService } from "./policy-mutation.js";
 import type { McpCredentialStore } from "./mcp-credential-store.js";
+import type { ManagedMcpProvider } from "./mcp-provider-store.js";
 import type { McpProviderService } from "./mcp-provider-service.js";
 import type { McpOwnerCredentialIntent, McpOwnerOrchestrator } from "./mcp-owner-orchestrator.js";
-import { deriveProviderStatus, summarizeProviderStatuses } from "./mcp-presentation.js";
+import {
+  deriveProviderStatus,
+  projectProviderDetail,
+  summarizeProviderStatuses,
+  type OwnerMcpProviderDetail
+} from "./mcp-presentation.js";
+import {
+  createWorkspacePreferenceStore,
+  WorkspacePreferenceError,
+  type WorkspacePreference
+} from "./workspace-preference.js";
 import type { UsageReader } from "../observability/usage-query.js";
 import { parseUsageRange } from "../observability/usage-query.js";
 import { sendDebatePage } from "./debate-page.js";
@@ -508,6 +519,30 @@ export function createOwnerWebConsole(options: {
       };
     });
   };
+
+  const providerDetail = async (provider: ManagedMcpProvider): Promise<OwnerMcpProviderDetail> => {
+    const health = options.policyStore.capture().extensionStatus?.() ?? [];
+    const runtime = health.find((entry) => entry.providerId === provider.id);
+    const credentials =
+      options.mcpCredentials === undefined ? [] : await options.mcpCredentials.list();
+    const discovered = options.mcpProviders?.getDiscovered(provider.id);
+    const toolDrift = discovered?.diff.hasChanges ?? false;
+    return projectProviderDetail({
+      provider,
+      runtime:
+        runtime === undefined ? undefined : { state: runtime.state, health: runtime.health },
+      credentials,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      workspaceGranted: true,
+      toolDrift,
+      ...(discovered === undefined ? {} : { discoveredCount: discovered.tools.length }),
+      ...(discovered === undefined ? {} : { discoveredAt: discovered.at })
+    });
+  };
+
+  const workspacePreference = createWorkspacePreferenceStore(
+    options.statePaths.workspacePreferenceFile
+  );
 
   return Object.freeze({
     async handle(req: IncomingMessage, res: ServerResponse, pathname: string) {
@@ -1057,6 +1092,45 @@ export function createOwnerWebConsole(options: {
         sendJson(res, outcome.result.activated ? 200 : 409, { ...outcome.result, entries });
         return true;
       }
+      if (method === "GET" && pathname === "/owner/api/workspace") {
+        let preference: WorkspacePreference;
+        try {
+          preference = await workspacePreference.get();
+        } catch (error) {
+          if (error instanceof WorkspacePreferenceError) {
+            sendJson(res, 500, { error: { code: error.code, message: error.message } });
+            return true;
+          }
+          throw error;
+        }
+        sendJson(res, 200, { displayName: preference.displayName });
+        return true;
+      }
+      if (method === "PATCH" && pathname === "/owner/api/workspace") {
+        if (!requireCsrf(req, res, session)) return true;
+        const body = (await readBoundedJson(req, MAX_BODY_BYTES)) as
+          | { displayName?: unknown }
+          | undefined;
+        if (body === undefined || typeof body.displayName !== "string") {
+          sendJson(res, 400, {
+            error: { code: "invalid_display_name", message: "displayName is required" }
+          });
+          return true;
+        }
+        let preference: WorkspacePreference;
+        try {
+          preference = await workspacePreference.setDisplayName(body.displayName);
+        } catch (error) {
+          if (error instanceof WorkspacePreferenceError) {
+            const status = error.code === "invalid_display_name" ? 400 : 500;
+            sendJson(res, status, { error: { code: error.code, message: error.message } });
+            return true;
+          }
+          throw error;
+        }
+        sendJson(res, 200, { ok: true, displayName: preference.displayName });
+        return true;
+      }
       if (method === "POST" && pathname === "/owner/api/mcp") {
         if (!requireCsrf(req, res, session)) return true;
         if (options.mcpOrchestrator === undefined) {
@@ -1088,6 +1162,41 @@ export function createOwnerWebConsole(options: {
           enabled: true
         });
         sendJson(res, result.status === "committed" ? 201 : 409, result);
+        return true;
+      }
+      const detailMatch = /^\/owner\/api\/mcp\/([^/]+)\/detail$/u.exec(pathname);
+      if (method === "GET" && detailMatch !== null) {
+        if (options.mcpProviders === undefined) {
+          sendJson(res, 503, {
+            error: { code: "mcp_unavailable", message: "MCP management is unavailable" }
+          });
+          return true;
+        }
+        let providerId: string;
+        try {
+          providerId = decodeURIComponent(detailMatch[1] ?? "");
+        } catch {
+          sendJson(res, 400, {
+            error: { code: "invalid_provider_id", message: "Provider ID is malformed" }
+          });
+          return true;
+        }
+        if (providerId.length === 0 || !EXTENSION_ID_PATTERN.test(providerId)) {
+          sendJson(res, 400, {
+            error: { code: "invalid_provider_id", message: "Provider ID is malformed" }
+          });
+          return true;
+        }
+        const provider = (await options.mcpProviders.list()).find(
+          (entry) => entry.id === providerId
+        );
+        if (provider === undefined) {
+          sendJson(res, 404, {
+            error: { code: "unknown_provider", message: "Provider not found" }
+          });
+          return true;
+        }
+        sendJson(res, 200, await providerDetail(provider));
         return true;
       }
       const match = /^\/owner\/api\/mcp\/([^/]+)(?:\/(test|sync|auth))?$/u.exec(pathname);

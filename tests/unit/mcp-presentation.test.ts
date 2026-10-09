@@ -311,8 +311,36 @@ describe("projectProviderDetail", () => {
     });
     expect(detail.connection.kind).toBe("local");
     expect(detail.connection.command).toBe("/usr/bin/node");
-    expect(detail.connection.args).toEqual(["-y", "@vendor/server"]);
+    // Raw stdio args may carry tokens and are never projected.
+    expect(detail.connection).not.toHaveProperty("args");
+    expect(JSON.stringify(detail)).not.toContain("@vendor/server");
     expect(detail.workspace.granted).toBe(false);
+  });
+
+  it("projects accepted tool descriptions without inventing any", () => {
+    const detail = projectProviderDetail({
+      provider: provider({
+        manifest: {
+          id: "github",
+          transport: "streamable-http",
+          version: "1.0.0",
+          endpoint: "https://github.example.com/mcp",
+          tools: [
+            { canonicalId: "github.list", riskClass: "read", description: "Lists repositories" },
+            { canonicalId: "github.write", riskClass: "write" }
+          ]
+        }
+      }),
+      runtime,
+      credentials: [],
+      workspaceId: "default",
+      workspaceGranted: true,
+      toolDrift: false
+    });
+    expect(detail.tools.accepted).toEqual([
+      { canonicalId: "github.list", riskClass: "read", description: "Lists repositories" },
+      { canonicalId: "github.write", riskClass: "write" }
+    ]);
   });
 });
 
