@@ -3,6 +3,7 @@
 import { spawn } from "node:child_process";
 import { realpath, stat } from "node:fs/promises";
 import { type KernelExecutionOptions } from "./execution.js";
+import { buildExecEnvironment, ExecEnvironmentError } from "./exec-environment.js";
 
 export const DEFAULT_MAX_EXEC_ARGS = 4_096;
 export const HARD_MAX_EXEC_ARGS = 4_096;
@@ -190,24 +191,16 @@ export async function startRunCommand(
   }
   validateExecArgvSize(binary, argv);
 
-  const env: Record<string, string> = {
-    PATH:
-      options.execPath ?? process.env.PATH ?? (process.platform === "win32" ? "" : "/usr/bin:/bin")
-  };
-  if (process.platform === "win32") {
-    for (const key of [
-      "SystemRoot",
-      "ComSpec",
-      "PATHEXT",
-      "TEMP",
-      "TMP",
-      "USERPROFILE",
-      "APPDATA",
-      "LOCALAPPDATA"
-    ]) {
-      const value = process.env[key];
-      if (value !== undefined) env[key] = value;
+  let env: Record<string, string>;
+  try {
+    env = buildExecEnvironment({
+      ...(options.execPath === undefined ? {} : { execPath: options.execPath })
+    });
+  } catch (error) {
+    if (error instanceof ExecEnvironmentError) {
+      throw new ExecError("spawn_failed", error.message);
     }
+    throw error;
   }
   const baseResult = {
     commandId: binary,

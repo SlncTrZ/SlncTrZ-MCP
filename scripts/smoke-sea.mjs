@@ -61,12 +61,15 @@ const verifier = [
 ].join("$");
 
 const stateRoot = await mkdtemp(join(tmpdir(), "slnctrz-sea-smoke-"));
-const workRoot = await mkdtemp(join(tmpdir(), "slnctrz-sea-work-"));
+const workRoot = await mkdtemp(join(tmpdir(), "slnctrz-sea-work-Định space-"));
 await writeFile(join(workRoot, "probe.txt"), "packaged-harness-read");
+await writeFile(join(workRoot, "config-location.txt"), "packaged-config-fixture");
 const child = spawn(binary, [], {
   cwd: workRoot,
   env: {
     PATH: process.env.PATH ?? "",
+    GH_CONFIG_DIR: workRoot,
+    SLNCTRZ_EXEC_PRIVATE_MARKER: "synthetic-marker",
     SystemRoot: process.env.SystemRoot ?? "",
     WINDIR: process.env.WINDIR ?? "",
     SLNCTRZ_STATE_ROOT: stateRoot,
@@ -214,6 +217,42 @@ async function verifyPackagedHarness(origin) {
   const file = await call("core.read", { path: join(workRoot, "probe.txt"), slnctrzContext });
   if (file.structuredContent?.content !== "packaged-harness-read")
     throw new Error("SEA authorized file read failed");
+  const probe = [
+    "const { readFileSync } = require('node:fs');",
+    "const { join } = require('node:path');",
+    "const config = process.env.GH_CONFIG_DIR;",
+    "let found = false;",
+    "if (config) found = readFileSync(join(config, 'config-location.txt'), 'utf8') === 'packaged-config-fixture';",
+    "const hasHome = Boolean(process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']);",
+    "console.log(JSON.stringify({ found, hasHome, privateExcluded: !Object.hasOwn(process.env, 'SLNCTRZ_EXEC_PRIVATE_MARKER') }));"
+  ].join("\n");
+  function verifyCommandEnvironment(result) {
+    if (result?.exitCode !== 0) throw new Error("SEA command environment execution failed");
+    const facts = JSON.parse(result.stdout);
+    if (!facts.found || !facts.hasHome || !facts.privateExcluded)
+      throw new Error("SEA command home/config discovery or environment isolation failed");
+  }
+  const execution = await call("core.exec", {
+    command: "node",
+    args: ["-e", probe],
+    root: workRoot,
+    timeoutMs: 5_000,
+    slnctrzContext
+  });
+  verifyCommandEnvironment(execution.structuredContent);
+  const started = await call("task.start", {
+    command: "node",
+    args: ["-e", probe],
+    root: workRoot,
+    timeoutMs: 5_000,
+    slnctrzContext
+  });
+  const taskId = started.structuredContent?.taskId;
+  if (!taskId) throw new Error("SEA environment Runner start failed");
+  const completed = await call("task.wait", { taskId, timeoutMs: 5_000, slnctrzContext });
+  if (completed.structuredContent?.state !== "completed")
+    throw new Error("SEA environment Runner did not complete");
+  verifyCommandEnvironment(completed.structuredContent.result);
   await call("context.close", { slnctrzContext });
 }
 
@@ -272,5 +311,5 @@ try {
 }
 
 console.log(
-  `SEA ${nativeTarget} gateway bootstrap + embedded assets + authenticated coding harness smoke test passed`
+  `SEA ${nativeTarget} gateway bootstrap + embedded assets + authenticated coding harness + exec/Runner environment smoke test passed`
 );
