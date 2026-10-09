@@ -1,41 +1,107 @@
 # Gateway-Only Profile
 
-Use this when a coding client's own tools handle local work and the gateway supplies shared
-providers and Debate. This consent/lifetime behavior is included in unreleased v0.4.0 source;
-installed availability follows the published release status.
+Use Gateway-only when your coding agent already manages local files and commands, and you
+want shared MCP providers and Debate. Use Full when you want the gateway's coding tools and
+harness too. This profile/consent behavior is included in published v0.4.2.
 
 ## 1. Profile Isolation
 
 - Full advertises gateway coding/file/media/context/skills/task tools subject to authority.
 - Gateway-only retains core.ping, connection.restrict, Debate and enabled provider tools.
-- The first Gateway-only consent sets an immutable ceiling: refresh and Owner controls cannot
-  promote it to Full. A fresh Full consent is required for a separate Full connection.
+- First Gateway-only consent sets a ceiling: refresh and Owner controls cannot promote it to
+  Full. Make a separate fresh Full connection if you need gateway coding tools.
 - New Gateway-only grants survive restart/offline periods until revoked. Access tokens expire;
-  refresh tokens are single-use and rotate after every successful refresh.
-- Existing schema-v1/v2 grants retain their original finite lifetimes after v3 migration.
-- Provider tools and the client's own tools retain their own authority; this profile is not
-  an OS sandbox or a guarantee of continuous network/provider availability.
+  refresh tokens rotate and are single-use.
+- Migrated schema-v1/v2 grants retain their original finite lifetimes.
+- This profile does not sandbox provider tools or the coding client's own tools.
 
-## 2. CLI Login Examples
+## 2. Connect your coding agent
 
-Configure the MCP endpoint in the client first, then use the login/auth flow its installed
-version supports. Select Gateway-only on the gateway's first consent page.
+Replace `https://mcp.example.com/mcp` with your gateway endpoint. A client on the gateway
+machine can use `http://127.0.0.1:3100/mcp`; a remote/cloud client needs an endpoint it can
+reach. Start the gateway first.
 
-```bash
-pi mcp login slnctrz
-codex mcp login slnctrz
-opencode mcp auth slnctrz
+### OpenCode 1.x
+
+Add this entry to an existing `opencode.json`/JSONC project config, merging it with your
+other settings:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "slnctrz": {
+      "type": "remote",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
 ```
 
-These are documented integration examples, not evidence that every version of each client
-is release-verified. Use native MCP/OAuth when available; read client help rather than
-assuming a separate bridge is necessary.
+```bash
+opencode mcp auth slnctrz
+opencode mcp list
+```
 
-## 3. Reconnect & Revocation
+Complete browser consent and select Gateway-only. OpenCode 1.18.18's installed help confirms
+the auth/list/logout commands; the remote entry follows official 1.x documentation.
+Do not apply this configuration shape to OpenCode 2.x without checking its own guide.
+[OpenCode MCP](https://docs.opencode.ai/docs/mcp-servers/) ·
+[Config locations](https://docs.opencode.ai/docs/config/)
 
-Inspect core.ping's surfaceProfile and refresh tool discovery after profile/config changes.
-A revoked connection cannot refresh; reconnect through fresh consent. Serialize refresh
-operations so a client does not reuse a single-use token concurrently.
+### Pi 1.1.0 — Earendil Works distribution
 
-See [Coding Agents](CODING_AGENTS.md), [Backup](BACKUP_RESTORE.md) and
-[Release Acceptance](RELEASE_ACCEPTANCE.md).
+For `@earendil-works/pi-coding-agent` 1.1.0, the installed MCP help confirms:
+
+```bash
+pi mcp add slnctrz --url https://mcp.example.com/mcp
+pi mcp login slnctrz
+pi mcp list
+```
+
+This writes the global `~/.pi/agent/mcp.json`; `-l` selects project `.pi/mcp.json` where
+trusted. Consent is in the browser. This distribution has built-in MCP support; no bridge
+plugin was required to obtain the help. A different Pi implementation/version may differ.
+[Pi upstream](https://github.com/earendil-works/pi)
+
+### Codex CLI — documentation recipe
+
+```bash
+codex mcp add slnctrz --url https://mcp.example.com/mcp
+codex mcp login slnctrz
+codex mcp list
+```
+
+Codex stores server settings in `~/.codex/config.toml`; trusted projects may use
+`.codex/config.toml`. Use native OAuth and inspect `/mcp` in the TUI.
+[Official MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
+
+### Claude Code — documentation recipe
+
+```bash
+claude mcp add --transport http slnctrz https://mcp.example.com/mcp
+claude mcp list
+```
+
+Run `/mcp` inside Claude Code and complete OAuth. Default local entries are stored in
+`~/.claude.json` and apply to the current project; shared project entries use `.mcp.json`.
+Check your installed version's help before changing scope.
+[Official MCP guide](https://code.claude.com/docs/en/mcp)
+
+## 3. Verification and reconnect
+
+After consent, ask the client to call `core.ping`. Check `surfaceProfile`, then refresh tool
+discovery. Gateway-only should show enabled providers and Debate without core file/exec,
+context/skills or task tools. No provider is guaranteed available just because it was added.
+
+The [client evidence matrix](CODING_AGENTS.md#client-evidence-matrix) separates installed
+help from end-to-end tests. The recipes above have not been verified for consent, discovery,
+refresh/reconnect and revocation against an identified SlncTrZ installed artifact.
+
+If an approved grant is revoked, make a fresh consent. Removing a client's local credentials
+is not the same as revoking the grant in Owner Connections. Serialize refresh requests;
+reusing a single-use token can fail. Follow [Troubleshooting](TROUBLESHOOTING.md) before
+treating every network or server error as an auth problem.
+
+The unreleased exec-environment and Owner session/navigation improvements are tracked separately
+in [Project Status](PROJECT_STATUS.md); they do not change this profile contract.

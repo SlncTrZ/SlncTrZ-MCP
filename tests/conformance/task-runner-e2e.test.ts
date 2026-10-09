@@ -1,7 +1,7 @@
 /** Managed Task Runner — authenticated HTTP/MCP end-to-end across independent requests. */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "node:http";
@@ -19,6 +19,7 @@ const servers: Server[] = [];
 const cleanup: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
   );
@@ -74,7 +75,7 @@ function authorizeClient(oauth: OAuthService, label: string): string {
   }).access_token;
 }
 
-async function runtime() {
+async function runtime(authorityMode: "restricted" | "autonomous" = "restricted") {
   const root = await mkdtemp(join(tmpdir(), "slnctrz-task-runner-"));
   cleanup.push(root);
 
@@ -87,7 +88,7 @@ async function runtime() {
   const tokenB = authorizeClient(oauth, "client-b");
 
   const compiled = await compilePolicyDocument(
-    { schemaVersion: 2, paths: [root] },
+    { schemaVersion: 2, authorityMode, paths: [root] },
     compileCommandCatalog([["node"]])
   );
   const server = createGatewayServer({
@@ -149,6 +150,63 @@ async function callTask(
 }
 
 describe("managed Task Runner HTTP/MCP", () => {
+  it.each(["restricted", "autonomous"] as const)(
+    "preserves CLI config discovery for core.exec and task.start in %s mode",
+    async (mode) => {
+      const configRoot = await mkdtemp(join(tmpdir(), "slnctrz-exec-config-Định space-"));
+      cleanup.push(configRoot);
+      await writeFile(join(configRoot, "location.txt"), "fixture", "utf8");
+      vi.stubEnv("GH_CONFIG_DIR", configRoot);
+      vi.stubEnv("SLNCTRZ_EXEC_PRIVATE_MARKER", "synthetic-marker");
+      const { origin, tokenA } = await runtime(mode);
+      const script = [
+        "const { readFileSync } = require('node:fs');",
+        "const { join } = require('node:path');",
+        "const config = process.env.GH_CONFIG_DIR;",
+        "let found = false;",
+        "if (config) found = readFileSync(join(config, 'location.txt'), 'utf8') === 'fixture';",
+        "const hasHome = Boolean(process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']);",
+        "console.log(JSON.stringify({ found, hasHome, privateExcluded: !Object.hasOwn(process.env, 'SLNCTRZ_EXEC_PRIVATE_MARKER') }));"
+      ].join("\n");
+
+      const direct = await callTask(origin, tokenA, 30, "core.exec", {
+        command: "node",
+        args: ["-e", script],
+        timeoutMs: 5_000
+      });
+      expect(direct.result?.isError).not.toBe(true);
+      const directResult = direct.result?.structuredContent;
+      expect(directResult?.exitCode).toBe(0);
+      expect(JSON.parse(String(directResult?.stdout))).toEqual({
+        found: true,
+        hasHome: true,
+        privateExcluded: true
+      });
+
+      const started = await callTask(origin, tokenA, 31, "task.start", {
+        command: "node",
+        args: ["-e", script],
+        timeoutMs: 5_000
+      });
+      const taskId = String(started.result?.structuredContent?.taskId ?? "");
+      expect(taskId).not.toBe("");
+      const completed = await callTask(origin, tokenA, 32, "task.wait", {
+        taskId,
+        timeoutMs: 5_000
+      });
+      expect(completed.result?.structuredContent?.state).toBe("completed");
+      const result = completed.result?.structuredContent?.result as
+        { stdout?: string; envKeys?: string[] } | undefined;
+      expect(JSON.parse(result?.stdout ?? "")).toEqual({
+        found: true,
+        hasHome: true,
+        privateExcluded: true
+      });
+      expect(result?.envKeys).toContain("GH_CONFIG_DIR");
+      expect(result?.envKeys).not.toContain("SLNCTRZ_EXEC_PRIVATE_MARKER");
+    }
+  );
+
   it("advertises the additive Runner tools only when a gateway-lifetime runtime is enabled", async () => {
     const { origin, tokenA } = await runtime();
     const listed = await rpc(origin, tokenA, 1, "tools/list", {});

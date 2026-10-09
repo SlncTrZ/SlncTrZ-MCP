@@ -1,7 +1,8 @@
 # User Guide
 
-Practical operations for the current source contract. The latest public installer can lag
-behind this tree; see [Project Status](PROJECT_STATUS.md) and the published release notes.
+Install, connect and use the published gateway. Stable release: v0.4.2 as observed on
+2026-10-09. This development tree also contains unreleased changes; see
+[Project Status](PROJECT_STATUS.md) before assuming an installed binary has them.
 
 ## 1. Installation & Endpoints
 
@@ -25,6 +26,92 @@ Cloud clients require a reachable HTTPS MCP URL. Follow [Deployment](DEPLOYMENT.
 use the setup-generated `Start:` command. User installs run in the foreground;
 stop that instance with Ctrl+C, then execute the same command to restart. Linux System
 installs use systemctl. There are no standalone CLI `start` or `stop` subcommands.
+
+### Install on Linux
+
+Use an x64 Linux account with `sh`, `curl`, `sha256sum`, `mktemp`, `grep` and `uname`.
+Choose an existing absolute project directory; the installer does not create your workspace.
+
+```bash
+curl --fail --location --proto '=https' --tlsv1.2 \
+  https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest/download/install.sh \
+  --output /tmp/slnctrz-install.sh
+sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME/projects"
+```
+
+Run the exact `Start:` line printed by setup. Keep the terminal open while the gateway runs.
+User mode needs no system service. For a managed service, follow
+[Linux System Install](DEPLOYMENT.md#1-linux-system-install-systemd).
+
+### Install on Windows
+
+Use **Git Bash**, not PowerShell, for the bootstrap command. Git Bash supplies the POSIX tools
+and `cygpath`. Choose an existing directory and use an absolute Git Bash path:
+
+```bash
+curl --fail --location --proto '=https' --tlsv1.2 \
+  https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest/download/install.sh \
+  --output /tmp/slnctrz-install.sh
+sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "/c/Users/YourName/projects"
+```
+
+After setup, use its `Start:` executable path. In PowerShell, paths with spaces need the call
+operator and quotes. For the default layout:
+
+```powershell
+& "$env:LOCALAPPDATA\SlncTrZ-MCP\slnctrz-mcp.exe"
+```
+
+If you selected a custom install root, use the path printed by setup instead. The running
+binary needs neither Git Bash nor a separately installed Node.js. Keep its terminal open;
+Ctrl+C stops that foreground instance.
+
+### Open the Console and check success
+
+1. Open the `Owner Console:` URL printed by setup; local default:
+   `http://127.0.0.1:3100/`.
+2. Setup prints the **Passphrase file** path, not its value. Read that file privately on your
+   machine and enter the passphrase in the browser. Do not paste it into chat or support logs.
+3. Review Paths/Commands before enabling coding work and MCP Servers before using providers.
+4. Use the installed launcher/executable to run `status --json` and `doctor --json`;
+   confirm the version, running identity and any reported issues.
+
+`/mcp` is the client endpoint; the homepage is the Owner UI. The private port 3101 is neither
+of those endpoints. If port 3100 is already in use, select another `--port` at setup and use
+the printed URLs. See [Troubleshooting](TROUBLESHOOTING.md).
+
+### Connect an AI Web client
+
+Cloud clients cannot reach your computer's `127.0.0.1`. Configure a reachable HTTPS endpoint
+using [Deployment](DEPLOYMENT.md#3-public-https), including its OAuth routes.
+
+| Client     | Add the server                                                                                                              | Complete the connection                                                                                            |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| ChatGPT    | In Plugins, use Add custom MCP server, enter your HTTPS `/mcp` URL and configure OAuth; create/install the resulting plugin | Select the plugin with `@` in a new chat, complete gateway consent and ask for `core.ping`                         |
+| Claude Web | In Customize → Connectors, add a custom Web connector with your HTTPS `/mcp` URL and OAuth                                  | Use automatic client registration for this gateway's existing DCR flow; connect and enable it for the conversation |
+
+Client UI labels and account/admin policies can change. These are documentation-based
+recipes checked on 2026-10-09, not named-account end-to-end acceptance. Consult the official
+[ChatGPT MCP/plugin steps](https://developers.openai.com/plugins/deploy/connect-chatgpt) and
+[Claude connector steps](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities).
+This guide covers public HTTPS; vendor-specific private tunnels require their own setup.
+
+On the gateway consent page, choose **Full** for gateway coding tools/harness or
+**Gateway-only** for providers and Debate. After approval, ask the client to call `core.ping`
+and inspect the profile/tool inventory. A successful server add is not yet a successful tool
+call. Coding-agent recipes and verification levels are in [Gateway-only](GATEWAY_ONLY.md).
+
+### Keep the three authentication roles separate
+
+| Role                | What it authorizes                                   | Where it belongs                                           |
+| ------------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
+| Owner passphrase    | Owner Console and approval of gateway connections    | Enter privately in the gateway browser UI                  |
+| Client OAuth        | An AI client's approved gateway profile and access   | Let that client's OAuth flow manage credentials            |
+| Provider credential | Access from the gateway to a downstream MCP provider | Configure through the provider's supported credential flow |
+
+Do not use an Owner passphrase as a bearer header or copy client/provider secrets into
+project config, examples or chat. Normal dynamic OAuth setup uses the MCP URL and browser
+consent; it does not require copying setup's static client credentials.
 
 ## 2. CLI Commands
 
@@ -65,7 +152,7 @@ Setup/update authenticates the manifest against the Ed25519 trust root, then ver
 binary's declared size and SHA-256 before activation. This is manifest signing; Windows
 Authenticode signing is not claimed.
 
-Before a v0.4.0 upgrade, stop the gateway and back up state plus config coherently. OAuth
+Before upgrading a pre-schema-v3 installation, stop the gateway and back up state plus config coherently. OAuth
 schema v1/v2 migrates to v3; existing grants keep finite lifetimes and profiles. Rollback to a
 pre-v3 binary needs the pre-migration backup, not binary-only rollback. See [Backup](BACKUP_RESTORE.md).
 

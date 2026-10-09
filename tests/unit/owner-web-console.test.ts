@@ -134,6 +134,106 @@ async function verifyConnectionDeleteFailures(page: string): Promise<void> {
   }
 }
 
+async function verifySignInRecovery(page: string): Promise<void> {
+  const script = page.split("<script>")[1]?.split("</script>")[0];
+  if (!script) throw new Error("Owner script is missing");
+  const elements = new Map<
+    string,
+    {
+      dataset: Record<string, string>;
+      value: string;
+      textContent: string;
+      hidden: boolean;
+      disabled: boolean;
+      onclick?: () => Promise<void>;
+      classList: {
+        add(key: string): void;
+        remove(key: string): void;
+        toggle(key: string, force: boolean): void;
+        contains(key: string): boolean;
+      };
+    }
+  >();
+  const element = (id: string) => {
+    let current = elements.get(id);
+    if (!current) {
+      const classes = new Set<string>(["hidden"]);
+      current = {
+        dataset: {},
+        value: "",
+        textContent: "",
+        hidden: false,
+        disabled: false,
+        classList: {
+          add: (key) => {
+            classes.add(key);
+          },
+          remove: (key) => {
+            classes.delete(key);
+          },
+          toggle: (key, force) => {
+            if (force) classes.add(key);
+            else classes.delete(key);
+          },
+          contains: (key) => classes.has(key)
+        }
+      };
+      elements.set(id, current);
+    }
+    return current;
+  };
+  let signedIn = false,
+    loads = 0,
+    loginCalls = 0;
+  const context = createContext({
+    document: { getElementById: element },
+    AbortController,
+    fetch: async (path: string) => {
+      if (path === "/owner/api/login") {
+        signedIn = true;
+        loginCalls++;
+      }
+      const status = signedIn ? 200 : 401;
+      return {
+        ok: status === 200,
+        status,
+        json: async () =>
+          signedIn ? { authenticated: true, csrf: "" } : { error: { code: "unauthorized" } }
+      };
+    },
+    refresh: async () => {
+      loads++;
+    },
+    clearError: (target: { textContent: string }) => {
+      target.textContent = "";
+    },
+    showError: (target: { textContent: string }, message: string) => {
+      target.textContent = message;
+    }
+  });
+  const sessionLine = script
+    .split("\n")
+    .find((line) => line.startsWith("async function session()"));
+  const signInLine = script.split("\n").find((line) => line.startsWith("q('signin').onclick="));
+  if (!sessionLine || !signInLine) throw new Error("Sign-in handlers are missing");
+  runInContext(
+    script.slice(0, script.indexOf("function btn(")) +
+      sessionLine +
+      "\n" +
+      signInLine +
+      ";globalThis.initial=session();",
+    context
+  );
+  await context.initial;
+  expect(element("login").classList.contains("hidden")).toBe(false);
+  await element("signin").onclick?.();
+  expect(loginCalls).toBe(1);
+  expect(loads).toBe(1);
+  expect(element("app").classList.contains("hidden")).toBe(false);
+  expect(element("login").classList.contains("hidden")).toBe(true);
+  expect(element("login-error").textContent).toBe("");
+}
+
 describe("Owner Console product surface", () => {
   it("supports local HTTP session cookies, product state, CSRF and typed Autonomy mutation", async () => {
     const root = await mkdtemp(join(tmpdir(), "slnctrz-owner-web-"));
@@ -448,10 +548,11 @@ describe("Owner Console product surface", () => {
     expect(homepage.status).toBe(200);
     const ownerPage = await (await fetch(`${origin}/owner`)).text();
     expect(await homepage.text()).toBe(ownerPage);
-    expect(ownerPage).toContain('href="/#connections"');
-    expect(ownerPage).toContain('href="/#mcp"');
+    expect(ownerPage).toContain('href="#connections"');
+    expect(ownerPage).toContain('href="#mcp"');
     expect((await fetch(`${origin}/owner/api/session`)).status).toBe(401);
     await verifyConnectionDeleteFailures(ownerPage);
+    await verifySignInRecovery(ownerPage);
     expect(ownerPage).toContain("x.title='Remove '+name");
     expect(ownerPage).not.toContain("el.appendChild(e);return}const risky");
     expect(ownerPage).toContain('id="overview-command-count"');
