@@ -54,6 +54,7 @@ export interface ManagedStatePaths {
   readonly lifecycleIntentFile: string;
   readonly installationMetadataFile: string;
   readonly oauthStaticRedirectsFile: string;
+  readonly workspacePreferenceFile: string;
 }
 
 export function managedStatePaths(root = join(homedir(), ".slnctrz-mcp")): ManagedStatePaths {
@@ -75,7 +76,8 @@ export function managedStatePaths(root = join(homedir(), ".slnctrz-mcp")): Manag
     debateDatabaseFile: join(root, "debate.sqlite3"),
     lifecycleIntentFile: join(root, "lifecycle-intent.json"),
     installationMetadataFile: join(root, "installation.json"),
-    oauthStaticRedirectsFile: join(root, "oauth-static-redirects.json")
+    oauthStaticRedirectsFile: join(root, "oauth-static-redirects.json"),
+    workspacePreferenceFile: join(root, "workspace-preference.json")
   });
 }
 

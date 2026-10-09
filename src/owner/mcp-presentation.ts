@@ -211,7 +211,6 @@ export interface OwnerMcpProviderDetail {
     readonly kind: "remote" | "local";
     readonly endpoint?: string;
     readonly command?: string;
-    readonly args?: readonly string[];
   };
   readonly auth: {
     readonly kind: "none" | "bearer" | "header" | "env";
@@ -296,7 +295,8 @@ export function projectProviderDetail(input: ProjectProviderDetailInput): OwnerM
   const auth = authMode(manifest.credentialRefs, input.credentials);
   const accepted = manifest.tools.map((tool) => ({
     canonicalId: tool.canonicalId,
-    riskClass: tool.riskClass
+    riskClass: tool.riskClass,
+    ...(tool.description === undefined ? {} : { description: tool.description })
   }));
   const isLocal = manifest.transport === "stdio";
   const mode =
@@ -309,13 +309,12 @@ export function projectProviderDetail(input: ProjectProviderDetailInput): OwnerM
     name: input.provider.name ?? input.provider.id,
     enabled: input.provider.enabled,
     status,
+    // Connection is display-safe only: the endpoint never carries userinfo/query/fragment
+    // (enforced at manifest compile) and stdio args are never exposed (they may carry tokens).
     connection: {
       kind: isLocal ? "local" : "remote",
       ...(isLocal
-        ? {
-            ...(manifest.command === undefined ? {} : { command: manifest.command }),
-            ...(manifest.args === undefined ? {} : { args: manifest.args })
-          }
+        ? { ...(manifest.command === undefined ? {} : { command: manifest.command }) }
         : { ...(manifest.endpoint === undefined ? {} : { endpoint: manifest.endpoint }) })
     },
     auth,
