@@ -1,18 +1,18 @@
 # Project Status
 
-Snapshot: 2026-10-09, Asia/Saigon; refreshed after commit/push and CI verification. This is dated maintainer evidence, not a live status
+Snapshot: 2026-10-09, Asia/Saigon; refreshed after merging all project branches into main. This is dated maintainer evidence, not a live status
 endpoint or a description of your installation. Check `--build-info`, `status --json`,
 runtime `core.ping` and the published release before making operational decisions.
 
 ## Source, Release & Runtime Identity
 
-| Layer                          | Observed state                                                                                                                   |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| Main baseline                  | Package 0.4.2; local/GitHub main `6bb3531cb2c39bb5d63e99589721c5d6fdd6cf92`; clean                                               |
-| Public stable                  | [v0.4.2](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.2); not draft/prerelease                                       |
-| Development review             | Committed/pushed on `feat/v0.4.3-exec-env`; pre-refresh HEAD `2bd6d902b2a1bcfa25699a27dace702c1cb792c0`; package 0.4.2           |
-| Maintainer's inspected gateway | `core.ping`: v0.4.2, buildCommit unknown; source edits do not update it                                                          |
-| PR #6 / #7                     | OPEN at `97f4a739a86eabbeea8be395fc331aa1703c8e0c` / `b7fb425860d55145d612ccaa6c75b54fdde36692`; not integrated into this review |
+| Layer                          | Observed state                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Main baseline                  | Package 0.4.2; combined-source merge `5f6854f4fcd60325a793b4fa18d7c1ec951a5bc6` on main                                   |
+| Public stable                  | [v0.4.2](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.2); not draft/prerelease                                |
+| Development review             | Merged into main, including review HEAD `bed22b3d061d8c3bb167d3da3cc43a97885a454e`; no review source remains outside main |
+| Maintainer's inspected gateway | `core.ping`: v0.4.2, buildCommit unknown; source edits do not update it                                                   |
+| PR #6 / #7                     | MERGED into main as `2db3565c3489bdd773a89c52d7c027df7fca89af` / `28e71b007bdae53f9c521e349325184d3aced592`               |
 
 [v0.4.2 release notes](releases/v0.4.2.md) describe the published release. The existing
 v0.4.2 tag stays immutable. No v0.4.3 version bump, tag, publication or deployment was
@@ -20,9 +20,23 @@ performed for these development changes.
 
 ## Commit and CI checkpoint
 
-Exec-environment work (`db34294`), Owner session/navigation (`201a4b3`) and foundational
-docs (`0cb09db`) are committed and pushed on the review branch. The owner's CONTRIBUTING
-and provenance update (`0e85488`) is retained in both branches.
+Main now contains PR #6/#7 and all review work: exec environment (`db34294`), Owner
+session/navigation (`201a4b3`), foundational docs (`0cb09db`) and the docs refresh
+(`bed22b3`). The review branch was merged without conflicts as `5f6854f4fcd60325a793b4fa18d7c1ec951a5bc6`.
+All other local branch tips were already ancestors of main; no tracked or untracked
+non-ignored source changes remained before integration. The owner's CONTRIBUTING and
+provenance update (`0e85488`) is retained.
+
+The combined-source ref requires its own [main CI](https://github.com/SlncTrZ/SlncTrZ-MCP/actions?query=branch%3Amain)
+result. Earlier CI and local review evidence below identify their original refs; they do
+not replace final product acceptance. WP-02/03/04/06/07/08 remain planned; named-client
+OAuth, final UI/docs and integrated acceptance remain pending. Release/deployment is on hold.
+
+## Historical CI checkpoints before full integration
+
+[Post-PR-merge CI 37932945326](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37932945326)
+passed five jobs on `28e71b007bdae53f9c521e349325184d3aced592`; that run preceded the
+review merge and did not include WP-00-E/WP-05/WP-01.
 
 [Hosted CI 37919075803](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37919075803)
 passed all five jobs on exact main `6bb3531cb2c39bb5d63e99589721c5d6fdd6cf92`: Linux
@@ -38,8 +52,9 @@ verification passed 745 tests/10 skips on Linux Node 24.19.0 and 730/25 on Windo
 Node 24.18.0 with isolated npm 11.16.0; static/docs/build gates also passed. These results
 identify the main-policy run, separately from the development reviews below.
 
-PR #6/#7 integration, real-client acceptance and integrated QA remain pending. Release is
-on hold; these commits do not change published v0.4.2 or the inspected gateway.
+PR integration was pending at that earlier checkpoint and is now complete. Real-client
+acceptance and integrated QA remain pending. These commits do not change published
+v0.4.2 or the inspected gateway.
 
 ## Published v0.4.2 behavior
 
@@ -76,8 +91,8 @@ checks passed. Those were disposable local builds, not published v0.4.2 bytes.
 WP-01 reconciles user docs, installer syntax and client help. It does not rerun installation,
 authenticate named clients, or certify production cookie/OAuth behavior. Client verification
 levels are in [Coding Agents](CODING_AGENTS.md#client-evidence-matrix).
-WP-04/06/07 UI changes and PR integration remain planned work; final docs/screenshots and
-integrated acceptance follow the resulting candidate.
+WP-04/06/07 UI changes remain planned. PR #6/#7 and the review branch are now in main;
+final docs/screenshots and integrated acceptance follow the completed feature candidate.
 
 ## Historical v0.4.1 evidence
 
@@ -104,7 +119,7 @@ promoted stable; that history is preserved. v0.4.2 is the observed published bas
 
 ## Remaining work
 
-1. Review PR integration and finish the planned product packages before integrated acceptance.
+1. Finish the planned product packages before final integrated acceptance; source branch integration is complete.
 2. Finish UI-specific docs/screenshots against the resulting candidate.
 3. Record named real-client consent, discovery, refresh/reconnect and revoke results.
 4. Obtain disposable-systemd-host and independent signing-custody evidence where claimed.

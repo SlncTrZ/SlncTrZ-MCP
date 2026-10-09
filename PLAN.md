@@ -28,13 +28,13 @@ local verification, public release and deployed runtime.
 | WP-07   | Activity orb/header and accessibility                    | Planned                                                                   |
 | WP-08   | Integrated candidate QA, native artifacts and handoff    | Planned after dependencies                                                |
 
-WP-00-E (`db34294`), WP-05 (`201a4b3`) and foundational WP-01 docs (`0cb09db`) are
-committed and pushed on `feat/v0.4.3-exec-env`. They remain unreleased and do not
-identify published or installed behavior. Main `6bb3531` passed all five hosted CI jobs;
-the review branch has no hosted run or integrated-candidate acceptance. See
-[Project Status](docs/PROJECT_STATUS.md#commit-and-ci-checkpoint) for exact refs and
-separate Linux/Windows evidence.
-PR #6/#7 remain separate until reviewed integration. Release is on hold; preserve the v0.4.2 tag.
+WP-00-E (`db34294`), WP-05 (`201a4b3`), foundational WP-01 docs (`0cb09db`) and
+review docs (`bed22b3`) are now merged into main as `5f6854f4fcd60325a793b4fa18d7c1ec951a5bc6`.
+PR #6/#7 are also merged; all other local branch tips were already contained in main.
+The changes remain unreleased. Check CI on the combined ref separately from earlier
+review evidence; final product/client acceptance is still pending. See
+[Project Status](docs/PROJECT_STATUS.md#commit-and-ci-checkpoint) for source/release/runtime
+boundaries. Release is on hold; preserve the v0.4.2 tag.
 
 ## 3. Before release or deployment
 
