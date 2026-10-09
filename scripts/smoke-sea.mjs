@@ -226,8 +226,26 @@ async function verifyPackagedHarness(origin) {
     "const hasHome = Boolean(process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']);",
     "console.log(JSON.stringify({ found, hasHome, privateExcluded: !Object.hasOwn(process.env, 'SLNCTRZ_EXEC_PRIVATE_MARKER') }));"
   ].join("\n");
-  function verifyCommandEnvironment(result) {
-    if (result?.exitCode !== 0) throw new Error("SEA command environment execution failed");
+  function verifyCommandEnvironment(result, phase, toolResult) {
+    if (result?.exitCode !== 0) {
+      const messages = (toolResult?.content ?? [])
+        .filter((item) => item.type === "text")
+        .map((item) => item.text);
+      // Report only fixed categories and execution facts; never dump tool output or credentials.
+      const facts = {
+        phase,
+        isError: toolResult?.isError === true,
+        exitCode: typeof result?.exitCode === "number" ? result.exitCode : null,
+        timedOut: result?.timedOut === true,
+        windowsFolderLookupFailed: messages.some((text) =>
+          text.includes("Cannot resolve Windows app-data folders for the gateway OS account")
+        ),
+        windowsFolderLookupTimedOut: messages.some((text) =>
+          text.includes("Windows app-data folder lookup timed out")
+        )
+      };
+      throw new Error(`SEA command environment execution failed: ${JSON.stringify(facts)}`);
+    }
     const facts = JSON.parse(result.stdout);
     if (!facts.found || !facts.hasHome || !facts.privateExcluded)
       throw new Error("SEA command home/config discovery or environment isolation failed");
@@ -239,7 +257,7 @@ async function verifyPackagedHarness(origin) {
     timeoutMs: 5_000,
     slnctrzContext
   });
-  verifyCommandEnvironment(execution.structuredContent);
+  verifyCommandEnvironment(execution.structuredContent, "core.exec", execution);
   const started = await call("task.start", {
     command: "node",
     args: ["-e", probe],
@@ -252,7 +270,7 @@ async function verifyPackagedHarness(origin) {
   const completed = await call("task.wait", { taskId, timeoutMs: 5_000, slnctrzContext });
   if (completed.structuredContent?.state !== "completed")
     throw new Error("SEA environment Runner did not complete");
-  verifyCommandEnvironment(completed.structuredContent.result);
+  verifyCommandEnvironment(completed.structuredContent.result, "task.wait", completed);
   await call("context.close", { slnctrzContext });
 }
 

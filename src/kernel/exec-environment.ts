@@ -38,7 +38,7 @@ function windowsAppDataDirectories(systemRoot: string | undefined): WindowsAppDa
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); @{roaming=[Environment]::GetFolderPath('ApplicationData');local=[Environment]::GetFolderPath('LocalApplicationData')} | ConvertTo-Json -Compress"
+      "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::WriteLine([Environment]::GetFolderPath('ApplicationData')); [Console]::WriteLine([Environment]::GetFolderPath('LocalApplicationData'))"
     ],
     {
       env: { SystemRoot: systemRoot },
@@ -48,21 +48,19 @@ function windowsAppDataDirectories(systemRoot: string | undefined): WindowsAppDa
       windowsHide: true
     }
   );
+  if (result.error !== undefined && "code" in result.error && result.error.code === "ETIMEDOUT") {
+    throw new ExecEnvironmentError("Windows app-data folder lookup timed out");
+  }
   if (result.error !== undefined || result.status !== 0) {
     throw new Error("Windows account folder lookup failed");
   }
-  const folders = JSON.parse(result.stdout) as unknown;
-  if (
-    folders === null ||
-    typeof folders !== "object" ||
-    !("roaming" in folders) ||
-    !("local" in folders) ||
-    typeof folders.roaming !== "string" ||
-    typeof folders.local !== "string"
-  ) {
+  // Native .NET calls avoid PowerShell utility-module loading for JSON serialization.
+  // Windows directory names cannot contain line breaks; require exactly two nonempty records.
+  const [roaming, local, ...extra] = result.stdout.replace(/\r?\n$/u, "").split(/\r?\n/u);
+  if (!roaming || !local || extra.length > 0) {
     throw new Error("Windows account folder lookup returned invalid data");
   }
-  return { roaming: folders.roaming, local: folders.local };
+  return { roaming, local };
 }
 
 export function buildExecEnvironment(options: ExecEnvironmentOptions = {}): Record<string, string> {
@@ -130,7 +128,8 @@ export function buildExecEnvironment(options: ExecEnvironmentOptions = {}): Reco
         folders = (
           options.resolveWindowsAppData ?? (() => windowsAppDataDirectories(env.SystemRoot))
         )();
-      } catch {
+      } catch (error) {
+        if (error instanceof ExecEnvironmentError) throw error;
         throw new ExecEnvironmentError(
           "Cannot resolve Windows app-data folders for the gateway OS account"
         );
