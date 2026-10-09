@@ -40,8 +40,23 @@ are in-memory and cannot be recovered from a state-directory backup.
 4. Use repair only for its bounded safe repairs; it does not reconstruct corrupt OAuth data.
 5. Start through the owning launcher/service, verify status/doctor and re-bootstrap clients.
 
-Opening OAuth schema v1/v2 on v0.4.0 migrates it to v3. Existing finite grants stay finite;
+Opening OAuth schema v1/v2 with a schema-v3-capable binary (v0.4.0 and later, including
+published v0.4.2) migrates it to schema v3. Existing finite grants stay finite;
 new Gateway-only grants use durable lifetimes. A pre-v3 binary rejects schema v3, so rollback
 to v0.3.7 requires the pre-migration state/config backup while stopped. Binary-only rollback
 is insufficient. Restoring a backup loses later OAuth changes; reconcile/re-authorize affected
 connections rather than silently downgrading a live database.
+
+## 4. Update without losing your configuration
+
+After a coherent backup, use the installed `slnctrz-mcp update` command. It verifies the
+release manifest/artifact before activation; follow its restart instruction rather than
+starting a second gateway. Check `--build-info`, `status --json` and `doctor --json` after
+restart, then reconnect/refresh discovery in the client.
+
+`slnctrz-mcp rollback` changes the program activation, not the database contents. Check schema
+compatibility before rollback. A backup is only usable if you can restore its matching
+config, ownership and custom harness; keep those with its version/build and timestamp.
+
+Default uninstall preserves config/state. Only choose `--remove-config` or `--purge` when
+you intend that retention change. See [User Guide](USER_GUIDE.md#2-cli-commands).

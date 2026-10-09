@@ -24,6 +24,19 @@ same-name global skill. See [Skills](../skills/README.md) for bundled versus rep
 | Combined instructions/catalog | 256 KiB                       |
 | Context receipts              | 1,024 active; four hours each |
 
+### Add a project skill
+
+For a Full connection, place a skill in an authorized project's
+`skills/<name>/SKILL.md` (or `.agents/skills/<name>/SKILL.md`). Keep resource paths relative
+to that skill. Ask the client to bootstrap with that project root, inspect the catalog, and
+read the named skill before its referenced resources. Do not put credentials in instructions
+or skill files.
+
+For reuse across projects, use the owner-managed `<stateRoot>/harness/skills/` instead.
+Changing a repository's skills does not automatically install them into an existing gateway.
+Existing owner files are preserved during provisioning; back up any custom harness root.
+Gateway-only clients should keep using their own harness.
+
 ## 2. Context Lifecycle
 
 1. Call context.bootstrap, optionally with an authorized projectRoot.

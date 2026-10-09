@@ -1,26 +1,44 @@
 # SlncTrZ-MCP Architecture
 
 The gateway gives authenticated Web AI and coding clients owner-controlled access to one
-Linux or Windows account. This describes the v0.4.0 source tree; publication and installed
-runtime identity are separate facts recorded in [Project Status](docs/PROJECT_STATUS.md).
+Linux or Windows account. This guide describes published v0.4.2's product boundaries;
+unreleased development changes and runtime observations are separate facts in
+[Project Status](docs/PROJECT_STATUS.md).
 
 ## 1. System Overview
+
+Use one endpoint to connect AI clients, select a profile through OAuth, and apply the
+Owner's access policy before reaching coding tools or downstream providers.
+
+```mermaid
+flowchart TD
+  Clients["Web AI / coding clients"] --> OAuth["OAuth + connection profile"]
+  Owner["Owner Console"] --> Policy["Paths / Commands / provider grants"]
+  OAuth --> Kernel["Gateway request boundary"]
+  Policy --> Kernel
+  Kernel --> Core["Files / exec / tasks / Debate"]
+  Kernel --> Harness["Instructions / skills"]
+  Kernel --> Providers["MCP provider supervisor"]
+  Harness --> Files["Owner state + config files"]
+  Providers --> Files
+  Core --> Stores["Durable stores + in-memory task/session state"]
+```
 
 The MCP endpoint is `:3100/mcp`; the same HTTP listener serves the optional Owner homepage,
 `/owner`, `/debate` and `/usage`. A separate loopback control plane defaults to port 3101.
 
-| Component | Responsibility | Authority / persistence |
-| --- | --- | --- |
-| OAuth server | PKCE, exact redirect/resource binding, consent and refresh | Durable client/grant state; pending authorization transactions/codes in memory |
-| Policy engine | Paths, command catalog, provider grants and autonomy | Owner-managed files; immutable per-request snapshots |
-| Context service | Product Agent Harness, instructions, progressive skills | Principal/workspace/revision-bound four-hour receipts in memory |
-| Core tools | Text/image inspection, atomic file changes, bounded execution | Current policy and gateway OS account |
-| Managed Task Runtime | Background Runner and logical Task Coordinator | In-memory; Runner creator-private, Coordinator workspace-visible |
-| Debate | Two-participant turn/sequence coordination | Durable SQLite history |
-| Provider supervisor | STDIO children or remote Streamable HTTP endpoints | Per-provider isolation, deadlines, recovery budgets |
-| Usage / audit | Numeric traffic estimates and bounded event records | Separate SQLite stores; no prompt/argument/output capture in Usage |
-| Standalone product | Setup, verified update, rollback, doctor and uninstall | Managed install/state/config roots |
-| Lifecycle ledger | Append-only operation records and identity comparison | Foundation module; not wired into this gateway runtime |
+| Component            | Responsibility                                                | Authority / persistence                                                        |
+| -------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| OAuth server         | PKCE, exact redirect/resource binding, consent and refresh    | Durable client/grant state; pending authorization transactions/codes in memory |
+| Policy engine        | Paths, command catalog, provider grants and autonomy          | Owner-managed files; immutable per-request snapshots                           |
+| Context service      | Product Agent Harness, instructions, progressive skills       | Principal/workspace/revision-bound four-hour receipts in memory                |
+| Core tools           | Text/image inspection, atomic file changes, bounded execution | Current policy and gateway OS account                                          |
+| Managed Task Runtime | Background Runner and logical Task Coordinator                | In-memory; Runner creator-private, Coordinator workspace-visible               |
+| Debate               | Two-participant turn/sequence coordination                    | Durable SQLite history                                                         |
+| Provider supervisor  | STDIO children or remote Streamable HTTP endpoints            | Per-provider isolation, deadlines, recovery budgets                            |
+| Usage / audit        | Numeric traffic estimates and bounded event records           | Separate SQLite stores; no prompt/argument/output capture in Usage             |
+| Standalone product   | Setup, verified update, rollback, doctor and uninstall        | Managed install/state/config roots                                             |
+| Lifecycle ledger     | Append-only operation records and identity comparison         | Foundation module; not wired into this gateway runtime                         |
 
 The owner controls Autonomy, Paths, Commands and MCP Servers. Restricted file tools enforce
 configured Paths and protected-name rules. Restricted execution authorizes catalog binaries;
@@ -85,3 +103,26 @@ integration points are in [Lifecycle Wiring](docs/LIFECYCLE_WIRING.md).
 New Gateway-only consents use durable grants and rotating single-use refresh tokens until
 revocation. Existing finite grants stay finite during OAuth schema-v3 migration. Restore a
 coherent pre-migration backup before rollback to a pre-v3 binary; see [Backup](docs/BACKUP_RESTORE.md).
+
+## 3. Extend and operate the product
+
+| You want to…                   | Extension point                                              | Check the result                                                 |
+| ------------------------------ | ------------------------------------------------------------ | ---------------------------------------------------------------- |
+| Add an existing MCP server     | Owner MCP Servers; STDIO command or remote HTTP endpoint     | Test/Sync, inspect readiness, refresh client discovery           |
+| Add a working skill            | Owner harness or authorized project `skills/<name>/SKILL.md` | Bootstrap that project, inspect catalog, then read the skill     |
+| Implement a gateway capability | Contributor source modules and MCP registrations             | Contract/security tests and exact native artifact acceptance     |
+| Move or upgrade a gateway      | Managed program, config and state roots                      | Coherent backup, compatible schemas, status/doctor after restart |
+
+Adding a provider does not require changing the kernel. Adding a skill adds guidance, not
+new OS permissions or a tool implementation. A renamed connection/display label does not
+change the underlying authorization boundary.
+
+State/config paths depend on OS and install mode; inspect them with `config show`.
+Keep owner/provider credential state private and include it only in protected backups.
+Back up state/config together while stopped. Replace the program through verified update;
+binary-only rollback does not undo a database migration.
+
+See [MCP Servers](MCP_SERVERS.md), [Harness](docs/HARNESS.md),
+[Update/rollback commands](docs/USER_GUIDE.md#2-cli-commands) and
+[Backup and Restore](docs/BACKUP_RESTORE.md). Latency and Scalability improvements need
+measurements under stated load; the diagram is not a claim of horizontal multi-process support.

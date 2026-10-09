@@ -1,11 +1,13 @@
 # Deployment Guide
 
-Deployment contract for SlncTrZ-MCP (v0.4.x source). Verify published and running identities
-separately; [Project Status](PROJECT_STATUS.md) records current evidence.
+For a foreground User install, start with [User Guide](USER_GUIDE.md#1-installation--endpoints).
+Use this guide for a Linux system service or a reachable HTTPS endpoint. Published baseline:
+v0.4.2; development changes and running identities are tracked in [Project Status](PROJECT_STATUS.md).
 
 ## 1. Linux System Install (systemd)
 
-`--mode system` needs sudo, systemd and an existing workspace. Defaults:
+Use an x64 Linux systemd host with the bootstrap tools listed in [User Guide](USER_GUIDE.md#install-on-linux).
+`--mode system` needs sudo and an existing absolute workspace directory. Defaults:
 
 - Program: `/opt/slnctrz-mcp`
 - State: `/var/lib/slnctrz-mcp`
@@ -49,7 +51,20 @@ slnctrz-mcp config set public-url https://mcp.example.com/mcp
 Restart the installed gateway when the command reports it, and ensure your tunnel/reverse
 proxy routes the required OAuth discovery, authorization, registration and token endpoints
 as well as /mcp. Expose neither the private control plane nor unrestricted owner state.
-Review Owner Console enablement, accepted hosts/origins and proxy configuration explicitly.
+The public URL must be HTTPS and end exactly at `/mcp`. Restart through the owning terminal
+or systemd after the config change; check `status --json`, `doctor --json` and discovery again.
+
+Public URL configuration does not create a tunnel, DNS record or reverse proxy. Forward the
+OAuth discovery/registration/authorization/token routes on the same public origin, not just
+`/mcp`. Check reachability from the client network; a browser on your own computer is not
+proof that a cloud client can reach it.
+
+Review Owner Console enablement and allowed hosts/origins separately. When no explicit
+Owner setting exists, configuring a public URL disables Owner Web by default. You can
+explicitly use `slnctrz-mcp config set owner-console true` if you intend to expose that UI;
+review its network/access policy before doing so. Keep port 3101 loopback/private. Do not
+enable the UI or edit credentials merely to diagnose client OAuth.
+See [AI Web connection steps](USER_GUIDE.md#connect-an-ai-web-client).
 
 ## 4. Task Runtime lifecycle
 

@@ -28,8 +28,8 @@ AI can access, and work with your projects through one MCP endpoint.
 
 Use **Full** for the gateway's coding tools and harness. Use **Gateway-only** when OpenCode,
 Pi, Codex or Claude Code already handles local coding and you only need shared MCP providers.
-Choose Gateway-only on the first OAuth approval: it stays connected until revoked, refreshes
-automatically, and cannot be promoted to Full. See [Connect coding agents](docs/GATEWAY_ONLY.md).
+Choose Gateway-only on the first OAuth approval: the grant lasts until revoked and cannot
+be promoted to Full. Compatible clients handle rotating refresh tokens. See [Connect coding agents](docs/GATEWAY_ONLY.md).
 
 The **built-in harness** supplies product working guidance to Full connections. Fresh installs
 also seed the **code-review** and **debug-and-test** skills, preserving existing owner files.
@@ -38,20 +38,19 @@ additional repository skills are discovered for an authorized project or install
 See [Harness & Skills](docs/HARNESS.md) and [bundled defaults](skills/README.md).
 Gateway-only clients keep their own harness.
 
-## Why I built it
+## Why use a gateway?
 
-I use GPT in web chat to work with files on my machine, including with a Free account.
-With Plus and above, I use Chat plus SlncTrZ-MCP as a working session; on my account this
-does not reduce the Work/Codex usage percentage. That is my experience with the platform's
-normal Chat/plugin flow. Chat model limits and availability still follow the account plan.
+Keep your projects and provider configuration on your machine while choosing the AI client
+that works for each task. A Web AI can use the Full profile to work on an authorized project;
+a coding agent can use Gateway-only to share providers without replacing its own tools.
 
-The gateway also lets my agents use the same MCP providers, discuss a problem through
-Debate, and delegate suitable work to smaller models. You choose the models and clients;
-SlncTrZ connects them to your tools.
+You control access in one Owner Console. Add providers or skills when needed, and back up
+your configuration and state when moving or updating the gateway. Your AI platform's plans,
+usage limits and billing still apply; the gateway does not increase those allowances.
 
 ## Quick start
 
-Download the installer in a Linux shell or **Git Bash on Windows**:
+**Linux x64:** use a terminal. **Windows x64:** use Git Bash for setup.
 
 ```bash
 curl --fail --location --proto '=https' --tlsv1.2 \
@@ -61,17 +60,24 @@ curl --fail --location --proto '=https' --tlsv1.2 \
 sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME/projects"
 ```
 
-Choose an existing project directory. On Windows, use a Git Bash path such as
-`/c/Users/YourName/projects`. Start the gateway with the `Start:` command printed by setup.
+Replace the last path with an **existing** project directory. On Windows, use an absolute
+Git Bash path such as `/c/Users/YourName/projects`.
 
-1. Open the **Owner Console** at `http://127.0.0.1:3100/` and sign in.
-2. Review **Paths**, **Commands** and **MCP Servers**.
-3. Add `http://127.0.0.1:3100/mcp` to your client and complete OAuth.
+1. Run the **Start:** command printed by setup. Windows can run its installed executable
+   from PowerShell; Linux uses the printed launcher/config command.
+2. Open the **Owner Console** at `http://127.0.0.1:3100/`. Read the Owner passphrase privately
+   from the file identified by setup and enter it only in the Console/consent page.
+3. Review Paths, Commands and MCP Servers, then connect your client to
+   `http://127.0.0.1:3100/mcp` and complete OAuth.
+4. Ask the client to call `core.ping`; check the gateway identity, profile and available tools.
 
-Cloud clients need a reachable HTTPS endpoint. The installed binaries include their runtime;
-Node.js is only needed for source development.
+For a cloud AI, use a reachable HTTPS endpoint and the
+[AI Web connection steps](docs/USER_GUIDE.md#connect-an-ai-web-client).
+Installed binaries include their runtime; Node.js is only needed for source development.
 
-[Installation and Windows launch](docs/USER_GUIDE.md#1-installation--endpoints) · [Public HTTPS / system service](docs/DEPLOYMENT.md)
+[Linux and Windows steps](docs/USER_GUIDE.md#1-installation--endpoints) ·
+[OpenCode / Pi / Codex / Claude Code](docs/GATEWAY_ONLY.md) ·
+[HTTPS / Linux system service](docs/DEPLOYMENT.md)
 
 ## Know the boundaries
 
@@ -95,10 +101,11 @@ See [Security](SECURITY.md) and [Backup and Restore](docs/BACKUP_RESTORE.md).
 | Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.2.md)        |
 | Browse all documentation              | [Documentation index](docs/README.md)                             |
 
-Linux x64 and Windows x64 are the standalone release targets. The new Gateway-only consent
-flow is currently an unreleased source change. Source version 0.4.1, a public release and the
-running gateway can differ; see [Project Status](docs/PROJECT_STATUS.md),
-[QA evidence](QA_QC_REPORT_v0.4.1.md) and the published release before expecting new behavior.
+Linux x64 and Windows x64 are the standalone release targets. As of 2026-10-09,
+[v0.4.2](docs/releases/v0.4.2.md) is the published stable release and includes Gateway-only
+consent. This development tree retains package version 0.4.2 and contains unreleased
+exec-environment and Owner session/navigation changes planned for v0.4.3. Source, published
+release and running process are separate identities; see [Project Status](docs/PROJECT_STATUS.md).
 
 ## Development
 

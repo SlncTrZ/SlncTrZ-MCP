@@ -5,6 +5,18 @@ tool counts and readiness come from runtime discovery, not this repository.
 
 ## 1. Provider Setup & Discovery
 
+1. Install or start the downstream server independently. For STDIO, confirm its executable
+   works as the gateway's OS account; for HTTP, confirm that account can reach the endpoint.
+2. In Owner Console, open **MCP Servers** and add its provider ID/name, transport and required
+   command/cwd or URL. Use the provider's documented credential flow where authentication is needed.
+3. Test the provider and synchronize its catalog. Review the resulting status; adding a
+   definition alone does not establish a working connection.
+4. Refresh discovery in your AI client and inspect `core.ping`. Use advertised tool names and
+   schemas rather than guessing them from the provider's marketing name.
+
+Current v0.4.2 manages providers in the existing panel. A provider detail drawer and revised
+action confirmations are planned development work, not part of these installation steps.
+
 Use the Owner Console MCP Servers panel to add a provider, test it, synchronize its catalog
 and enable/disable it. Check `core.ping` and refresh the client's advertised tool catalog after
 a change. A configured provider is not necessarily ready.
