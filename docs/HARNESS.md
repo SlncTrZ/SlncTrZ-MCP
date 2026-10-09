@@ -39,6 +39,10 @@ Gateway-only clients should keep using their own harness.
 
 ## 2. Context Lifecycle
 
+context.bootstrap here is the Full-profile MCP tool that returns a harness context receipt;
+it is distinct from the installer bootstrap (`install.sh`) that installs the gateway software.
+Only Full connections use it; Gateway-only connections never call it or supply `slnctrzContext`.
+
 1. Call context.bootstrap, optionally with an authorized projectRoot.
 2. Read sourced instructions, diagnostics, catalog and Product Agent Harness.
 3. Pass contextToken as `slnctrzContext` on subsequent coding calls. MCP clients may instead

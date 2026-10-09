@@ -14,6 +14,13 @@ Connect to the configured HTTP /mcp endpoint and complete OAuth PKCE. Cloud clie
 reachable HTTPS. Each client's MCP configuration and login syntax are client-version facts;
 the example flows do not establish release-specific compatibility.
 
+The profile is selected at the gateway's browser consent step: Full adds gateway
+coding/context/skills/task tools and the harness; Gateway-only keeps the client's own harness
+and exposes only enabled providers and Debate. context.bootstrap, skills.* and slnctrzContext
+are Full-only and are never required on Gateway-only connections. context.bootstrap is the
+Full-profile MCP tool, distinct from the installer bootstrap (`install.sh`) that installs the
+gateway software.
+
 ## 2. Session Context & Receipts
 
 For Full ordinary coding calls, including reads, search, mutations and task tools:
@@ -28,7 +35,8 @@ For Full ordinary coding calls, including reads, search, mutations and task tool
 Receipts do not widen capability authority. They expire after four hours and reset on gateway
 restart. core.ping can inspect identity/profile without a context; it exposes modelGuide,
 agentHarness and managedTasks in structuredContent. Bootstrap delivers sourced instructions
-and catalog metadata, not all skill bodies. Gateway-only providers need no gateway receipt.
+and catalog metadata, not all skill bodies. Gateway-only providers and Debate need no gateway
+receipt and never call context.bootstrap or supply slnctrzContext.
 
 ## 3. Skills Loading
 
