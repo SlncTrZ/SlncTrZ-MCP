@@ -1,6 +1,6 @@
 # Project Status
 
-Snapshot: 2026-10-09, Asia/Saigon; refreshed after merging all project branches into main. This is dated maintainer evidence, not a live status
+Snapshot: 2026-10-09, Asia/Saigon; refreshed after integrating PR #8 into main. This is dated maintainer evidence, not a live status
 endpoint or a description of your installation. Check `--build-info`, `status --json`,
 runtime `core.ping` and the published release before making operational decisions.
 
@@ -8,7 +8,7 @@ runtime `core.ping` and the published release before making operational decision
 
 | Layer                          | Observed state                                                                                                            |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Main baseline                  | Package 0.4.2; combined-source merge `5f6854f4fcd60325a793b4fa18d7c1ec951a5bc6` on main                                   |
+| Main baseline                  | Package 0.4.2; native Windows folder fix merged as `86b0b42cdf1ebd6ca34cd7e078495e4bd0e4464d` on main                     |
 | Public stable                  | [v0.4.2](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.2); not draft/prerelease                                |
 | Development review             | Merged into main, including review HEAD `bed22b3d061d8c3bb167d3da3cc43a97885a454e`; no review source remains outside main |
 | Maintainer's inspected gateway | `core.ping`: v0.4.2, buildCommit unknown; source edits do not update it                                                   |
@@ -31,6 +31,25 @@ The combined-source ref requires its own [main CI](https://github.com/SlncTrZ/Sl
 result. Earlier CI and local review evidence below identify their original refs; they do
 not replace final product acceptance. WP-02/03/04/06/07/08 remain planned; named-client
 OAuth, final UI/docs and integrated acceptance remain pending. Release/deployment is on hold.
+
+### Native Windows folder-discovery correction
+
+The earlier combined main `0368da1` failed its Windows native SEA command-environment
+probe. A real Windows minimal-environment regression reproduced the bounded lookup
+timeout at diagnostic `b30f2ba` in
+[CI 37937428444](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37937428444).
+
+[PR #8](https://github.com/SlncTrZ/SlncTrZ-MCP/pull/8) is merged as
+`86b0b42cdf1ebd6ca34cd7e078495e4bd0e4464d`. The fix returns actual Windows known folders
+through direct .NET Console UTF-8 output, avoiding ConvertTo-Json utility loading.
+The 3000-ms lookup bound, command/startup deadlines and environment allowlist are unchanged.
+
+[Fix-head CI 37938100355](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37938100355)
+passed all five jobs on `30f63872f5cb6749a5a0f71fe79f72c6e96562e1`: Windows 771 passed/29
+skipped; Linux Node 22/24 each 788 passed/12 skipped. Native SEA smoke/identity gates passed,
+and a second Windows attempt also passed source, SEA smoke, identity and native uninstall.
+Those are PR-head observations; inspect the current main CI separately after merge.
+Stable installed/service/keyring and named-client acceptance remain separate gates.
 
 ## Historical CI checkpoints before full integration
 

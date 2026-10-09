@@ -18,7 +18,7 @@ local verification, public release and deployed runtime.
 
 | Package | Goal                                                     | Current review state                                                      |
 | ------- | -------------------------------------------------------- | ------------------------------------------------------------------------- |
-| WP-00   | Baseline/PR identity and OS-compatible exec environment  | Baseline/exec-env verified in isolation; PR integration pending           |
+| WP-00   | Baseline/PR identity and OS-compatible exec environment  | Source integrated; native fix checked on PR; final acceptance pending           |
 | WP-01   | User docs, installation/connections and extension guides | Documentation reconciliation; client acceptance and final UI docs pending |
 | WP-02   | Shared Dashboard design system/shell                     | Planned                                                                   |
 | WP-03   | Read-only provider detail API                            | Planned                                                                   |
@@ -31,6 +31,10 @@ local verification, public release and deployed runtime.
 WP-00-E (`db34294`), WP-05 (`201a4b3`), foundational WP-01 docs (`0cb09db`) and
 review docs (`bed22b3`) are now merged into main as `5f6854f4fcd60325a793b4fa18d7c1ec951a5bc6`.
 PR #6/#7 are also merged; all other local branch tips were already contained in main.
+PR #8 now integrates the native Windows folder-discovery fix (`30f6387`) as
+`86b0b42cdf1ebd6ca34cd7e078495e4bd0e4464d`. It uses direct .NET Console output instead
+of ConvertTo-Json while retaining the 3000-ms lookup bound and environment isolation.
+Its exact-head PR CI passed all five jobs, including a second Windows native attempt.
 The changes remain unreleased. Check CI on the combined ref separately from earlier
 review evidence; final product/client acceptance is still pending. See
 [Project Status](docs/PROJECT_STATUS.md#commit-and-ci-checkpoint) for source/release/runtime
