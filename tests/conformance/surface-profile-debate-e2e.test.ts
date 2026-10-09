@@ -331,7 +331,9 @@ describe("surface profile and Debate integration", () => {
     expect(gatewayNames.some((name) => name.startsWith("skills."))).toBe(false);
     expect(gatewayNames.some((name) => name.startsWith("task."))).toBe(false);
 
-    const restrictedEchoTool = gatewayList.result?.tools?.find((tool) => tool.name === "sample.echo");
+    const restrictedEchoTool = gatewayList.result?.tools?.find(
+      (tool) => tool.name === "sample.echo"
+    );
     expect(restrictedEchoTool?.inputSchema?.properties?.slnctrzContext).toBeUndefined();
     const restrictedPingTool = gatewayList.result?.tools?.find((tool) => tool.name === "core.ping");
     expect(restrictedPingTool?.description).not.toContain("context.bootstrap");

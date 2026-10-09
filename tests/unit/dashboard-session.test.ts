@@ -265,19 +265,21 @@ class WsElement {
   value = "";
   dataset: Record<string, string> = {};
   focused = false;
-  private listeners = new Map<string, Array<(event?: any) => void>>();
-  addEventListener(type: string, fn: (event?: any) => void) {
+  private listeners = new Map<string, ((event?: unknown) => void)[]>();
+  addEventListener(type: string, fn: (event?: unknown) => void) {
     const list = this.listeners.get(type) ?? [];
     list.push(fn);
     this.listeners.set(type, list);
   }
-  emit(type: string, event: any = {}) {
+  emit(type: string, event: unknown = {}) {
     for (const fn of this.listeners.get(type) ?? []) fn(event);
   }
   focus() {
     this.focused = true;
   }
-  select() {}
+  select() {
+    this.focused = true;
+  }
 }
 
 interface WsController {
@@ -314,12 +316,16 @@ function wsHarness(
   element("workspace-name-feedback").hidden = true;
 
   const doc = { getElementById: element, visibilityState: opts.visibilityState ?? "visible" };
-  const intervals: Array<{ fn: () => void; ms: number }> = [];
-  const timeouts: Array<{ fn: () => void; ms: number }> = [];
+  const intervals: { fn: () => void; ms: number }[] = [];
+  const timeouts: { fn: () => void; ms: number }[] = [];
   const clearedIntervals: number[] = [];
   const clearedTimeouts: number[] = [];
   const unload = new Map<string, () => void>();
-  const calls: Array<{ path: string; opt: Record<string, unknown> | undefined; csrf: string | undefined }> = [];
+  const calls: {
+    path: string;
+    opt: Record<string, unknown> | undefined;
+    csrf: string | undefined;
+  }[] = [];
   const requestFn = opts.request ?? (async () => ({ displayName: "Owner workspace" }));
 
   const context = createContext({
@@ -383,7 +389,7 @@ describe("Workspace name inline edit and greetings lifecycle", () => {
     expect(h.element("workspace-name-feedback").hidden).toBe(true);
     expect(h.element("workspace-greeting").textContent).toBe("Welcome back!");
     expect(h.intervals()).toHaveLength(1);
-    expect(h.intervals()[0]!.ms).toBe(30000);
+    expect(h.intervals()[0]?.ms).toBe(30000);
   });
 
   it("updates the displayed name from /owner/api/workspace", async () => {
@@ -433,19 +439,20 @@ describe("Workspace name inline edit and greetings lifecycle", () => {
     expect(h.element("workspace-name-input").disabled).toBe(true);
     expect(h.element("workspace-name-feedback").textContent).toBe("Saving...");
     await saving;
-    const patch = h.patches()[0]!;
-    expect(patch.path).toBe("/owner/api/workspace");
-    expect(patch.opt?.method).toBe("PATCH");
-    expect(JSON.parse(String(patch.opt?.body))).toEqual({ displayName: "New Name" });
-    expect(patch.csrf).toBe("test-csrf");
+    const patch = h.patches()[0];
+    expect(patch).toBeDefined();
+    expect(patch?.path).toBe("/owner/api/workspace");
+    expect(patch?.opt?.method).toBe("PATCH");
+    expect(JSON.parse(String(patch?.opt?.body))).toEqual({ displayName: "New Name" });
+    expect(patch?.csrf).toBe("test-csrf");
     expect(h.element("workspace-name").textContent).toBe("New Name");
     expect(h.element("workspace-name").hidden).toBe(false);
     expect(h.element("workspace-edit-form").hidden).toBe(true);
     expect(h.element("workspace-name-feedback").textContent).toBe("Saved");
     expect(h.timeouts().some((t) => t.ms === 2000)).toBe(true);
     h.timeouts()
-      .find((t) => t.ms === 2000)!
-      .fn();
+      .find((t) => t.ms === 2000)
+      ?.fn();
     expect(h.element("workspace-name-feedback").hidden).toBe(true);
   });
 
@@ -478,7 +485,10 @@ describe("Workspace name inline edit and greetings lifecycle", () => {
 
     h.element("workspace-edit-btn").emit("click");
     h.element("workspace-name-input").value = "Temporary 2";
-    h.element("workspace-name-input").emit("keydown", { key: "Escape", preventDefault: () => {} });
+    h.element("workspace-name-input").emit("keydown", {
+      key: "Escape",
+      preventDefault: () => undefined
+    });
     expect(h.element("workspace-edit-form").hidden).toBe(true);
     expect(h.element("workspace-name-input").value).toBe("Owner workspace");
   });
@@ -486,7 +496,7 @@ describe("Workspace name inline edit and greetings lifecycle", () => {
   it("cycles greetings and wraps back to the first", async () => {
     const h = wsHarness();
     await flush();
-    const tick = () => h.intervals()[0]!.fn();
+    const tick = () => h.intervals()[0]?.fn();
     expect(h.element("workspace-greeting").textContent).toBe("Welcome back!");
     tick();
     expect(h.element("workspace-greeting").textContent).toBe("Have a nice day!");
@@ -501,7 +511,7 @@ describe("Workspace name inline edit and greetings lifecycle", () => {
   it("pauses rotation when the tab is hidden", async () => {
     const h = wsHarness();
     await flush();
-    const tick = () => h.intervals()[0]!.fn();
+    const tick = () => h.intervals()[0]?.fn();
     tick();
     h.setVisibilityState("hidden");
     const paused = h.element("workspace-greeting").textContent;
@@ -515,7 +525,7 @@ describe("Workspace name inline edit and greetings lifecycle", () => {
   it("pauses rotation while the edit form is open", async () => {
     const h = wsHarness();
     await flush();
-    const tick = () => h.intervals()[0]!.fn();
+    const tick = () => h.intervals()[0]?.fn();
     h.controller.openEdit();
     const paused = h.element("workspace-greeting").textContent;
     tick();

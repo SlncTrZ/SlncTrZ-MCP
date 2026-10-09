@@ -8,9 +8,15 @@ import { managedStatePaths } from "../../src/owner/managed-state.js";
 import { createOwnerWebConsole } from "../../src/owner/web-console.js";
 import { compilePolicyDocument } from "../../src/policy/policy-config.js";
 import { buildActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
-import type { McpCredentialMetadata, McpCredentialStore } from "../../src/owner/mcp-credential-store.js";
+import type {
+  McpCredentialMetadata,
+  McpCredentialStore
+} from "../../src/owner/mcp-credential-store.js";
 import type { ManagedMcpProvider } from "../../src/owner/mcp-provider-store.js";
-import type { McpDiscoveredSnapshot, McpProviderService } from "../../src/owner/mcp-provider-service.js";
+import type {
+  McpDiscoveredSnapshot,
+  McpProviderService
+} from "../../src/owner/mcp-provider-service.js";
 import type { ActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
 import type { PolicySnapshotStore } from "../../src/policy/policy-store.js";
 
@@ -41,9 +47,7 @@ function provider(overrides: Partial<ManagedMcpProvider> = {}): ManagedMcpProvid
   };
 }
 
-function discoveredSnapshot(
-  overrides: Partial<McpDiscoveredSnapshot> = {}
-): McpDiscoveredSnapshot {
+function discoveredSnapshot(overrides: Partial<McpDiscoveredSnapshot> = {}): McpDiscoveredSnapshot {
   return {
     at: "2026-10-09T10:00:00.000Z",
     tools: [],

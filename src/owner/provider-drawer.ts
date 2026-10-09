@@ -19,7 +19,7 @@
  * actions container and the confirmation modal. All dynamic text containers are
  * empty here and populated by {@link providerDrawerScript}.
  */
-export const providerDrawerHtml: string = `
+export const providerDrawerHtml = `
 <div id="provider-drawer-backdrop" class="provider-drawer-backdrop" hidden></div>
 <aside id="provider-drawer" class="provider-drawer" role="dialog" aria-modal="true" aria-labelledby="provider-drawer-name" hidden>
   <div class="provider-drawer-panel" id="provider-drawer-panel">
@@ -73,7 +73,7 @@ export const providerDrawerHtml: string = `
  * a 375px mobile full-width breakpoint and a centered frosted confirmation modal.
  * Reduced-motion users get instant (non-animated) transitions.
  */
-export const providerDrawerCss: string = `
+export const providerDrawerCss = `
 .provider-drawer-backdrop{position:fixed;inset:0;background:rgba(10,21,40,.44);z-index:60;opacity:0;transition:opacity 240ms cubic-bezier(.22,1,.36,1);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
 .provider-drawer-backdrop.open{opacity:1}
 .provider-drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100vw);max-width:100%;z-index:61;transform:translateX(100%);transition:transform 240ms cubic-bezier(.22,1,.36,1);background:var(--surface,#FFFDF4);color:var(--text,#12284B);box-shadow:-16px 0 48px rgba(18,40,75,.24);display:flex;flex-direction:column}

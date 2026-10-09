@@ -531,8 +531,7 @@ export function createOwnerWebConsole(options: {
     const toolDrift = discovered?.diff.hasChanges ?? false;
     return projectProviderDetail({
       provider,
-      runtime:
-        runtime === undefined ? undefined : { state: runtime.state, health: runtime.health },
+      runtime: runtime === undefined ? undefined : { state: runtime.state, health: runtime.health },
       credentials,
       workspaceId: DEFAULT_WORKSPACE_ID,
       workspaceGranted: true,
@@ -1111,8 +1110,7 @@ export function createOwnerWebConsole(options: {
       if (method === "PATCH" && pathname === "/owner/api/workspace") {
         if (!requireCsrf(req, res, session)) return true;
         const body = (await readBoundedJson(req, MAX_BODY_BYTES)) as
-          | { displayName?: unknown }
-          | undefined;
+          { displayName?: unknown } | undefined;
         if (body === undefined || typeof body.displayName !== "string") {
           sendJson(res, 400, {
             error: { code: "invalid_display_name", message: "displayName is required" }
