@@ -284,7 +284,7 @@ describe("stdio startup fallback bounds", () => {
           async set(ref, credential) {
             return {
               ref,
-              kind: credential.kind,
+              kind: credential.kind === "systemd-bearer" ? "bearer" : credential.kind,
               ...(credential.kind === "env" ? { name: credential.name } : {})
             };
           },
