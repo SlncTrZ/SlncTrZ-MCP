@@ -1,0 +1,30 @@
+name: Windows uninstall diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npx --yes --package=npm@11.16.0 npm ci
+      - name: Build disposable native artifact
+        env:
+          SLNCTRZ_BUILD_COMMIT: ${{ github.sha }}
+          SLNCTRZ_RELEASE_BASE_URL: https://example.invalid/slnctrz-diagnostics/
+        shell: pwsh
+        run: |
+          $env:SLNCTRZ_RELEASE_SIGNING_PUBLIC_KEY_B64 = node --input-type=module -e "import { generateKeyPairSync } from 'node:crypto'; const { publicKey } = generateKeyPairSync('ed25519'); process.stdout.write(publicKey.export({ type: 'spki', format: 'der' }).toString('base64'));"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx --yes --package=npm@11.16.0 npm run build:sea:win32-x64
+      - name: Compare helper startup and native uninstall environments
+        run: node scripts/diagnose-windows-uninstall.mjs
