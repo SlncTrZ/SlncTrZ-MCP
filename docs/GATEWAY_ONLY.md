@@ -8,6 +8,8 @@ harness too. This profile/consent behavior is included in published v0.4.2.
 
 - Full advertises gateway coding/file/media/context/skills/task tools subject to authority.
 - Gateway-only retains core.ping, connection.restrict, Debate and enabled provider tools.
+  Provider tools and Debate are directly usable on this profile; coding/context/skills/task
+  tools are hidden and no context receipt is ever required.
 - First Gateway-only consent sets a ceiling: refresh and Owner controls cannot promote it to
   Full. Make a separate fresh Full connection if you need gateway coding tools.
 - New Gateway-only grants survive restart/offline periods until revoked. Access tokens expire;
@@ -20,6 +22,14 @@ harness too. This profile/consent behavior is included in published v0.4.2.
 Replace `https://mcp.example.com/mcp` with your gateway endpoint. A client on the gateway
 machine can use `http://127.0.0.1:3100/mcp`; a remote/cloud client needs an endpoint it can
 reach. Start the gateway first.
+
+These recipes configure the connection only; the profile is selected at the browser consent
+step. Choose Gateway-only for enabled providers and Debate, or Full for the gateway coding
+tools and harness. The recipes are identical either way.
+
+Terminology: the installer bootstrap (`install.sh`) installs the gateway software. It is not
+`context.bootstrap`, the Full-profile MCP tool that returns a harness context receipt.
+Gateway-only connections never call `context.bootstrap` or supply `slnctrzContext`.
 
 ### OpenCode 1.x
 
