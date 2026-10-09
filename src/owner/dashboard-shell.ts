@@ -34,7 +34,7 @@ export function dashboardChrome(page: DashboardPage): string {
   return `<a class="skip-link" href="#dashboard-main">Skip to content</a>
 <aside class="dashboard-sidebar" id="dashboard-sidebar" aria-label="Main navigation">
 <a class="dashboard-brand" href="${page === "owner" ? "#overview" : "/#overview"}"><span class="brand-symbol" aria-hidden="true">S</span><span><b>SlncTrZ</b><small>MCP WORKSPACE</small></span></a>
-<div class="workspace-label" id="workspace-card"><span class="workspace-avatar" aria-hidden="true">O</span><span class="workspace-copy"><span id="workspace-greeting" class="workspace-greeting">Welcome back!</span><b id="workspace-name" class="workspace-name">Owner workspace</b><small class="workspace-subtitle">Private gateway</small></span><button type="button" id="workspace-edit-trigger" class="workspace-edit-trigger" aria-label="Edit workspace name" title="Edit workspace name" hidden><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z"/></svg></button></div>
+<div class="workspace-label" id="workspace-card"><span class="workspace-avatar" aria-hidden="true">O</span><span class="workspace-copy"><span id="workspace-greeting" class="workspace-greeting">Welcome back!</span><span class="workspace-name-row"><b id="workspace-name" class="workspace-name">Owner workspace</b><button type="button" id="workspace-edit-btn" class="workspace-edit-btn" aria-label="Edit workspace name" title="Edit workspace name"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z"/></svg></button></span><form id="workspace-edit-form" class="workspace-edit-form" hidden><input id="workspace-name-input" class="workspace-name-input" type="text" maxlength="64" autocomplete="off" aria-label="Workspace name"><span class="workspace-edit-actions"><button type="submit" id="workspace-name-save" class="workspace-name-save">Save</button><button type="button" id="workspace-name-cancel" class="workspace-name-cancel">Cancel</button></span></form><span id="workspace-name-feedback" class="workspace-name-feedback" role="status" aria-live="polite" hidden></span><small class="workspace-subtitle">Private gateway</small></span></div>
 <div class="nav-caption">WORKSPACE</div><nav class="dashboard-nav">${links
     .map(([key, label, target]) => {
       const href = page === "owner" && target.startsWith("/#") ? target.slice(1) : target;
@@ -46,6 +46,80 @@ export function dashboardChrome(page: DashboardPage): string {
 <main id="dashboard-main" class="dashboard-main" tabindex="-1">`;
 }
 export const dashboardEnd = `</main></div><div class="startup-intro hidden" id="startup-intro" aria-hidden="true"><div class="intro-orbit"></div><div class="intro-copy"><span class="intro-kicker">YOUR AI. CONNECTED.</span><span class="intro-wordmark">SlncTrZ</span><span class="intro-rule"></span><span class="intro-tagline">One gateway. Endless possibilities.</span></div><button type="button" id="intro-skip" aria-label="Skip introduction">Skip intro</button></div>`;
+
+export const workspaceCardControllerScript = String.raw`
+function createWorkspaceCard(options){
+options=options||{};
+const request=options.request||ownerApiRequest;
+const getCsrf=options.getCsrf||function(){try{return typeof csrf==='string'?csrf:''}catch(_){return ''}};
+const greetings=options.greetings||["Welcome back!","Have a nice day!","How’s your day going?","Ready when you are."];
+const intervalMs=typeof options.intervalMs==='number'?options.intervalMs:30000;
+const savedMessageMs=typeof options.savedMessageMs==='number'?options.savedMessageMs:2000;
+const reducedMotion=typeof options.reducedMotion==='boolean'?options.reducedMotion:(typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches);
+const nameEl=document.getElementById('workspace-name');
+const editBtn=document.getElementById('workspace-edit-btn');
+const form=document.getElementById('workspace-edit-form');
+const input=document.getElementById('workspace-name-input');
+const saveBtn=document.getElementById('workspace-name-save');
+const cancelBtn=document.getElementById('workspace-name-cancel');
+const feedback=document.getElementById('workspace-name-feedback');
+const greetingEl=document.getElementById('workspace-greeting');
+if(!nameEl)return null;
+let savedName=nameEl.textContent||greetings[0];
+let editing=false,saving=false,savedTimer=null,greetingTimer=null,greetingIndex=0,greetingPaused=false;
+function setFeedback(text,state){feedback.textContent=text;feedback.dataset.state=state||'';feedback.hidden=!text}
+function setGreeting(text){greetingEl.textContent=text}
+function openEdit(){
+if(editing)return;
+editing=true;nameEl.hidden=true;editBtn.hidden=true;form.hidden=false;input.value=savedName;
+clearTimeout(savedTimer);setFeedback('','');greetingPaused=true;input.focus();if(input.select)input.select();
+}
+function closeEdit(){
+editing=false;form.hidden=true;nameEl.hidden=false;editBtn.hidden=false;input.value=savedName;greetingPaused=false;
+}
+async function submit(){
+if(saving)return;
+const value=input.value.trim();
+const codePoints=[...value];
+if(codePoints.length<1||codePoints.length>64){setFeedback('Enter a name between 1 and 64 characters.','error');input.focus();return}
+saving=true;input.disabled=true;saveBtn.disabled=true;cancelBtn.disabled=true;setFeedback('Saving...','saving');
+try{
+const result=await request('/owner/api/workspace',{method:'PATCH',body:JSON.stringify({displayName:value})},getCsrf());
+const next=(result&&typeof result.displayName==='string')?result.displayName:value;
+savedName=next;nameEl.textContent=next;closeEdit();setFeedback('Saved','saved');
+savedTimer=setTimeout(function(){if(feedback.dataset.state==='saved')setFeedback('','')},savedMessageMs);
+}catch(error){
+setFeedback((error&&error.message)?error.message:'Could not save the workspace name.','error');input.focus();
+}finally{
+saving=false;input.disabled=false;saveBtn.disabled=false;cancelBtn.disabled=false;
+}
+}
+function rotateGreeting(){
+if(reducedMotion){setGreeting(greetings[0]);return}
+if(greetingPaused)return;
+if(document.visibilityState==='hidden')return;
+greetingIndex=(greetingIndex+1)%greetings.length;setGreeting(greetings[greetingIndex]);
+}
+function startGreetings(){
+if(reducedMotion){setGreeting(greetings[0]);return}
+if(greetingTimer!==null)return;
+greetingTimer=setInterval(rotateGreeting,intervalMs);
+}
+function stopGreetings(){if(greetingTimer!==null){clearInterval(greetingTimer);greetingTimer=null}}
+editBtn.addEventListener('click',openEdit);
+cancelBtn.addEventListener('click',closeEdit);
+form.addEventListener('submit',function(e){e.preventDefault();submit()});
+input.addEventListener('keydown',function(e){
+if(e.key==='Escape'){e.preventDefault();closeEdit()}
+else if(e.key==='Enter'&&!e.isComposing){e.preventDefault();submit()}
+});
+if(request){Promise.resolve().then(function(){return request('/owner/api/workspace')}).then(function(data){if(data&&typeof data.displayName==='string'){savedName=data.displayName;nameEl.textContent=data.displayName}}).catch(function(){})}
+startGreetings();
+globalThis.addEventListener('pagehide',stopGreetings);
+globalThis.addEventListener('beforeunload',stopGreetings);
+return {openEdit:openEdit,closeEdit:closeEdit,submit:submit,startGreetings:startGreetings,stopGreetings:stopGreetings,rotateGreeting:rotateGreeting,get savedName(){return savedName},get editing(){return editing},get reducedMotion(){return reducedMotion}};
+}
+`;
 
 export const dashboardScript = `<script>(()=>{
 const root=document.getElementById('dashboard-sidebar'),toggle=document.getElementById('nav-toggle');
@@ -61,6 +135,8 @@ function hideIntro(){clearTimeout(timer);intro.classList.add('hidden');intro.set
 function playIntro(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;hideIntro();intro.classList.remove('hidden');intro.setAttribute('aria-hidden','false');timer=setTimeout(hideIntro,2600)}
 document.getElementById('intro-skip').addEventListener('click',hideIntro);document.querySelector('.intro-replay').addEventListener('click',playIntro);
 try{if(!sessionStorage.getItem('slnctrz-intro-seen')){sessionStorage.setItem('slnctrz-intro-seen','1');playIntro()}}catch{}
+${workspaceCardControllerScript}
+createWorkspaceCard();
 })();</script>`;
 
 export const dashboardCss = `
@@ -125,8 +201,23 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .workspace-greeting{display:block;font-size:10px;letter-spacing:.2px;color:#9FC0E2;line-height:1.45}
 .workspace-name{display:block;font-size:12px;font-weight:600;color:#FFFFFF;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workspace-subtitle{display:block;color:#9FB2CE;font-size:10px;margin-top:1px}
-.workspace-edit-trigger{border:0;background:transparent;color:#9FC0E2;width:26px;height:26px;border-radius:7px;cursor:pointer;flex:none;display:grid;place-items:center}
-.workspace-edit-trigger:hover{background:rgba(67,139,196,.22);color:#fff}
+.workspace-name-row{display:flex;align-items:center;gap:6px;min-width:0}
+.workspace-edit-btn{border:0;background:transparent;color:#9FC0E2;width:22px;height:22px;border-radius:6px;cursor:pointer;flex:none;display:grid;place-items:center;padding:0}
+.workspace-edit-btn:hover{background:rgba(67,139,196,.22);color:#fff}
+.workspace-edit-form{display:flex;flex-direction:column;gap:7px;margin-top:2px}
+.workspace-name-input{width:100%;min-height:30px;padding:6px 8px;font-size:12px;color:#12284B;background:#FFFFFF;border:1px solid var(--glass-border);border-radius:7px}
+.workspace-name-input:focus{outline:2px solid var(--sky);outline-offset:1px}
+.workspace-edit-actions{display:flex;gap:6px}
+.workspace-name-save,.workspace-name-cancel{border:0;border-radius:6px;min-height:26px;font-size:10px;font-weight:600;padding:0 10px;cursor:pointer}
+.workspace-name-save{background:var(--sky);color:#12284B}
+.workspace-name-save:hover{background:#A9D3F0}
+.workspace-name-cancel{background:rgba(255,255,255,.08);color:#C7D3E8}
+.workspace-name-cancel:hover{background:rgba(255,255,255,.16);color:#fff}
+.workspace-name-save:disabled,.workspace-name-cancel:disabled{opacity:.55;cursor:not-allowed}
+.workspace-name-feedback{display:block;font-size:10px;line-height:1.4;margin-top:1px}
+.workspace-name-feedback[data-state=error]{color:#FFB4BE}
+.workspace-name-feedback[data-state=saving]{color:#9FC0E2}
+.workspace-name-feedback[data-state=saved]{color:#7FE0B0}
 .nav-caption{font-size:9px;font-weight:700;letter-spacing:1.7px;margin:0 13px 11px;color:var(--sky)}
 .dashboard-nav{display:grid;gap:5px}
 .dashboard-nav a{color:#C7D3E8;display:flex;align-items:center;gap:12px;text-decoration:none;min-height:44px;padding:11px 13px;border-radius:8px;font-size:12px;font-weight:550;border:1px solid transparent}

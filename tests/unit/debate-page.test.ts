@@ -272,11 +272,12 @@ describe("Debate owner page foundation", () => {
 
   it("keeps browser refresh bounded and reconnects from the last observed sequence", () => {
     const html = debatePageHtml();
+    const debateScript = html.split("<script>\n")[1]?.split("\n</script>")[0] ?? "";
 
     expect(html).toContain("POLL_MS=2500");
     expect(html).toContain("setTimeout(scheduleRefresh");
     expect(html).toContain("lastSequence");
     expect(html).toContain("encodeURIComponent(String(lastSequence))");
-    expect(html).not.toContain("setInterval(");
+    expect(debateScript).not.toContain("setInterval(");
   });
 });
