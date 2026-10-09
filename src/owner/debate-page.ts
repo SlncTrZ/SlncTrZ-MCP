@@ -2,6 +2,7 @@
 
 import type { ServerResponse } from "node:http";
 import { dashboardChrome, dashboardCss, dashboardEnd, dashboardScript } from "./dashboard-shell.js";
+import { ownerSessionMarkup, ownerSessionScript } from "./dashboard-session.js";
 
 export const DEBATE_OWNER_API_BASE = "/owner/api/debates";
 
@@ -31,6 +32,7 @@ button,a{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid col
 ${dashboardCss}
 </style></head><body>${dashboardChrome("debate")}<div class="shell">
 
+${ownerSessionMarkup}
 <section id="auth-required" class="notice hidden"><strong>Owner sign-in required.</strong> Debate history stays private to the Owner Console session. <a href="/">Sign in at the homepage</a>, then return here.</section>
 <div id="app" class="hidden">
 <section class="hero"><div><div class="eyebrow">COLLABORATION</div><h1>Debate</h1><p>Live and historical two-participant discussions with durable turn state and explicit deadlines.</p></div></section>
@@ -51,14 +53,11 @@ ${dashboardCss}
 </div></div>
 <script>
 const API='/owner/api/debates',POLL_MS=2500;
-let csrf='',currentId=null,lastSequence=0,pollTimer=null,currentSnapshot=null;
+let csrf='',currentId=null,lastSequence=0,pollTimer=null,currentSnapshot=null,ownerSession;
+${ownerSessionScript}
 const q=id=>document.getElementById(id);
-async function api(path,opt={}){
-  const headers={...(opt.body?{'content-type':'application/json'}:{}),...(opt.method&&opt.method!=='GET'?{'x-slnctrz-csrf':csrf}:{}),...(opt.headers||{})};
-  const r=await fetch(path,{...opt,headers});let d={};try{d=await r.json()}catch{}
-  if(!r.ok){const e=new Error(d?.error?.message||('HTTP '+r.status));e.status=r.status;throw e}return d
-}
-function showError(error){q('page-error').textContent='Debate data unavailable: '+(error?.message||String(error));q('page-error').classList.remove('hidden')}
+async function api(path,opt={}){return ownerSession?ownerSession.request(path,opt,csrf):ownerApiRequest(path,opt,csrf)}
+function showError(error){if(ownerSession&&!ownerSession.authenticated)return;q('page-error').textContent='Debate data unavailable: '+(error?.message||String(error));q('page-error').classList.remove('hidden')}
 function clearError(){q('page-error').classList.add('hidden');q('page-error').textContent=''}
 function participantLabel(snapshot,id,fallbackNickname){if(!id)return fallbackNickname||'Waiting';const participant=snapshot?.participants?.find(x=>x.participantId===id);const nickname=fallbackNickname||participant?.nickname||id;const identity=participant?.role||String(id);return nickname+' · '+identity}
 function fmtTime(value){if(!value)return 'None';const d=new Date(value);return Number.isNaN(d.getTime())?'Unknown':d.toLocaleString()}
@@ -114,7 +113,7 @@ async function loadList(){
   if(generation!==selectionGeneration)return rows;
   renderList(rows);
   if(!rows.length){q('loading-state').classList.add('hidden');q('conversation').classList.add('hidden');q('empty-state').classList.remove('hidden');currentId=null;lastSequence=0;return rows}
-  if(!currentId||!rows.some(x=>x.debateId===currentId)){await openDebate(rows[0].debateId,true)}
+  if(!currentSnapshot||!currentId||!rows.some(x=>x.debateId===currentId)){await openDebate(rows[0].debateId,true)}
   return rows
 }
 let selectionGeneration=0;
@@ -137,7 +136,7 @@ async function refreshCurrent(){
 }
 async function scheduleRefresh(){
   try{if(!document.hidden){await loadList();await refreshCurrent();clearError()}}catch(error){showError(error)}
-  finally{pollTimer=setTimeout(scheduleRefresh,POLL_MS)}
+  finally{if(ownerSession?.authenticated)pollTimer=setTimeout(scheduleRefresh,POLL_MS)}
 }
 q('debate-list').addEventListener('click',async event=>{const b=event.target.closest('button[data-id]');if(!b)return;try{clearError();await openDebate(b.dataset.id,true)}catch(error){showError(error)}});
 q('copy-id-action').addEventListener('click',async()=>{if(!currentId)return;try{await navigator.clipboard.writeText(currentId);q('copy-id-action').textContent='Copied';setTimeout(()=>{q('copy-id-action').textContent='Copy ID'},1200)}catch(error){showError(error)}});
@@ -146,8 +145,8 @@ async function mutateCurrent(action){if(!currentId||currentSnapshot?.debateId!==
 q('resume-action').addEventListener('click',()=>mutateCurrent('/resume'));
 q('delete-action').addEventListener('click',async()=>{if(!currentId||currentSnapshot?.debateId!==currentId)return;if(!confirm('Delete this debate and its transcript? This cannot be undone.'))return;const id=currentId,generation=selectionGeneration;try{await api(API+'/'+encodeURIComponent(id),{method:'DELETE'});if(generation===selectionGeneration&&currentId===id){selectionGeneration++;currentId=null;lastSequence=0;currentSnapshot=null;q('transcript').replaceChildren();await loadList();clearError()}}catch(error){if(generation===selectionGeneration&&currentId===id)showError(error)}});
 async function boot(){
-  try{const session=await api('/owner/api/session');csrf=session.csrf||'';q('app').classList.remove('hidden');await loadList();pollTimer=setTimeout(scheduleRefresh,POLL_MS)}
-  catch(error){if(error?.status===401){q('auth-required').classList.remove('hidden')}else{q('app').classList.remove('hidden');q('loading-state').classList.add('hidden');showError(error)}}
+ ownerSession??=createOwnerSession({contentId:'app',loginId:'auth-required',onInvalidate:()=>{csrf='';selectionGeneration++;currentSnapshot=null;clearTimeout(pollTimer);pollTimer=null},onAuthenticated:async data=>{csrf=data.csrf||'';await loadList();pollTimer=setTimeout(scheduleRefresh,POLL_MS)}});
+ return ownerSession.run()
 }
 boot();
 </script>${dashboardEnd}${dashboardScript}</body></html>`;
