@@ -28,7 +28,12 @@ local verification, public release and deployed runtime.
 | WP-07   | Activity orb/header and accessibility                    | Planned                                                                   |
 | WP-08   | Integrated candidate QA, native artifacts and handoff    | Planned after dependencies                                                |
 
-Verified review work is uncommitted and does not identify published or installed behavior.
+WP-00-E (`db34294`), WP-05 (`201a4b3`) and foundational WP-01 docs (`0cb09db`) are
+committed and pushed on `feat/v0.4.3-exec-env`. They remain unreleased and do not
+identify published or installed behavior. Main `6bb3531` passed all five hosted CI jobs;
+the review branch has no hosted run or integrated-candidate acceptance. See
+[Project Status](docs/PROJECT_STATUS.md#commit-and-ci-checkpoint) for exact refs and
+separate Linux/Windows evidence.
 PR #6/#7 remain separate until reviewed integration. Release is on hold; preserve the v0.4.2 tag.
 
 ## 3. Before release or deployment

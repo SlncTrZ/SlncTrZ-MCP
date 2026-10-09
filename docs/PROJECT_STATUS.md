@@ -1,6 +1,6 @@
 # Project Status
 
-Snapshot: 2026-10-09, Asia/Saigon. This is dated maintainer evidence, not a live status
+Snapshot: 2026-10-09, Asia/Saigon; refreshed after commit/push and CI verification. This is dated maintainer evidence, not a live status
 endpoint or a description of your installation. Check `--build-info`, `status --json`,
 runtime `core.ping` and the published release before making operational decisions.
 
@@ -8,15 +8,38 @@ runtime `core.ping` and the published release before making operational decision
 
 | Layer                          | Observed state                                                                                                                   |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| Main baseline                  | Package 0.4.2; HEAD `021c45c00397918791d0c26b70357b8070c514b6`; clean                                                            |
+| Main baseline                  | Package 0.4.2; local/GitHub main `6bb3531cb2c39bb5d63e99589721c5d6fdd6cf92`; clean                                               |
 | Public stable                  | [v0.4.2](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.2); not draft/prerelease                                       |
-| Development review             | Uncommitted exec-environment and Owner session/navigation changes, plus docs; package version remains 0.4.2                      |
+| Development review             | Committed/pushed on `feat/v0.4.3-exec-env`; pre-refresh HEAD `2bd6d902b2a1bcfa25699a27dace702c1cb792c0`; package 0.4.2           |
 | Maintainer's inspected gateway | `core.ping`: v0.4.2, buildCommit unknown; source edits do not update it                                                          |
 | PR #6 / #7                     | OPEN at `97f4a739a86eabbeea8be395fc331aa1703c8e0c` / `b7fb425860d55145d612ccaa6c75b54fdde36692`; not integrated into this review |
 
 [v0.4.2 release notes](releases/v0.4.2.md) describe the published release. The existing
 v0.4.2 tag stays immutable. No v0.4.3 version bump, tag, publication or deployment was
 performed for these development changes.
+
+## Commit and CI checkpoint
+
+Exec-environment work (`db34294`), Owner session/navigation (`201a4b3`) and foundational
+docs (`0cb09db`) are committed and pushed on the review branch. The owner's CONTRIBUTING
+and provenance update (`0e85488`) is retained in both branches.
+
+[Hosted CI 37919075803](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/37919075803)
+passed all five jobs on exact main `6bb3531cb2c39bb5d63e99589721c5d6fdd6cf92`: Linux
+Node 22/24 source gates, Windows native security/runtime, dependency license inventory
+and Linux performance baseline. The review branch has no hosted run: the workflow
+triggers on pushes to main and pull requests targeting main. Main CI does not certify
+the integrated v0.4.3 candidate.
+
+CI fixture fixes are committed on both branches. Windows uses two workers and a 15-second
+test timeout; Linux keeps default workers and a 5-second timeout. Product assertions,
+startup/request deadlines and the dependency lock remain unchanged. Local main-policy
+verification passed 745 tests/10 skips on Linux Node 24.19.0 and 730/25 on Windows
+Node 24.18.0 with isolated npm 11.16.0; static/docs/build gates also passed. These results
+identify the main-policy run, separately from the development reviews below.
+
+PR #6/#7 integration, real-client acceptance and integrated QA remain pending. Release is
+on hold; these commits do not change published v0.4.2 or the inspected gateway.
 
 ## Published v0.4.2 behavior
 
@@ -45,7 +68,7 @@ performed for these development changes.
 ## Unreleased development verification
 
 WP-00-E exec-environment review and WP-05 session/navigation review passed isolated Linux
-and Windows checks. The final product-source suite passed 781 tests/10 skips on Linux
+and Windows checks. The pre-commit WP-05 product-source suite passed 781 tests/10 skips on Linux
 Node 24.19.0 and 766/25 on Windows Node 24.18.0. WP-05 source and native browser matrices
 each passed 39 scenarios per OS; native HTML matched the source, and smoke/identity/uninstall
 checks passed. Those were disposable local builds, not published v0.4.2 bytes.

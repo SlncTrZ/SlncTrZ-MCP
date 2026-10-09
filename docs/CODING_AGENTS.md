@@ -56,9 +56,12 @@ compatibility. The intended profile below is not a record of consent actually gr
 
 No listed client has a recorded WP-01 end-to-end consent outcome, `core.ping`/tool discovery,
 refresh, reconnect or revoke result. Linux clients were not installed on the inspected host.
-The local help check did not alter client config or run login. Source package 0.4.2 on base
-`021c45c00397918791d0c26b70357b8070c514b6` is a source identity, not a client test target;
-published v0.4.2 and the running process have separate identities.
+The local help check did not alter client config or run login. Its historical source
+baseline was package 0.4.2 at `021c45c00397918791d0c26b70357b8070c514b6`; no listed
+client was tested against an installed server artifact in that check. Foundational docs
+are now committed/pushed as `0cb09db`. [Project Status](PROJECT_STATUS.md#commit-and-ci-checkpoint)
+records current branch refs and CI separately from published v0.4.2 and the running process.
+Commit/push and main CI do not upgrade these client evidence levels.
 
 For an acceptance record, identify the client version/plugin, OS, exact server
 version/build/artifact hash, config scope and date. Record consent/profile, discovery,
