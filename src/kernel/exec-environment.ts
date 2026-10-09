@@ -48,6 +48,9 @@ function windowsAppDataDirectories(systemRoot: string | undefined): WindowsAppDa
       windowsHide: true
     }
   );
+  if (result.error !== undefined && "code" in result.error && result.error.code === "ETIMEDOUT") {
+    throw new ExecEnvironmentError("Windows app-data folder lookup timed out");
+  }
   if (result.error !== undefined || result.status !== 0) {
     throw new Error("Windows account folder lookup failed");
   }
@@ -130,7 +133,8 @@ export function buildExecEnvironment(options: ExecEnvironmentOptions = {}): Reco
         folders = (
           options.resolveWindowsAppData ?? (() => windowsAppDataDirectories(env.SystemRoot))
         )();
-      } catch {
+      } catch (error) {
+        if (error instanceof ExecEnvironmentError) throw error;
         throw new ExecEnvironmentError(
           "Cannot resolve Windows app-data folders for the gateway OS account"
         );

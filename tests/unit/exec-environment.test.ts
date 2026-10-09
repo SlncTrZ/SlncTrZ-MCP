@@ -119,6 +119,30 @@ describe("command environment directory discovery", () => {
     ).toThrow("Cannot resolve Windows app-data folders for the gateway OS account");
   });
 
+  it("preserves a safe Windows folder timeout category without exposing process output", () => {
+    expect(() =>
+      buildExecEnvironment({
+        platform: "win32",
+        environment: { USERPROFILE: "C:\\service" },
+        resolveWindowsAppData: () => {
+          throw new ExecEnvironmentError("Windows app-data folder lookup timed out");
+        }
+      })
+    ).toThrow("Windows app-data folder lookup timed out");
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "resolves real Windows known folders with a minimal gateway environment",
+    () => {
+      const env = buildExecEnvironment({
+        environment: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH }
+      });
+      expect(env.APPDATA).toBe(process.env.APPDATA);
+      expect(env.LOCALAPPDATA).toBe(process.env.LOCALAPPDATA);
+      expect(env.USERPROFILE).toBe(process.env.USERPROFILE);
+    }
+  );
+
   it("rejects conflicting Windows casing instead of selecting an arbitrary config", () => {
     expect(() =>
       buildExecEnvironment({
