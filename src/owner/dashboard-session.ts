@@ -14,25 +14,27 @@ async function ownerApiRequest(path,opt={},csrfValue=''){
 }
 function createOwnerSession({contentId,loginId,onAuthenticated,onInvalidate}){
  const content=document.getElementById(contentId),login=document.getElementById(loginId),feedback=document.getElementById('owner-session-status'),message=document.getElementById('owner-session-message'),retry=document.getElementById('owner-session-retry');
- let authenticated=false,generation=0,abort=null,pending=null;
+ let authenticated=false,generation=0,abort=null,pending=null,csrfValue='',activeRequests=0,currentState='checking-session';
+ function syncActivity(){const activity=currentState==='data-error'||currentState==='session-check-error'?'error':currentState==='checking-session'||currentState==='authenticated-loading'?'connecting':!authenticated?'idle':activeRequests?'working':'ready';globalThis.SlncTrZOwnerActivity=activity;globalThis.SlncTrZOrb?.setActivity(activity)}
  function state(name,text='',canRetry=false){
+  currentState=name;syncActivity();
   feedback.dataset.state=name;feedback.classList.toggle('hidden',name==='ready'||name==='unauthenticated');
   message.textContent=text;retry.hidden=!canRetry;retry.disabled=!!pending;
   content.classList.toggle('hidden',!authenticated);login.classList.toggle('hidden',name!=='unauthenticated')
  }
- function invalidate(){generation++;abort?.abort();abort=new AbortController();authenticated=false;onInvalidate?.()}
+ function invalidate(){generation++;abort?.abort();abort=new AbortController();authenticated=false;csrfValue='';activeRequests=0;globalThis.SlncTrZWorkspaceCard?.reset();globalThis.SlncTrZProviderDrawer?.close();onInvalidate?.()}
  function expire(){invalidate();state('unauthenticated')}
  function reportError(error){
   if(error?.name==='AbortError')return;
   if(error?.status===401){expire();return}
   if(authenticated)state('data-error',error?.code==='csrf_denied'?'This action could not be verified. Retry to refresh the session, then try the action again.':'Could not load or update this page. Retry to load the data again.',true)
  }
- async function request(path,opt={},csrfValue=''){
-  const current=generation;
-  try{const data=await ownerApiRequest(path,{...opt,signal:opt.signal??abort?.signal},csrfValue);
+ async function request(path,opt={},requestCsrf=csrfValue){
+  const current=generation;activeRequests++;syncActivity();
+  try{const data=await ownerApiRequest(path,{...opt,signal:opt.signal??abort?.signal},requestCsrf);
    if(current!==generation||!authenticated){const error=new Error('Request no longer belongs to the active session.');error.name='AbortError';throw error}
    return data
-  }catch(error){if(current===generation)reportError(error);throw error}
+  }catch(error){if(current===generation)reportError(error);throw error}finally{if(current===generation)activeRequests--;syncActivity()}
  }
  function ready(){if(authenticated)state('ready')}
  function run(){
@@ -44,7 +46,9 @@ function createOwnerSession({contentId,loginId,onAuthenticated,onInvalidate}){
     const data=await ownerApiRequest('/owner/api/session',{signal:abort.signal});
     if(current!==generation)return;
     if(data?.authenticated!==true)throw new Error('Invalid session response.');
-    authenticated=true;state('authenticated-loading','Loading page data…');
+    authenticated=true;csrfValue=data.csrf||'';state('authenticated-loading','Loading page data…');
+    await globalThis.SlncTrZWorkspaceCard?.reload();
+    if(current!==generation||!authenticated)return;
     await onAuthenticated(data);if(current===generation&&authenticated)ready()
    }catch(error){
     if(current!==generation)return;

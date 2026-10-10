@@ -378,6 +378,6 @@ export const thinkingOrbScript = `(function () {
   };
 
   resize();
-  setActivity(STATES.ready);
+  setActivity(window.SlncTrZOwnerActivity || 'connecting');
   startLoop();
 })();`;

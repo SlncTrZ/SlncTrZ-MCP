@@ -126,7 +126,20 @@ try {
     console.error("Native browser matrix failed");
     process.exitCode = 1;
   }
+  const dashboardReport = report.replace(/\.json$/u, "") + "-dashboard.json";
+  const dashboardRun = spawnSync(
+    process.execPath,
+    ["scripts/dashboard-browser-e2e.mjs", dashboardReport, origin],
+    { cwd: root, env: process.env, encoding: "utf8", timeout: 120000, maxBuffer: 1024 * 1024 }
+  );
+  console.log(dashboardRun.stdout.trim());
+  if (dashboardRun.status !== 0) {
+    console.error("Native dashboard behavior matrix failed");
+    process.exitCode = 1;
+  }
   const record = JSON.parse(await readFile(report, "utf8"));
+  if (dashboardRun.status === 0)
+    record.dashboard = JSON.parse(await readFile(dashboardReport, "utf8"));
   record.nativeArtifact = {
     target,
     htmlHashes,

@@ -168,6 +168,7 @@ export const providerDrawerScript: string = String.raw`(() => {
   var csrf = '';
   var csrfProvider = function () { return csrf; };
   var requestOverride = null;
+  var onChanged = function () {};
 
   var STATUS_LABELS = {
     ready: 'Ready', connecting: 'Connecting', restarting: 'Restarting',
@@ -181,6 +182,7 @@ export const providerDrawerScript: string = String.raw`(() => {
     options = options || {};
     if (typeof options.getCsrf === 'function') csrfProvider = options.getCsrf;
     if (typeof options.request === 'function') requestOverride = options.request;
+    if (typeof options.onChanged === 'function') onChanged = options.onChanged;
   }
 
   function httpError(response, data) {
@@ -356,9 +358,11 @@ export const providerDrawerScript: string = String.raw`(() => {
   }
 
   function showDrawer() {
+    var myGeneration = generation;
     drawer.hidden = false;
     drawerBackdrop.hidden = false;
     requestAnimationFrame(function () {
+      if (myGeneration !== generation || !currentProviderId) return;
       drawer.classList.add('open');
       drawerBackdrop.classList.add('open');
     });
@@ -371,6 +375,8 @@ export const providerDrawerScript: string = String.raw`(() => {
     activeAbort = null;
     currentProviderId = null;
     currentDetail = null;
+    if (!drawer) return;
+    closeConfirmation();
     drawer.classList.remove('open');
     drawerBackdrop.classList.remove('open');
     window.setTimeout(function () {
@@ -383,17 +389,17 @@ export const providerDrawerScript: string = String.raw`(() => {
     drawerTrigger = null;
   }
 
-  async function refresh(providerId) {
-    var myGeneration = generation;
+  async function refresh(providerId, myGeneration) {
+    if (myGeneration !== generation || providerId !== currentProviderId) return;
     if (activeAbort) activeAbort.abort();
     activeAbort = new AbortController();
     try {
       var detail = await request('/owner/api/mcp/' + encodeURIComponent(providerId) + '/detail', { method: 'GET', signal: activeAbort.signal });
-      if (myGeneration !== generation) return;
+      if (myGeneration !== generation || providerId !== currentProviderId) return;
       render(detail);
     } catch (error) {
       if (error && error.name === 'AbortError') return;
-      if (myGeneration !== generation) return;
+      if (myGeneration !== generation || providerId !== currentProviderId) return;
       showError(error);
     }
   }
@@ -405,6 +411,9 @@ export const providerDrawerScript: string = String.raw`(() => {
     var myGeneration = generation;
     if (activeAbort) activeAbort.abort();
     activeAbort = new AbortController();
+    closeConfirmation();
+    currentDetail = null;
+    ['test', 'sync', 'disable', 'remove'].forEach(function (action) { setBusy('provider-action-' + action, false); });
     currentProviderId = providerId;
     drawerTrigger = trigger || document.activeElement;
     showDrawer();
@@ -415,11 +424,11 @@ export const providerDrawerScript: string = String.raw`(() => {
     setLoading(true);
     try {
       var detail = await request('/owner/api/mcp/' + encodeURIComponent(providerId) + '/detail', { method: 'GET', signal: activeAbort.signal });
-      if (myGeneration !== generation) return;
+      if (myGeneration !== generation || providerId !== currentProviderId) return;
       render(detail);
     } catch (error) {
       if (error && error.name === 'AbortError') return;
-      if (myGeneration !== generation) return;
+      if (myGeneration !== generation || providerId !== currentProviderId) return;
       showError(error);
     } finally {
       if (myGeneration === generation) setLoading(false);
@@ -434,7 +443,7 @@ export const providerDrawerScript: string = String.raw`(() => {
 
   function closeConfirmation() {
     pendingMutation = null;
-    hideConfirmation();
+    if (confirmModal && confirmBackdrop) hideConfirmation();
     if (modalTrigger && modalTrigger.focus) modalTrigger.focus();
     modalTrigger = null;
   }
@@ -449,8 +458,25 @@ export const providerDrawerScript: string = String.raw`(() => {
     confirmBtn.disabled = false;
     confirmBackdrop.hidden = false;
     confirmModal.hidden = false;
-    requestAnimationFrame(function () { confirmBackdrop.classList.add('open'); });
+    requestAnimationFrame(function () { if (pendingMutation === options && !confirmModal.hidden) confirmBackdrop.classList.add('open'); });
     q('confirm-modal-cancel').focus();
+  }
+
+  async function runAction(actionId, providerId, mutate, remove) {
+    var myGeneration = generation;
+    if (providerId !== currentProviderId) return;
+    setBusy(actionId, true);
+    clearError();
+    try {
+      await mutate();
+      if (myGeneration === generation && providerId === currentProviderId && remove) close();
+      await onChanged();
+      if (!remove) await refresh(providerId, myGeneration);
+    } catch (error) {
+      if (myGeneration === generation && providerId === currentProviderId && error?.name !== 'AbortError') showError(error);
+    } finally {
+      if (myGeneration === generation && providerId === currentProviderId) setBusy(actionId, false);
+    }
   }
 
   function requestDisableConfirm() {
@@ -466,10 +492,10 @@ export const providerDrawerScript: string = String.raw`(() => {
       confirmLabel: disabling ? 'Disable' : 'Enable',
       danger: disabling,
       actionId: 'provider-action-disable',
+      providerId: detail.id,
+      generation: generation,
       run: function () {
-        return request('/owner/api/mcp/' + encodeURIComponent(detail.id), { method: 'PATCH', body: JSON.stringify({ enabled: !disabling }) }).then(function () {
-          return refresh(detail.id);
-        });
+        return request('/owner/api/mcp/' + encodeURIComponent(detail.id), { method: 'PATCH', body: JSON.stringify({ enabled: !disabling }) });
       }
     });
   }
@@ -484,8 +510,11 @@ export const providerDrawerScript: string = String.raw`(() => {
       confirmLabel: 'Remove',
       danger: true,
       actionId: 'provider-action-remove',
+      providerId: detail.id,
+      generation: generation,
+      remove: true,
       run: function () {
-        return request('/owner/api/mcp/' + encodeURIComponent(detail.id), { method: 'DELETE', body: '{}' }).then(function () { close(); });
+        return request('/owner/api/mcp/' + encodeURIComponent(detail.id), { method: 'DELETE', body: '{}' });
       }
     });
   }
@@ -493,23 +522,14 @@ export const providerDrawerScript: string = String.raw`(() => {
   async function handleConfirm() {
     var mutation = pendingMutation;
     if (!mutation) return;
-    var confirmBtn = q('confirm-modal-confirm');
-    confirmBtn.disabled = true;
     closeConfirmation();
-    setBusy(mutation.actionId, true);
-    try {
-      await mutation.run();
-    } catch (error) {
-      showError(error);
-    } finally {
-      setBusy(mutation.actionId, false);
-      confirmBtn.disabled = false;
-    }
+    if (mutation.generation !== generation || mutation.providerId !== currentProviderId) return;
+    await runAction(mutation.actionId, mutation.providerId, mutation.run, mutation.remove);
   }
 
-  function trapTab(event) {
+  function trapTab(event, container) {
     var focusables = Array.prototype.slice.call(
-      confirmModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
     ).filter(function (el) { return !el.disabled && el.offsetParent !== null; });
     if (focusables.length === 0) return;
     var first = focusables[0];
@@ -544,26 +564,14 @@ export const providerDrawerScript: string = String.raw`(() => {
       applyToolFilter();
     });
 
-    q('provider-action-test').addEventListener('click', async function () {
-      var id = currentProviderId;
-      if (!id) return;
-      setBusy('provider-action-test', true);
-      try {
-        await request('/owner/api/mcp/' + encodeURIComponent(id) + '/test', { method: 'POST', body: '{}' });
-        await refresh(id);
-      } catch (error) { showError(error); }
-      finally { setBusy('provider-action-test', false); }
-    });
-
-    q('provider-action-sync').addEventListener('click', async function () {
-      var id = currentProviderId;
-      if (!id) return;
-      setBusy('provider-action-sync', true);
-      try {
-        await request('/owner/api/mcp/' + encodeURIComponent(id) + '/sync', { method: 'POST', body: '{}' });
-        await refresh(id);
-      } catch (error) { showError(error); }
-      finally { setBusy('provider-action-sync', false); }
+    ['test', 'sync'].forEach(function (action) {
+      q('provider-action-' + action).addEventListener('click', function () {
+        var id = currentProviderId;
+        if (!id || !currentDetail) return;
+        return runAction('provider-action-' + action, id, function () {
+          return request('/owner/api/mcp/' + encodeURIComponent(id) + '/' + action, { method: 'POST', body: '{}' });
+        }, false);
+      });
     });
 
     q('provider-action-disable').addEventListener('click', requestDisableConfirm);
@@ -585,7 +593,8 @@ export const providerDrawerScript: string = String.raw`(() => {
       else if (drawer && !drawer.hidden) { event.preventDefault(); close(); }
       return;
     }
-    if (event.key === 'Tab' && confirmModal && !confirmModal.hidden) trapTab(event);
+    if (event.key === 'Tab' && confirmModal && !confirmModal.hidden) trapTab(event, confirmModal);
+    else if (event.key === 'Tab' && drawer && !drawer.hidden) trapTab(event, drawer);
   });
 
   globalThis.SlncTrZProviderDrawer = { init: init, open: open, close: close, setCsrf: setCsrf };

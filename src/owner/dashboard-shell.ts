@@ -52,7 +52,7 @@ export const dashboardEnd = `</main></div><div class="startup-intro hidden" id="
 export const workspaceCardControllerScript = String.raw`
 function createWorkspaceCard(options){
 options=options||{};
-const request=options.request||ownerApiRequest;
+const request=options.request||function(path,opt,csrfValue){return typeof ownerSession!=='undefined'&&ownerSession?ownerSession.request(path,opt):ownerApiRequest(path,opt,csrfValue)};
 const getCsrf=options.getCsrf||function(){try{return typeof csrf==='string'?csrf:''}catch(_){return ''}};
 const greetings=options.greetings||["Welcome back!","Have a nice day!","How’s your day going?","Ready when you are."];
 const intervalMs=typeof options.intervalMs==='number'?options.intervalMs:30000;
@@ -68,7 +68,7 @@ const feedback=document.getElementById('workspace-name-feedback');
 const greetingEl=document.getElementById('workspace-greeting');
 if(!nameEl)return null;
 let savedName=nameEl.textContent||greetings[0];
-let editing=false,saving=false,savedTimer=null,greetingTimer=null,greetingIndex=0,greetingPaused=false;
+let generation=0,editing=false,saving=false,savedTimer=null,greetingTimer=null,greetingIndex=0,greetingPaused=false;
 function setFeedback(text,state){feedback.textContent=text;feedback.dataset.state=state||'';feedback.hidden=!text}
 function setGreeting(text){greetingEl.textContent=text}
 function openEdit(){
@@ -84,18 +84,23 @@ if(saving)return;
 const value=input.value.trim();
 const codePoints=[...value];
 if(codePoints.length<1||codePoints.length>64){setFeedback('Enter a name between 1 and 64 characters.','error');input.focus();return}
+const current= generation;
 saving=true;input.disabled=true;saveBtn.disabled=true;cancelBtn.disabled=true;setFeedback('Saving...','saving');
 try{
 const result=await request('/owner/api/workspace',{method:'PATCH',body:JSON.stringify({displayName:value})},getCsrf());
+if(current!==generation)return;
 const next=(result&&typeof result.displayName==='string')?result.displayName:value;
 savedName=next;nameEl.textContent=next;closeEdit();setFeedback('Saved','saved');
 savedTimer=setTimeout(function(){if(feedback.dataset.state==='saved')setFeedback('','')},savedMessageMs);
 }catch(error){
+if(current!==generation)return;
 setFeedback((error&&error.message)?error.message:'Could not save the workspace name.','error');input.focus();
 }finally{
-saving=false;input.disabled=false;saveBtn.disabled=false;cancelBtn.disabled=false;
+if(current===generation){saving=false;input.disabled=false;saveBtn.disabled=false;cancelBtn.disabled=false;}
 }
 }
+function reset(){generation++;saving=false;input.disabled=false;saveBtn.disabled=false;cancelBtn.disabled=false;closeEdit();setFeedback('','')}
+async function reload(){const current=generation;const data=await request('/owner/api/workspace');if(current===generation&&data&&typeof data.displayName==='string'){savedName=data.displayName;nameEl.textContent=data.displayName}}
 function rotateGreeting(){
 if(reducedMotion){setGreeting(greetings[0]);return}
 if(greetingPaused)return;
@@ -115,11 +120,11 @@ input.addEventListener('keydown',function(e){
 if(e.key==='Escape'){e.preventDefault();closeEdit()}
 else if(e.key==='Enter'&&!e.isComposing){e.preventDefault();submit()}
 });
-if(request){Promise.resolve().then(function(){return request('/owner/api/workspace')}).then(function(data){if(data&&typeof data.displayName==='string'){savedName=data.displayName;nameEl.textContent=data.displayName}}).catch(function(){})}
+if(options.request||typeof ownerSession==='undefined'||ownerSession?.authenticated){Promise.resolve().then(reload).catch(function(){})}
 startGreetings();
 globalThis.addEventListener('pagehide',stopGreetings);
 globalThis.addEventListener('beforeunload',stopGreetings);
-return {openEdit:openEdit,closeEdit:closeEdit,submit:submit,startGreetings:startGreetings,stopGreetings:stopGreetings,rotateGreeting:rotateGreeting,get savedName(){return savedName},get editing(){return editing},get reducedMotion(){return reducedMotion}};
+return {reload:reload,reset:reset,openEdit:openEdit,closeEdit:closeEdit,submit:submit,startGreetings:startGreetings,stopGreetings:stopGreetings,rotateGreeting:rotateGreeting,get savedName(){return savedName},get editing(){return editing},get reducedMotion(){return reducedMotion}};
 }
 `;
 
@@ -138,7 +143,7 @@ function playIntro(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)r
 document.getElementById('intro-skip').addEventListener('click',hideIntro);document.querySelector('.intro-replay').addEventListener('click',playIntro);
 try{if(!sessionStorage.getItem('slnctrz-intro-seen')){sessionStorage.setItem('slnctrz-intro-seen','1');playIntro()}}catch{}
 ${workspaceCardControllerScript}
-createWorkspaceCard();
+globalThis.SlncTrZWorkspaceCard=createWorkspaceCard();
 ${thinkingOrbScript}
 })();</script>`;
 
