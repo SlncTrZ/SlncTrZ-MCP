@@ -1,6 +1,6 @@
 /** Behavior regressions using actual Owner HTML and isolated, CSRF-enforcing API fixtures. */
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -135,6 +135,12 @@ const fixture = createServer(async (req, res) => {
       res.end(Buffer.from(await upstream.arrayBuffer()));
       return;
     }
+    if (path === "/assets/meilin/idle-v1.webp") {
+      const bytes = await readFile(new URL("../src/assets/meilin/idle-v1.webp", import.meta.url));
+      res.writeHead(200, { "content-type": "image/webp" });
+      res.end(bytes);
+      return;
+    }
     if (await owner.handle(req, res, path)) return;
     res.writeHead(404);
     res.end();
@@ -201,6 +207,27 @@ try {
   sessionDelay = 0;
   for (const path of ["/#mcp", "/usage", "/debate"]) {
     await navigate(path);
+    await check(
+      path + " full-width MeiLin above text",
+      "(()=>{const c=document.getElementById('workspace-card').getBoundingClientRect(),m=document.getElementById('workspace-meilin').getBoundingClientRect(),t=document.querySelector('.workspace-copy').getBoundingClientRect();return !document.querySelector('.workspace-avatar')&&Math.abs(m.width-c.width+2)<2&&t.top>=m.bottom-1})()"
+    );
+    await check(
+      path + " contiguous menu",
+      "(()=>{const a=document.querySelector('[data-section=access]').getBoundingClientRect(),u=document.querySelector('[data-section=usage]').getBoundingClientRect();return a.top-u.bottom<=6})()"
+    );
+    await check(
+      path + " reduced-motion static MeiLin",
+      "getComputedStyle(document.getElementById('workspace-meilin')).backgroundPosition==='0% 0px'"
+    );
+    const asset = await client.evaluate(
+      "fetch('/assets/meilin/idle-v1.webp').then(async r=>({ok:r.ok,type:r.headers.get('content-type'),size:(await r.arrayBuffer()).byteLength}))",
+      true
+    );
+    checks.push({
+      label: path + " bundled WebP loads",
+      pass: asset.ok && asset.type === "image/webp" && asset.size === 101332
+    });
+    if (!checks.at(-1).pass) throw Error("MeiLin artwork failed to load");
     await check(
       path + " loads persisted name",
       "document.getElementById('workspace-name').textContent===" + JSON.stringify(name)
@@ -325,6 +352,40 @@ try {
   await check(
     "reduced-motion Orb remains canvas",
     "document.querySelector('#thinking-orb-canvas')?.tagName==='CANVAS'"
+  );
+  await client.evaluate("window.SlncTrZProviderDrawer.close()");
+  await client.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: "no-preference" }]
+  });
+  await client.poll(
+    "getComputedStyle(document.getElementById('workspace-meilin')).backgroundPosition!=='0% 0px'",
+    10000
+  );
+  checks.push({ label: "MeiLin animates with motion enabled", pass: true });
+  await client.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: "reduce" }]
+  });
+  await client.poll(
+    "getComputedStyle(document.getElementById('workspace-meilin')).backgroundPosition==='0% 0px'"
+  );
+  await new Promise((r) => setTimeout(r, 700));
+  await check(
+    "MeiLin stops after motion preference changes",
+    "getComputedStyle(document.getElementById('workspace-meilin')).backgroundPosition==='0% 0px'"
+  );
+  await client.send("Emulation.setDeviceMetricsOverride", {
+    width: 1440,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false
+  });
+  const sidebarScreenshot = await client.send("Page.captureScreenshot", { format: "png" });
+  await writeFile(
+    join(
+      resolve(report, ".."),
+      process.platform + "-" + (htmlOrigin ? "native" : "source") + "-meilin-overview.png"
+    ),
+    Buffer.from(sidebarScreenshot.data, "base64")
   );
   await check("final CSP and runtime", "window.__dashboardErrors.length===0");
   const resourceOrigins = await client.evaluate(

@@ -324,6 +324,20 @@ function resolveExchangePolicy(
 const OWNER_FONT_ASSET_PATH = "/assets/fonts/SlncHertine.woff2";
 
 let brandFontBytes: Buffer | undefined;
+let meilinBytes: Buffer | undefined;
+async function serveMeilin(res: ServerResponse): Promise<void> {
+  meilinBytes ??= isSea()
+    ? Buffer.from(getAsset("meilin/idle-v1.webp"))
+    : await readFile(join(process.cwd(), "src", "assets", "meilin", "idle-v1.webp"));
+  res.writeHead(200, {
+    "content-type": "image/webp",
+    "content-length": meilinBytes.byteLength,
+    "cache-control": "public, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff"
+  });
+  res.end(meilinBytes);
+}
+
 async function serveBrandFont(res: ServerResponse): Promise<void> {
   if (brandFontBytes === undefined) {
     brandFontBytes = isSea()
@@ -386,6 +400,16 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           } catch {
             sendJson(res, 404, {
               error: { code: "not_found", message: "Font asset not found" }
+            });
+          }
+          return;
+        }
+        if (req.method === "GET" && pathname === "/assets/meilin/idle-v1.webp") {
+          try {
+            await serveMeilin(res);
+          } catch {
+            sendJson(res, 404, {
+              error: { code: "not_found", message: "Artwork asset not found" }
             });
           }
           return;

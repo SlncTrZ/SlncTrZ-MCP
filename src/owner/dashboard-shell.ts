@@ -36,7 +36,7 @@ export function dashboardChrome(page: DashboardPage): string {
   return `<a class="skip-link" href="#dashboard-main">Skip to content</a>
 <aside class="dashboard-sidebar" id="dashboard-sidebar" aria-label="Main navigation">
 <a class="dashboard-brand" href="${page === "owner" ? "#overview" : "/#overview"}"><span class="brand-symbol" aria-hidden="true">S</span><span><b>SlncTrZ</b><small>MCP WORKSPACE</small></span></a>
-<div class="workspace-label" id="workspace-card"><span class="workspace-avatar" aria-hidden="true">O</span><span class="workspace-copy"><span id="workspace-greeting" class="workspace-greeting">Welcome back!</span><span class="workspace-name-row"><b id="workspace-name" class="workspace-name">Owner workspace</b><button type="button" id="workspace-edit-btn" class="workspace-edit-btn" aria-label="Edit workspace name" title="Edit workspace name"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z"/></svg></button></span><form id="workspace-edit-form" class="workspace-edit-form" hidden><input id="workspace-name-input" class="workspace-name-input" type="text" maxlength="64" autocomplete="off" aria-label="Workspace name"><span class="workspace-edit-actions"><button type="submit" id="workspace-name-save" class="workspace-name-save">Save</button><button type="button" id="workspace-name-cancel" class="workspace-name-cancel">Cancel</button></span></form><span id="workspace-name-feedback" class="workspace-name-feedback" role="status" aria-live="polite" hidden></span><small class="workspace-subtitle">Private gateway</small></span></div>
+<div class="workspace-label" id="workspace-card"><div id="workspace-meilin" class="workspace-meilin" aria-hidden="true"></div><span class="workspace-copy"><span id="workspace-greeting" class="workspace-greeting">Welcome back!</span><span class="workspace-name-row"><b id="workspace-name" class="workspace-name">Owner workspace</b><button type="button" id="workspace-edit-btn" class="workspace-edit-btn" aria-label="Edit workspace name" title="Edit workspace name"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z"/></svg></button></span><form id="workspace-edit-form" class="workspace-edit-form" hidden><input id="workspace-name-input" class="workspace-name-input" type="text" maxlength="64" autocomplete="off" aria-label="Workspace name"><span class="workspace-edit-actions"><button type="submit" id="workspace-name-save" class="workspace-name-save">Save</button><button type="button" id="workspace-name-cancel" class="workspace-name-cancel">Cancel</button></span></form><span id="workspace-name-feedback" class="workspace-name-feedback" role="status" aria-live="polite" hidden></span><small class="workspace-subtitle">Private gateway</small></span></div>
 <div class="nav-caption">WORKSPACE</div><nav class="dashboard-nav">${links
     .map(([key, label, target]) => {
       const href = page === "owner" && target.startsWith("/#") ? target.slice(1) : target;
@@ -142,6 +142,12 @@ function hideIntro(){clearTimeout(timer);intro.classList.add('hidden');intro.set
 function playIntro(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;hideIntro();intro.classList.remove('hidden');intro.setAttribute('aria-hidden','false');timer=setTimeout(hideIntro,2600)}
 document.getElementById('intro-skip').addEventListener('click',hideIntro);document.querySelector('.intro-replay').addEventListener('click',playIntro);
 try{if(!sessionStorage.getItem('slnctrz-intro-seen')){sessionStorage.setItem('slnctrz-intro-seen','1');playIntro()}}catch{}
+const meilin=document.getElementById('workspace-meilin'),motion=matchMedia('(prefers-reduced-motion: reduce)');
+let emoteTimer=null,emoteStep=0;
+const emoteFrames=[0,0,0,0,0,1,0,0,0,2,0,0,0,0,1,0,0,3,0,0,0,4];
+function stopEmote(){if(emoteTimer!==null){clearInterval(emoteTimer);emoteTimer=null}}
+function syncEmote(){stopEmote();if(!meilin)return;if(motion.matches){emoteStep=0;meilin.style.backgroundPosition='0% 0';return}if(document.visibilityState==='hidden')return;emoteTimer=setInterval(()=>{emoteStep=(emoteStep+1)%emoteFrames.length;meilin.style.backgroundPosition=(emoteFrames[emoteStep]*25)+'% 0'},300)}
+document.addEventListener('visibilitychange',syncEmote);motion.addEventListener('change',syncEmote);window.addEventListener('pagehide',stopEmote);window.addEventListener('pageshow',syncEmote);syncEmote();
 ${workspaceCardControllerScript}
 globalThis.SlncTrZWorkspaceCard=createWorkspaceCard();
 ${thinkingOrbScript}
@@ -203,9 +209,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .brand-symbol{display:grid;place-items:center;width:38px;height:42px;background:var(--primary);border-radius:12px 4px 12px 4px;font-size:26px;font-weight:750;color:#fff;box-shadow:0 0 0 1px var(--glass-highlight),0 4px 14px rgba(0,85,160,.35)}
 .dashboard-brand b{display:block;font-family:'SlncHertine',sans-serif;font-size:29px;font-weight:400;line-height:1.2}
 .dashboard-brand small{display:block;font-size:9px;letter-spacing:2.1px;color:var(--sky);margin-top:5px}
-.workspace-label{display:flex;align-items:center;gap:10px;padding:13px 11px;border:1px solid var(--glass-border);border-radius:12px;font-size:12px;color:#E8EEF8;margin-bottom:30px;background:rgba(255,255,255,.04);box-shadow:inset 0 1px 0 var(--glass-highlight)}
-.workspace-avatar{display:grid;place-items:center;background:rgba(140,193,233,.18);color:#C8E0F4;width:29px;height:29px;border-radius:8px;flex:none}
-.workspace-copy{display:flex;flex-direction:column;min-width:0;flex:1}
+.workspace-label{display:flex;flex-direction:column;flex-shrink:0;padding:0;overflow:hidden;border:1px solid var(--glass-border);border-radius:12px;font-size:12px;color:#E8EEF8;margin-bottom:20px;background:rgba(255,255,255,.04);box-shadow:inset 0 1px 0 var(--glass-highlight)}
+.workspace-meilin{width:100%;aspect-ratio:1;flex:none;background-image:url(/assets/meilin/idle-v1.webp);background-size:500% 100%;background-position:0% 0;background-repeat:no-repeat;background-color:rgba(140,193,233,.08)}
+.workspace-copy{display:flex;flex-direction:column;min-width:0;width:100%;padding:12px 13px}
 .workspace-greeting{display:block;font-size:10px;letter-spacing:.2px;color:#9FC0E2;line-height:1.45}
 .workspace-name{display:block;font-size:12px;font-weight:600;color:#FFFFFF;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workspace-subtitle{display:block;color:#9FB2CE;font-size:10px;margin-top:1px}
@@ -231,7 +237,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .dashboard-nav a{color:#C7D3E8;display:flex;align-items:center;gap:12px;text-decoration:none;min-height:44px;padding:11px 13px;border-radius:8px;font-size:12px;font-weight:550;border:1px solid transparent}
 .dashboard-nav a:hover{color:#FFFFFF;background:rgba(67,139,196,.18);box-shadow:0 0 12px var(--glow)}
 .dashboard-nav a[aria-current=page]{background:rgba(0,85,160,.55);color:#FFFFFF;box-shadow:inset 3px 0 0 var(--sky)}
-.dashboard-nav a[data-section=access]{margin-top:23px}
+
 .sidebar-bottom{margin-top:auto;padding:28px 10px 0}
 .sidebar-note{font-size:12px;line-height:1.8;color:#A9B8D0}
 .intro-replay{display:flex;align-items:center;gap:12px;border:0;background:none;color:#B9C8E0;padding:16px 0;font-size:11px;cursor:pointer;border-radius:8px}
