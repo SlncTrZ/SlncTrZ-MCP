@@ -43,3 +43,9 @@ Windows System Install/service remains unsupported. Hosted clean User Install do
 [Original release run 38019726916](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38019726916) passed quality, both native builds/identities, protected manifest signing, candidate publication and both clean public User Installs. Installed Chromium acceptance failed before browser startup because the external test harness lacked its `spawn` import. Stable promotion was skipped.
 
 The corrected harness and pinned public-acceptance recovery workflow are committed separately from the immutable release tag. The recovery verifies the original successful gates and unchanged six-asset digests, reruns both public installs and Chromium against the signed candidate, then promotes only after all pass. Product bytes and signing protection remain unchanged; see [release procedure](../RELEASE.md#v043-acceptance-harness-recovery).
+
+## Stable release completion
+
+[v0.4.3](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.3) is now the public latest stable release (not draft/prerelease). [Recovery run 38020258200](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38020258200) passed candidate integrity, clean public Linux/Windows User Install, installed Chromium Usage acceptance and stable promotion. All six public asset digests are unchanged from signed candidate publication.
+
+Chromium verified Owner sign-in, non-empty tool/context savings, all four ranges and custom price calculation against the installed public binary. This does not claim named-client OAuth or live service/keyring acceptance. The production gateway has not been upgraded or restarted by this release operation.
