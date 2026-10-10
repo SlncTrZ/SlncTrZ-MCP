@@ -37,7 +37,3 @@ See [Harness](HARNESS.md) and [Lifecycle Wiring](LIFECYCLE_WIRING.md).
 Release notes and architecture decisions retain historical behavior. A note marked superseded
 describes a past contract. Current guides identify unreleased changes explicitly; a source
 implementation or automated test result alone does not establish installed-client support.
-
-The existing [setup video](SlncTrZ-MCP.mp4) demonstrates installation. The
-[60-second introduction](SlncTrZ-MCP-intro.mp4) explains who the gateway helps and why. Download the
-[editable source, storyboard and render report](SlncTrZ-MCP-intro-source.zip) to adapt it.
