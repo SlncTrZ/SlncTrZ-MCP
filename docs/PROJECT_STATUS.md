@@ -25,6 +25,10 @@ On the product baseline above, Windows quality passed 846 tests with 29 explicit
 
 Local native artifacts used disposable verification keys and a preview build marker. They are development evidence, not official release assets. The signed workflow must rebuild and verify the exact release commit. Historical v0.4.1 evidence remains in [QA report](../QA_QC_REPORT_v0.4.1.md); earlier checkpoint details remain in Git history.
 
+### Release preparation CI
+
+The version/docs-only preparation commit `444edb3627bbe2d13aef7e0ce5d88e24eb215cab` passed Linux Node 22/24, license inventory and benchmark gates. Its Windows job passed 845 tests with 29 skips but timed out during minimal-environment AppData lookup. [Run 38019276911](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38019276911) records the failure. A fresh exact-ref CI run is required before tagging; no test assertion or product deadline is relaxed.
+
 ## Remaining field acceptance
 
 1. Install the published release on live with coherent state/config backup and post-restart identity checks.
