@@ -1,52 +1,169 @@
 ---
 name: render-technical-video
-description: Create technical infographic videos with HTML, CSS, JavaScript and Canvas, then capture deterministic frames in headless Chromium and encode with FFmpeg. Use for animated technical explainers, diagrams, data charts, architecture videos, or requests for web-code-to-video and frame-by-frame rendering. Includes storyboarding, seekable render(t), visual review and reproducibility checks.
+description: >-
+  Plan, design and render evidence-led technical explainers, app/product launch
+  films and native CAD/DCC demos. Inspired by /brag with a two-second hook,
+  authentic product use, storyboard and approved styleframes before full rendering.
+  Includes deterministic HTML/Canvas capture, native Blender and honest delivery QA.
 ---
 
-# Render technical video
+# Render technical video / product launch film
 
-## Establish the brief
+Make a film that **shows what the actual project does**. Technical accuracy, clear storytelling,
+legible motion and the owner's visual approval matter more than a successful encoder exit code.
+This workflow borrows creative methods from [latent-spaces/brag](https://github.com/latent-spaces/brag);
+it does **not** depend on Hyperframes, copy /brag's assets or authorize uploading private source.
 
-Read the actual project, data and existing video helpers before creating anything. Follow the owner's write approvals and project instructions. Keep host addresses and credentials out of this reusable skill; load the owner's separate host skill when remote execution is needed. Verify the execution host and installed tools.
+## 1. Identify the input, audience and deliverable
 
-Confirm or infer audience, one takeaway, duration, language and whether narration is requested. Before storyboarding or rendering a requested video, ask the owner to choose 16:9 or 9:16 unless that specific video already has an explicit choice; never infer the aspect ratio. Prefer native 4K at 60 FPS: 3840×2160 for 16:9 or 2160×3840 for 9:16. Do not lower resolution or FPS without the owner agreeing; clearly distinguish lower-resolution diagnostic previews from the final deliverable. Default to silent video with captions when audio is unspecified. Label synthetic data as illustrative. Preserve units, sources, axis baselines and comparisons; never invent product performance claims.
+Read the real source first: README, supported tools, product UI/components, approved screenshots,
+data, work sessions and existing video assets. Prefer verifiable **entry → action → result**
+over abstract boxes, generic network/neon motion or fabricated numbers. If no real examples
+are accessible, say so, plan an explicitly **illustrative** shot, and do not imply native proof.
 
-Create a scene table before code: time range, message, exact text/data, visual, entrance, hold and exit. Allocate readable holds. Read [design.md](references/design.md) for motion, layout and chart guidance. Use one consistent palette, type scale and spacing system; derive scene timing from one source.
+Choose the mode:
 
-## Build the page
+- **Technical** — accurate mechanism, data/units, diagrams, simulations or architecture.
+- **Launch/demo** — a /brag-like hook, product-in-use, two or three strongest results, brand outro.
+- **Hybrid/native** — factual footage from a real approved Blender/CAD/DCC scene or authorized
+  app interaction, with an editorial composition wrapper.
 
-Start from `assets/template.html` plus its `fonts/` folder in an isolated job directory. The bundled 4K/60 landscape example does not select a ratio for the owner; use it only after the ratio question is resolved and redesign the composition for portrait when chosen. Edit the scene content and metadata together. Read [contract.md](references/contract.md) before changing the renderer interface.
+Ask for 16:9 or 9:16 **unless this particular video already has an explicit ratio**;
+never infer the aspect ratio. Confirm or infer audience, takeaway, duration, language, tone,
+final format, soundtrack rights and whether narration is requested. Honor specified duration
+and quality (e.g. an already agreed 45s/1080p/30fps master). For an unspecified short launch
+film suggest **15–25s** (often ~20s); this does not override longer commissioned videos.
+For unspecified resolution/fps, prefer native **3840×2160 or 2160×3840 at 60fps**
+subject to owner confirmation and measured host capacity; do not silently lower final quality.
+A lower-resolution design/preview cut must be labeled as such.
 
-- Fill the entire chosen frame. Match the viewport, stage CSS bounds and Canvas backing pixels to the output dimensions at DPR 1. Set html/body margin and padding to zero, overflow hidden, and Canvas display block. Do not capture browser chrome, scrollbars, letterboxing or a cropped oversized page; reflow the layout for portrait instead of cropping the landscape design. Review all four edges and fix overflow rather than merely hiding lost content.
-- Expose `window.video.ready`, `window.video.meta`, and asynchronous or synchronous `window.video.render(t)` with time in seconds.
-- Make every visible property a function of absolute time. Reset Canvas transforms/state and clear each frame. Derive particles from stable object IDs/seed and time, never a stateful random sequence or accumulated delta.
-- Permit arbitrary seek order. Do not use real-time timers, animation loops, autonomous CSS transitions, live video, animated GIFs or network data in export mode. Paused Web Animations may be sought explicitly inside render(t).
-- Await required font faces, image decoding and any asynchronous draw before returning. Readiness is a contract, not a sleep. Fail on missing assets rather than exporting fallback text or blank frames.
-- Keep render(t) independent of capture speed. Overriding Date.now/performance.now alone does not control CSS/compositor/media clocks. Use explicit timeline control.
-- Keep dependencies and assets local. Use trusted authored pages only. The helper's local server/network restrictions are not a sandbox for hostile JavaScript.
+Technical mode defaults to silent video with captions when audio is unspecified.
+For launch mode **propose** an appropriate music bed and restrained interaction SFX;
+only use authorized original/licensed audio. Voiceover is opt-in, never automatic.
+Read [audio.md](references/audio.md). Do not invent product performance or access claims.
 
-## Render and review
+## 2. Inspect, plan and storyboard (/brag-inspired)
 
-Use Node 22.13+ with built-in WebSocket, Chromium/Chrome, ffmpeg and ffprobe. Reuse an available compatible runtime; do not modify the gateway package dependencies. Choose a browser via `VIDEO_BROWSER` or auto-detection. Keep the Chromium sandbox enabled; do not add no-sandbox to make a failure disappear.
+Read [creative.md](references/creative.md) and [design.md](references/design.md).
+Copy [the film plan template](assets/plan-template.md) into the isolated job as `plan.md`; answer the nine source/identity/audience/visual-hook/actual-flow questions.
+Write `composition-brief.md` with an exact timeline and scene table:
+**time interval, claim, factual source, on-screen text, interaction/motion, entrance,
+settled reading hold, exit/transition and sound cue**.
+
+A launch film should open with a compelling **first two seconds**, show a real UI or action
+before generic feature callouts, and end with a clear memorable conclusion.
+A technical film should lead with the question, explain the mechanism and finish with
+sourced measurements/results. In both, keep 2–3 highlights and eliminate filler.
+
+Text intended to be read needs roughly **0.3 s per word** after it is fully settled;
+short labels ~0.8s, headlines at least ~1.2s. Count animation entrance/exit **separately**.
+Never rely on transition flashes for readability. Source colors, typography and graphics
+from the real product rather than cloning another brand's visual identity.
+
+## 3. Design approval gate — before any long render
+
+**Always create a fresh isolated/versioned job.** Save three or more settled styleframes:
+**opening hook, real action/technical proof, final end-card**. Produce a short **3–8s**
+animated proof containing a representative cut/transition and inspect it in motion.
+
+Look at actual full-size images and the encoded prototype, not only hashes, screenshots
+of tiny contact sheets or ffprobe. Check typography, safe margins, legibility, UI provenance,
+mechanism accuracy, scene boundaries, audio, color and whether the first two seconds hook.
+
+**Show these to the owner and wait for visual direction approval before a long/full render.**
+If the owner explicitly waives this gate, record the waiver and proceed. This protects
+against spending hours rendering a technically passing but aesthetically rejected video.
+Preserve previous takes; stop any abandoned vN render/auto-finalize jobs rather than
+letting them continue to consume owner hardware.
+
+## 4. Choose the actual rendering engine
+
+Read [production.md](references/production.md) and, for HTML/Canvas,
+[contract.md](references/contract.md). Use tools **already authorized and available**:
+
+**A. Deterministic HTML/CSS/SVG/Canvas (default for diagrams, UI and kinetic type).**
+Start from `assets/template.html` and `assets/fonts/` inside an isolated job.
+Implement `window.video.meta`, `window.video.ready` and `window.video.render(t)`,
+where all visible state depends on absolute `t` seconds. Await decoded fonts/images;
+use seeded stable-object animation, reset Canvas/DOM on each seek; accept reverse/repeat
+seek and never advance via real-time timers, requestAnimationFrame or unbounded CSS
+animations. Render from authenticated/local authored assets only; keep external requests
+blocked. Maintain exact stage bounds at DPR 1, no cropped content, bars or overflow.
+Never use this Chromium renderer for hostile/unreviewed JS.
+
+**B. Native Blender/DCC (when real 3D/geometry/software operation is the requirement).**
+Save an **independent** scene, keep native camera/object/Geometry Nodes keyframes and
+prove differences at sampled frames after reopen. Use the supported native version and
+isolated profile; do not touch the owner's active scene, running addon/Gateway/auth or
+open CMD windows as a side effect. A CSS camera effect or still-frame pan is _not_
+native Blender animation. Give separate native proof, version and render statistics.
+
+**C. Actual software recording** — use only approved/sanitized UI capture; label
+demonstrations/illustrations accurately and redact host/user/credential details.
+
+## 5. Render/QA (HTML mode)
+
+Requires Node 22.13+ with built-in WebSocket, Chromium/Chrome, ffmpeg/ffprobe.
+Use an available compatible runtime; do not mutate gateway dependencies.
+`VIDEO_BROWSER` overrides browser auto-detection. Keep Chromium sandbox enabled.
 
 ```bash
 node skills/render-technical-video/scripts/render.mjs --preflight
-node skills/render-technical-video/scripts/render.mjs /absolute/job/template.html /absolute/job/preview --preview
-node skills/render-technical-video/scripts/render.mjs /absolute/job/template.html /absolute/job/final
+node skills/render-technical-video/scripts/render.mjs /absolute/job/work/scene.html /absolute/job/preview-v1 --preview
+node skills/render-technical-video/scripts/render.mjs /absolute/job/work/scene.html /absolute/job/render-v1
 ```
 
-If Chromium cannot start under a hardened Linux gateway, read [linux-runner.md](references/linux-runner.md) and use an authorized bounded user-service runner when available. An installed executable alone is not runtime acceptance.
+Read [linux-runner.md](references/linux-runner.md) if browser sandbox cannot start
+inside a hardened service; do not defeat the sandbox. Each output directory must be new.
+This renderer's `video.mp4` is **silent H.264/yuv420p** and
+`render.mjs` does not synthesize or mux audio. Output frame indices are 0...N-1,
+with N=duration×FPS; no duplicate endpoint. Review `contact-sheet.jpg` and
+full-size `preview-*.png` for starts/middles/ends/transition boundaries and run
+repeat/reverse/delayed-capture consistency gates. Browser/asset failure must be fatal.
 
-Use a new output directory each run. The helper refuses to overwrite an existing one. Keep render artifacts outside versioned skill source. On this checkout, `_runtime/` is an ignored job location. Do not change release seeding merely to make this project skill discoverable: a project bootstrap discovers it directly.
+For final packaging after design approval, read [delivery.md](references/delivery.md):
 
-Inspect `contact-sheet.jpg` and full-size `preview-*.png`: scene starts/middles/ends and both sides of boundaries. Check safe margins, Vietnamese glyphs, label collisions, chart correctness, transition continuity and readable hold time. Correct the page, then rerun into a fresh output directory. Do not claim visual QA from hashes or metadata alone. The helper's layout hook is not an automatic collision detector.
+```bash
+node skills/render-technical-video/scripts/package.mjs /absolute/job/render-v1 /absolute/job/final \
+  --poster-frame 180 --share-copy /absolute/job/share-copy.txt
+```
 
-The helper checks repeated frames, reverse seek and a delayed repeated capture, records runtime errors and verifies the final video with ffprobe. It captures frames 0 through N−1 at i/FPS, where N=duration×FPS must be integral. It never captures an extra endpoint frame. Constant-frame-rate MP4 is silent H.264/yuv420p. For narration, first lock voice duration and align the storyboard; mux a local authorized audio file separately, then recheck streams, duration, clipping and sync. The helper does not synthesize or mux audio.
+Optional authorized audio:
 
-## Acceptance and delivery
+```bash
+node skills/render-technical-video/scripts/package.mjs /absolute/job/render-v1 /absolute/job/final \
+  --poster-frame 180 --share-copy /absolute/job/share-copy.txt \
+  --audio /absolute/job/approved-score.wav --audio-credit "Original soundtrack for this film"
+```
 
-Read [quality.md](references/quality.md). Require all technical gates plus human/model visual inspection. Deliver the video, editable source/assets, and report with exact limitations. Report total render time and mean/p95 capture Latency. Keep concurrency at one by default; assess CPU, RAM, disk and encoder contention before increasing Scalability. Use the measured preflight estimate to budget long renders.
+The package tool selects an explicitly chosen **settled** poster, embeds it in frame 0
+without increasing duration, optionally muxes the supplied audio, and verifies the export.
+It **never** downloads music or requests external account access.
 
-Use SHA-256 Fingerprinting for source/assets/helper/video and record browser, Node, OS and encoder versions. Byte-identical frames are only expected within a pinned rendering environment; font rasterization and codecs can vary across platforms.
+For native/composite modes use equivalent QA appropriate to those tools, and do not
+claim HTML reverse-seek determinism if it was not tested. Do not claim "native 4K"
+for an upscaled diagnostic render. For long jobs estimate CPU/RAM/disk/encode
+time first; use bounded single-worker execution unless evidence justifies concurrency.
 
-For model comparisons, use the same brief, datasets, harness, resolution, tool/vision access, time/token budget and revision count. Score technical correctness and visual quality separately; retain failures and avoid selected-demo comparisons or unverified model rankings.
+## 6. Delivery and acceptance
+
+Read [quality.md](references/quality.md) and [delivery.md](references/delivery.md).
+Record three **independent** statuses:
+
+- **Factual/provenance:** claims, UI, model/data, access permissions, privacy and sources.
+- **Creative/visual:** owner-approved look, inspected full-size stills, action legibility,
+  scene timing, transitions, soundtrack and strong poster.
+- **Technical/export:** codec, dimensions, pixel format, fps, frame count/duration,
+  full decode, audio presence/levels/sync, hashes and runtime identity.
+
+Deliver video, poster, 1–3-sentence specific share copy (for launch mode), editable
+source/assets, scene plan, shot/asset provenance, QA report and exact limitations.
+Capture Node/Chromium/Blender/OS/FFmpeg build versions; source/template/asset/video
+SHA-256 fingerprints, elapsed time and mean/p95 capture latency where applicable.
+Technical success **does not** constitute creative approval. Never claim "final"
+until every applicable gate has passed.
+
+For fair model/tool comparisons, fix brief, sources, exact resolution, runtime,
+tools, visual-review budget, time/cost and revision count; score design and
+technical correctness separately and retain failures. Output creation alone
+does not authorize uploading, deploying, tagging a release or publishing content.

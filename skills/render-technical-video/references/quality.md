@@ -13,7 +13,33 @@
 | Layout/data correct   | Page assertions plus visual review and source comparison                 |
 | Reproducible evidence | Source/helper/asset/video SHA-256 and environment versions               |
 
-## Separate scores
+## ## /brag-style creative and source gates
+
+Before a full render, require all **applicable** source and visual gates independently of the technical score:
+
+| Gate                      | Pass evidence                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Verified product material | Real project source paths/UX/model outputs; synthetic UI explicitly labeled                           |
+| Two-second hook           | A meaningful product-specific visual/action in the opening; not generic animation                     |
+| 2–3 core beats            | The centerpiece shows real entry → authorized action → verified result                                |
+| Readable settles          | Captions/headlines held after complete entrance; ~0.3s per word, short label ≥0.8s                    |
+| Visual style review       | At least three settled styleframes and an inspected 3–8s prototype; owner approval or explicit waiver |
+| Privacy/provenance        | Screens, logs and paths reviewed for secrets; asset and music licenses recorded                       |
+| Final craft               | Poster from settled frame, beginning/middle/end watched, transitions and audio evaluated              |
+
+**Do not auto-score creative approval.** A technically passing MP4 can still be rejected.
+After a rejection, stop unused full-render workers, preserve assets and revise the
+design with a new version; do not render the remaining footage before fixing the look.
+
+For native Blender/CAD, require a saved native project, reopened independently,
+keyframe/Geometry Nodes evidence and at least three distinctly animated sample frames;
+do not conflate native scene proof with browser seekability.
+
+For an optional musical launch cut, require approved score attribution, stereo
+AAC or negotiated soundtrack codec, duration/sync/peak inspection and muted-viewing
+caption legibility. For technical silent cut, explicitly record no audio.
+
+Separate scores
 
 Score technical correctness /100: determinism 25, data correctness 25, export integrity 20, readiness/errors 15, evidence 15. A failed gate blocks acceptance regardless of total.
 

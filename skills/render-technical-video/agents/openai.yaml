@@ -1,4 +1,4 @@
 interface:
-  display_name: "Technical Infographic Video"
-  short_description: "Render deterministic web graphics into video"
-  default_prompt: "Use $render-technical-video to create a technical infographic video with a deterministic timeline and inspect its frames."
+  display_name: "Technical & Launch Video"
+  short_description: "Plan, review and render evidence-led technical/product films"
+  default_prompt: "Use $render-technical-video to inspect my project, create a /brag-inspired storyboard and styleframes for review, then render a technical or product film with real evidence and verified deliverables."

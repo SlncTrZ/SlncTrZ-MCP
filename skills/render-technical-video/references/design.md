@@ -8,6 +8,25 @@ At 1080p, begin with 64–80 px titles, 30–40 px supporting text and at least 
 
 Use a restrained palette: background, surface, text, muted text and two semantic accents. Use the same color for the same role throughout. Avoid decorative motion competing with data.
 
+## Product-led cinematic composition
+
+Adapt /brag's strongest rule: **the product in use is the hero**, not a generic
+diagram of what the product might do. Use actual source UI, an explicitly annotated
+representative UI, a real tool invocation/result, a measurable visual artifact,
+or the native CAD/DCC scene. For an app with a working flow, sequence entry →
+action → verified result before feature callouts.
+
+- Do not stretch four generic neon-glass objects across a 45-second film.
+- Avoid random noise/particles, gradient blobs, tiny overlays and decorative looped
+  camera motion unless they show an actual mechanism.
+- Match brand colors/fonts from checked-in product assets. Use purposeful negative
+  space; reserve vibrant colors for semantic action/permission/result.
+- Lock type, safe zones and authored timings across landscape/portrait adaptations.
+- For a launch video, assess whether each _settled_ frame could be posted as an image;
+  use the strongest one as a poster and place it in frame zero of the packaged cut.
+- A 3–8-second inspected prototype and owner's visual approval are required
+  before a costly full render, unless explicitly waived.
+
 ## Motion primitives
 
 Use absolute seconds and clamped progress:
