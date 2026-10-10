@@ -10,12 +10,13 @@
 import type { ManagedMcpProvider } from "./mcp-provider-store.js";
 import type { McpCredentialMetadata } from "./mcp-credential-store.js";
 import type { SupervisorState } from "../extension/supervisor.js";
-import type { AdapterHealth } from "../extension/adapter.js";
+import type { AdapterHealth, ProviderIdentity } from "../extension/adapter.js";
 import type { RiskClass } from "../kernel/tool-identity.js";
 
 export interface ProviderRuntime {
   readonly state: SupervisorState;
   readonly health: AdapterHealth;
+  readonly identity?: ProviderIdentity;
 }
 
 export type ProviderProductStatus =
@@ -203,6 +204,7 @@ export function projectDiscoveredTools(
 }
 
 export interface OwnerMcpProviderDetail {
+  readonly identity?: ProviderIdentity;
   readonly id: string;
   readonly name: string;
   readonly enabled: boolean;
@@ -249,6 +251,7 @@ export interface ProjectProviderDetailInput {
   readonly discoveredCount?: number;
   /** As-of time of the last successful probe, when one has run. */
   readonly discoveredAt?: string;
+  readonly discoveredIdentity?: ProviderIdentity;
 }
 
 /** Map a credential ref (or its absence) to the product auth mode, never exposing any secret value. */
@@ -304,7 +307,15 @@ export function projectProviderDetail(input: ProjectProviderDetailInput): OwnerM
       ? ("all" as const)
       : ("subset" as const);
 
+  const runtimeIdentity = input.runtime?.identity;
+  const probedIdentity = input.discoveredIdentity;
+  const identity =
+    runtimeIdentity !== undefined &&
+    (probedIdentity === undefined || runtimeIdentity.observedAt >= probedIdentity.observedAt)
+      ? runtimeIdentity
+      : probedIdentity;
   return {
+    ...(identity === undefined ? {} : { identity }),
     id: input.provider.id,
     name: input.provider.name ?? input.provider.id,
     enabled: input.provider.enabled,

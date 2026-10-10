@@ -15,6 +15,8 @@ import {
   type ExtensionToolInfo,
   type ProviderCredential
 } from "./adapter.js";
+import { providerIdentity } from "./provider-identity.js";
+import type { ProviderIdentity } from "./adapter.js";
 import { APP_VERSION } from "../shared/build-info.js";
 import { type CompiledExtensionManifest } from "./manifest.js";
 import { isLoopbackHost } from "./loopback.js";
@@ -309,6 +311,7 @@ export function createStreamableHttpAdapter(
 
   const credentialHeaders = providerHeaders(credentials);
   let ready = false;
+  let identity: ProviderIdentity | undefined;
   let era: ProtocolEra = "modern";
   let protocolVersion = MODERN_PROTOCOL;
   let sessionId: string | undefined;
@@ -550,6 +553,7 @@ export function createStreamableHttpAdapter(
     }
     protocolVersion = initialized.protocolVersion;
     await sendLegacyInitialized(context);
+    identity = providerIdentity(initialized, protocolVersion);
   };
 
   return {
@@ -560,6 +564,7 @@ export function createStreamableHttpAdapter(
       };
       cancelRequests();
       ready = false;
+      identity = undefined;
       era = "modern";
       protocolVersion = MODERN_PROTOCOL;
       sessionId = undefined;
@@ -583,6 +588,7 @@ export function createStreamableHttpAdapter(
       }
       if (discovery?.supportedVersions?.includes(MODERN_PROTOCOL) !== true)
         await startLegacy(context);
+      else identity = providerIdentity(discovery, protocolVersion);
       assertCurrent(context);
       ready = true;
     },
@@ -621,6 +627,7 @@ export function createStreamableHttpAdapter(
       sessionId = undefined;
     },
 
+    identity: () => identity,
     health(): AdapterHealth {
       return ready ? "ready" : "unavailable";
     }

@@ -39,9 +39,9 @@ export const providerDrawerHtml = `
         <h3 class="provider-drawer-section-title">Metadata</h3>
         <dl id="provider-drawer-meta" class="provider-drawer-meta"></dl>
       </section>
-      <section class="provider-drawer-section">
+      <section class="provider-drawer-section provider-drawer-tools-section">
         <div class="provider-drawer-tools-heading">
-          <h3 class="provider-drawer-section-title">Tools</h3>
+          <h3 class="provider-drawer-section-title">Tools <span id="provider-drawer-tools-count">0</span></h3>
           <input type="search" id="provider-drawer-tools-search" class="provider-drawer-tools-search" placeholder="Filter tools&hellip;" aria-label="Filter tools">
         </div>
         <div id="provider-drawer-tools" class="provider-drawer-tools" role="list"></div>
@@ -86,10 +86,13 @@ export const providerDrawerCss = `
 .provider-drawer-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--muted,#56637D);word-break:break-all}
 .provider-drawer-close{flex:none;border:0;background:transparent;color:var(--muted,#56637D);font-size:24px;line-height:1;width:34px;height:34px;border-radius:8px;cursor:pointer}
 .provider-drawer-close:hover{background:var(--accent-soft,#EAF3FB);color:var(--text,#12284B)}
-.provider-drawer-body{flex:1;overflow-y:auto;min-height:0;padding:20px 22px}
+.provider-drawer-body{flex:1;display:flex;flex-direction:column;overflow-y:auto;min-height:0;padding:16px 22px 8px}
 .provider-drawer-loading{display:flex;align-items:center;gap:10px;padding:22px;color:var(--muted,#56637D);font-size:12px}
 .provider-drawer-error{margin:0 22px;padding:10px 12px;border:1px solid var(--bad,#B23A4A);border-radius:8px;background:rgba(178,58,74,.08);color:var(--bad,#B23A4A);font-size:12px}
-.provider-drawer-section{margin-bottom:20px}
+.provider-drawer-section{flex:none;margin-bottom:16px}
+.provider-drawer-tools-section{flex:1;display:flex;flex-direction:column;min-height:160px;margin-bottom:0}
+.provider-drawer-endpoint-toggle{cursor:pointer;font-size:12px}
+.provider-drawer-endpoint-value{display:block;margin-top:4px;overflow-wrap:anywhere}
 .provider-drawer-section-title{margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted,#56637D)}
 .provider-drawer-meta{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 16px;margin:0}
 .provider-drawer-meta dt{font-size:12px;color:var(--muted,#56637D);white-space:nowrap}
@@ -98,7 +101,7 @@ export const providerDrawerCss = `
 .provider-drawer-tools-heading .provider-drawer-section-title{margin-bottom:0}
 .provider-drawer-tools-search{min-width:0;flex:1;max-width:180px;border:1px solid var(--line-strong,#CEC39E);border-radius:7px;background:var(--surface,#FFFDF4);color:var(--text,#12284B);min-height:30px;padding:5px 9px;font-size:12px}
 .provider-drawer-tools-search:focus{border-color:var(--interactive,#438BC4);outline:none;box-shadow:0 0 0 3px var(--glow,rgba(67,139,196,.3))}
-.provider-drawer-tools{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-top:12px;padding-right:4px}
+.provider-drawer-tools{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-right:4px}
 .tool-item{border:1px solid var(--line,#E6DFC9);border-radius:8px;background:var(--surface2,#FAF3DD);padding:9px 11px}
 .tool-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .tool-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;word-break:break-all;color:var(--text,#12284B)}
@@ -244,7 +247,31 @@ export const providerDrawerScript: string = String.raw`(() => {
     dl.replaceChildren();
     var conn = detail.connection || {};
     addMeta(dl, 'Transport', conn.kind === 'local' ? 'Local (stdio)' : 'Remote (streamable-http)');
-    addMeta(dl, 'Endpoint', conn.endpoint || conn.command || '');
+    if (conn.kind === 'local' && conn.command) {
+      var dt = document.createElement('dt');
+      dt.textContent = 'Command';
+      var dd = document.createElement('dd');
+      var reveal = document.createElement('details');
+      var toggle = document.createElement('summary');
+      toggle.className = 'provider-drawer-endpoint-toggle';
+      toggle.textContent = '\u25c9 Show command';
+      var value = document.createElement('code');
+      value.className = 'provider-drawer-endpoint-value';
+      value.textContent = conn.command;
+      reveal.addEventListener('toggle', function () {
+        toggle.textContent = reveal.open ? '\u25c9 Hide command' : '\u25c9 Show command';
+      });
+      reveal.appendChild(toggle);
+      reveal.appendChild(value);
+      dd.appendChild(reveal);
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    } else addMeta(dl, 'Endpoint', conn.endpoint || '');
+    var identity = detail.identity || {};
+    addMeta(dl, 'Provider', identity.name || 'Not reported');
+    addMeta(dl, 'Provider version', identity.version || 'Not reported');
+    addMeta(dl, 'Protocol', identity.protocolVersion || 'Unknown');
+    addMeta(dl, 'Observed', identity.observedAt ? new Date(identity.observedAt).toLocaleString() : 'Not observed');
     var auth = detail.auth || {};
     if (auth.kind && auth.kind !== 'none') {
       var authLabel = auth.kind === 'header' ? 'HTTP header' : auth.kind === 'bearer' ? 'Bearer token' : 'Environment variable';
@@ -253,7 +280,7 @@ export const providerDrawerScript: string = String.raw`(() => {
       addMeta(dl, 'Auth', 'None');
     }
     var health = detail.health || {};
-    addMeta(dl, 'Last probe', health.lastProbeAt ? new Date(health.lastProbeAt).toLocaleString() : 'Never');
+    addMeta(dl, 'Last successful probe', health.lastProbeAt ? new Date(health.lastProbeAt).toLocaleString() : 'Not recorded this session');
   }
 
   function applyToolFilter() {
@@ -299,6 +326,7 @@ export const providerDrawerScript: string = String.raw`(() => {
 
   function renderTools(detail) {
     tools = (detail.tools && detail.tools.accepted) || [];
+    q('provider-drawer-tools-count').textContent = String(tools.length);
     applyToolFilter();
   }
 

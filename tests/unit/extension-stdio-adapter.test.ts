@@ -42,7 +42,7 @@ process.stdin.on('data', (chunk) => {
     if (m.method === 'server/discover') {
       process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32601,message:'method not found'}})+'\\n');
     } else if (m.method === 'initialize') {
-      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18'}})+'\\n');
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-06-18',serverInfo:{name:'Mock runtime',version:'7.0.0'}}})+'\\n');
     } else if (m.method === 'tools/list') {
       process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'echo'}]}})+'\\n');
     } else if (m.id !== undefined) {
@@ -102,6 +102,11 @@ describe("stdio adapter (integration: real spawn, no fake)", () => {
     await adapter.start();
     const tools = await adapter.listTools();
     expect(tools.map((t) => t.canonicalId)).toContain("echo");
+    expect(adapter.identity?.()).toMatchObject({
+      name: "Mock runtime",
+      version: "7.0.0",
+      protocolVersion: "2025-06-18"
+    });
     const result = await adapter.callTool("echo", {}, {});
     expect(result.isError).toBe(false);
     expect(result.text).toBe("pong");

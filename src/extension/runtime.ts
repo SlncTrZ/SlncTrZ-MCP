@@ -14,7 +14,8 @@ import {
   type ExtensionCallResult,
   type ExtensionToolInfo,
   type ProviderCredential,
-  type ProviderDiagnostic
+  type ProviderDiagnostic,
+  type ProviderIdentity
 } from "./adapter.js";
 import { createExtensionSupervisor, type SupervisorState } from "./supervisor.js";
 import { type CompiledExtensionRegistry } from "./registry.js";
@@ -31,6 +32,7 @@ export interface ExtensionProviderRuntime {
   ): Promise<ExtensionCallResult>;
   stop(): Promise<void>;
   diagnostic?(): ProviderDiagnostic | undefined;
+  identity?(): ProviderIdentity | undefined;
 }
 
 export interface ExtensionRuntimeCatalog {
@@ -39,6 +41,7 @@ export interface ExtensionRuntimeCatalog {
     providerId: string;
     state: SupervisorState;
     health: AdapterHealth;
+    identity?: ProviderIdentity;
   }>[];
   provider(providerId: string): ExtensionProviderRuntime | undefined;
   isReady(providerId: string): boolean;
@@ -113,6 +116,7 @@ function attestDeclaredTools(
       attested = false;
       await adapter.stop();
     },
+    identity: () => adapter.identity?.(),
     health(): AdapterHealth {
       return attested ? adapter.health() : "unavailable";
     }
@@ -210,9 +214,15 @@ export async function createExtensionRuntimeCatalog(
     registry,
     status() {
       return Object.freeze(
-        [...providers.entries()].map(([providerId, provider]) =>
-          Object.freeze({ providerId, state: provider.state, health: provider.health() })
-        )
+        [...providers.entries()].map(([providerId, provider]) => {
+          const identity = provider.identity?.();
+          return Object.freeze({
+            providerId,
+            state: provider.state,
+            health: provider.health(),
+            ...(identity === undefined ? {} : { identity })
+          });
+        })
       );
     },
     provider(providerId: string): ExtensionProviderRuntime | undefined {

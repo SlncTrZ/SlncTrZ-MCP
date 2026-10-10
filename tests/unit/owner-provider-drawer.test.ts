@@ -54,7 +54,10 @@ describe("providerDrawerCss", () => {
 
   it("uses frosted glass header/footer and an independently scrollable tools list", () => {
     expect(providerDrawerCss).toContain("backdrop-filter:blur");
-    expect(providerDrawerCss).toContain(".provider-drawer-tools{max-height:320px;overflow-y:auto");
+    expect(providerDrawerCss).toContain(
+      ".provider-drawer-tools{flex:1;min-height:0;overflow-y:auto"
+    );
+    expect(providerDrawerCss).not.toContain("max-height:320px");
   });
 
   it("defines z-index layers for backdrop, drawer and modal", () => {
@@ -77,6 +80,16 @@ describe("providerDrawerCss", () => {
 });
 
 describe("providerDrawerScript", () => {
+  it("shows observed versions, total tools and a safe local command disclosure", () => {
+    expect(providerDrawerHtml).toContain('id="provider-drawer-tools-count"');
+    expect(providerDrawerScript).toContain("'Provider version'");
+    expect(providerDrawerScript).toContain("identity.observedAt");
+    expect(providerDrawerScript).toContain("document.createElement('details')");
+    expect(providerDrawerScript).toContain("value.textContent = conn.command");
+    expect(providerDrawerScript).toContain("String(tools.length)");
+    expect(providerDrawerScript).not.toContain("conn.args");
+  });
+
   it("is syntactically valid JavaScript", () => {
     expect(() => new Function(providerDrawerScript)).not.toThrow();
   });

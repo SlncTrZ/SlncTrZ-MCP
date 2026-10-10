@@ -43,13 +43,22 @@ describe("streamable http adapter (integration against real fetch)", () => {
       vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
         return body.method === "server/discover"
-          ? okResponse({ supportedVersions: ["2026-07-28"], capabilities: { tools: {} } })
+          ? okResponse({
+              supportedVersions: ["2026-07-28"],
+              capabilities: { tools: {} },
+              serverInfo: { name: "live", version: "2.0.0" }
+            })
           : okResponse({ tools: [{ name: "svc.ping" }] });
       })
     );
     const manifest = await compileExtensionManifest(httpsManifest("https://provider.example.com"));
     const adapter = createStreamableHttpAdapter(manifest);
     await adapter.start();
+    expect(adapter.identity?.()).toMatchObject({
+      name: "live",
+      version: "2.0.0",
+      protocolVersion: "2026-07-28"
+    });
     const tools = await adapter.listTools();
     expect(tools.map((t) => t.canonicalId)).toContain("svc.ping");
     vi.stubGlobal(
@@ -102,7 +111,10 @@ describe("streamable http adapter (integration against real fetch)", () => {
           JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
-            result: { protocolVersion: "2025-11-25" }
+            result: {
+              protocolVersion: "2025-11-25",
+              serverInfo: { name: "legacy", version: "3.0.0" }
+            }
           }),
           {
             status: 200,

@@ -18,7 +18,8 @@ import {
   type ExtensionCallResult,
   type ExtensionToolInfo,
   type ProviderDiagnostic,
-  type ProviderFailureClass
+  type ProviderFailureClass,
+  type ProviderIdentity
 } from "./adapter.js";
 
 export type SupervisorState =
@@ -92,6 +93,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
   stop(): Promise<void>;
   health(): AdapterHealth;
   diagnostic(): ProviderDiagnostic | undefined;
+  identity(): ProviderIdentity | undefined;
 } {
   const adapter = options.adapter;
   const startupTimeoutMs = options.startupTimeoutMs ?? 10_000;
@@ -499,6 +501,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
 
     diagnostic(): ProviderDiagnostic | undefined {
       return snapshotIncident();
-    }
+    },
+    identity: () => adapter.identity?.()
   };
 }

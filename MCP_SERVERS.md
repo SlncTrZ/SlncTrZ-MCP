@@ -18,6 +18,15 @@ From v0.4.3, select a provider to open its authenticated detail drawer. Test/Syn
 are guarded; Disable/Remove require confirmation. Workspace display names do not change
 provider identity or authorization.
 
+The pending v0.4.5 drawer displays observed `serverInfo` name/version, negotiated MCP
+protocol and observation time from startup or Test/Sync, not the configured manifest version.
+These are provider-reported observations, not independent binary attestation. Opening the
+drawer does not probe. Missing fields remain unknown; metadata/probe cache is process-local.
+The newest captured observation is shown even if the provider is now unavailable, so check
+status and timestamp. Contract/schema versions are not guessed or obtained through automatic
+help calls. Local command paths can be revealed/hidden; argv/env remain excluded. Tools shows
+the accepted total, unchanged by filtering, and its list uses available panel height.
+
 Use the Owner Console MCP Servers panel to add a provider, test it, synchronize its catalog
 and enable/disable it. Check `core.ping` and refresh the client's advertised tool catalog after
 a change. A configured provider is not necessarily ready.

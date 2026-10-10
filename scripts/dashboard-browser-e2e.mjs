@@ -11,11 +11,16 @@ import { CdpClient, startBrowser } from "./lib/browser-cdp.mjs";
 const [reportFile, htmlOrigin] = process.argv.slice(2);
 if (!reportFile)
   throw new Error("usage: node scripts/dashboard-browser-e2e.mjs <report.json> [native-origin]");
-if (
-  htmlOrigin &&
-  (new URL(htmlOrigin).hostname !== "127.0.0.1" || new URL(htmlOrigin).protocol !== "http:")
-)
-  throw new Error("Native origin must use loopback HTTP");
+if (htmlOrigin) {
+  let parsed;
+  try {
+    parsed = new URL(htmlOrigin);
+  } catch {
+    throw new Error("Native origin must be a valid loopback HTTP URL");
+  }
+  if (parsed.hostname !== "127.0.0.1" || parsed.protocol !== "http:")
+    throw new Error("Native origin must use loopback HTTP");
+}
 const report = resolve(reportFile),
   checks = [],
   requests = [],
@@ -120,9 +125,15 @@ const fixture = createServer(async (req, res) => {
           } else {
             json(res, 200, {
               ...p,
-              connection: {
-                kind: "remote",
-                endpoint: "https://" + id.toLowerCase() + ".invalid/mcp"
+              connection:
+                id === "A"
+                  ? { kind: "local", command: "C:/Program Files/Fixture/provider.exe" }
+                  : { kind: "remote", endpoint: "https://b.invalid/mcp" },
+              identity: {
+                name: "Fixture provider",
+                version: "2.3.4",
+                protocolVersion: "2025-11-25",
+                observedAt: "2026-10-10T00:00:00.000Z"
               },
               tools: {
                 accepted: [
@@ -425,6 +436,24 @@ try {
   }
   await open("A");
   await checkFontFloor("drawer text floor");
+  await check(
+    "drawer runtime identity and total tools",
+    "document.getElementById('provider-drawer-meta').textContent.includes('2.3.4') && document.getElementById('provider-drawer-tools-count').textContent==='1'"
+  );
+  await check(
+    "local command initially concealed",
+    "!document.querySelector('#provider-drawer-meta details').open"
+  );
+  await client.evaluate("document.querySelector('#provider-drawer-meta summary').click()");
+  await check(
+    "local command can be revealed",
+    "document.querySelector('#provider-drawer-meta details').open && document.querySelector('#provider-drawer-meta code').textContent==='C:/Program Files/Fixture/provider.exe'"
+  );
+  await client.evaluate("document.querySelector('#provider-drawer-meta summary').click()");
+  await check(
+    "tools list grows to available space",
+    "getComputedStyle(document.getElementById('provider-drawer-tools')).maxHeight==='none'"
+  );
   const patches = requests.filter((r) => r.method === "PATCH" && r.path.includes("/mcp/")).length;
   await click("provider-action-disable");
   await check(

@@ -531,13 +531,14 @@ export function createOwnerWebConsole(options: {
     const toolDrift = discovered?.diff.hasChanges ?? false;
     return projectProviderDetail({
       provider,
-      runtime: runtime === undefined ? undefined : { state: runtime.state, health: runtime.health },
+      runtime,
       credentials,
       workspaceId: DEFAULT_WORKSPACE_ID,
       workspaceGranted: true,
       toolDrift,
       ...(discovered === undefined ? {} : { discoveredCount: discovered.tools.length }),
-      ...(discovered === undefined ? {} : { discoveredAt: discovered.at })
+      ...(discovered === undefined ? {} : { discoveredAt: discovered.at }),
+      ...(discovered?.identity === undefined ? {} : { discoveredIdentity: discovered.identity })
     });
   };
 

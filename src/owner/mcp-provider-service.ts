@@ -2,7 +2,7 @@
  * MCP Provider Management Service — typed CRUD, connection discovery and policy reload rollback.
  */
 
-import type { ProviderCredential } from "../extension/adapter.js";
+import type { ProviderCredential, ProviderIdentity } from "../extension/adapter.js";
 import { createStdioAdapter } from "../extension/stdio-adapter.js";
 import { createStreamableHttpAdapter } from "../extension/streamable-http-adapter.js";
 import {
@@ -57,6 +57,7 @@ export class McpProviderMutationError extends Error {
 }
 
 export interface McpProviderDiscovery {
+  readonly identity?: ProviderIdentity;
   readonly providerId: string;
   readonly declaredTools: readonly string[];
   readonly discoveredTools: readonly string[];
@@ -66,6 +67,7 @@ export interface McpProviderDiscovery {
 
 /** Cached snapshot of a provider's last successful probe, so status derivation stays cheap. */
 export interface McpDiscoveredSnapshot {
+  readonly identity?: ProviderIdentity;
   readonly at: string;
   readonly tools: readonly ProviderToolProjection[];
   readonly diff: ProviderToolDiff;
@@ -136,7 +138,9 @@ export function createMcpProviderService(options: {
           discoveredDescriptions[tool.canonicalId] = tool.description;
         }
       }
+      const identity = adapter.identity?.();
       return Object.freeze({
+        ...(identity === undefined ? {} : { identity }),
         providerId: manifest.id,
         declaredTools: Object.freeze(declared),
         discoveredTools: Object.freeze(discovered),
@@ -175,7 +179,12 @@ export function createMcpProviderService(options: {
     );
     const at = new Date().toISOString();
     const diff = diffProviderTools(providerId, provider.updatedAt, at, accepted, projection);
-    const snapshot: McpDiscoveredSnapshot = Object.freeze({ at, tools: projection, diff });
+    const snapshot: McpDiscoveredSnapshot = Object.freeze({
+      at,
+      tools: projection,
+      diff,
+      ...(discovery.identity === undefined ? {} : { identity: discovery.identity })
+    });
     lastDiscovered.set(providerId, snapshot);
     return { provider, discovery, snapshot };
   };

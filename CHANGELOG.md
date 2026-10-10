@@ -6,6 +6,11 @@ User-visible product changes are recorded here. Internal commit history is not a
 
 Date: 2026-10-10
 
+### Added
+
+- Observed provider software identity and negotiated MCP protocol metadata in the Owner detail drawer, with observation time and unknown states instead of inferred versions.
+- Local command show/hide disclosure, accepted Tools total and a taller flexible tool list. Arguments/environment remain excluded.
+
 ### Fixed
 
 - Keep request cancellation local to that request instead of restarting or quarantining the shared provider. Prediction Seam recording/resolution deadlines no longer trigger CyberBrain recovery.

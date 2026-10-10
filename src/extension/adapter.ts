@@ -85,6 +85,13 @@ export interface ExtensionCallResult {
   readonly diagnostic?: ProviderDiagnostic;
 }
 
+export interface ProviderIdentity {
+  readonly name?: string;
+  readonly version?: string;
+  readonly protocolVersion: string;
+  readonly observedAt: string;
+}
+
 export interface AdapterCallOptions {
   readonly signal?: AbortSignal;
 }
@@ -117,4 +124,6 @@ export interface ExtensionAdapter {
   stop(): Promise<void>;
   /** Report liveness for the supervisor's health gate. */
   health(): AdapterHealth;
+  /** Last successful handshake metadata; no I/O when read. */
+  identity?(): ProviderIdentity | undefined;
 }

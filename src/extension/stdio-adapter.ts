@@ -17,6 +17,8 @@ import {
   type ExtensionToolInfo,
   type ProviderCredential
 } from "./adapter.js";
+import { providerIdentity } from "./provider-identity.js";
+import type { ProviderIdentity } from "./adapter.js";
 import { APP_VERSION } from "../shared/build-info.js";
 import { type CompiledExtensionManifest } from "./manifest.js";
 
@@ -125,6 +127,7 @@ export function createStdioAdapter(
   let generation: StdioGeneration | undefined;
   let nextId = 1;
   let era: ProtocolEra = "legacy";
+  let identity: ProviderIdentity | undefined;
   let startupDeadlineAt: number | undefined;
   let startupToolListPending = false;
   let lifecycleEpoch = 0;
@@ -354,6 +357,7 @@ export function createStdioAdapter(
       await notify(legacy, "notifications/initialized");
       assertCurrentStartup(epoch);
       era = "legacy";
+      identity = providerIdentity(initialized, initialized.protocolVersion);
     } catch (error) {
       stopGeneration(legacy);
       if (error instanceof AdapterError) throw error;
@@ -382,6 +386,7 @@ export function createStdioAdapter(
       } else {
         const discovery = response.result as DiscoverResult | undefined;
         fallback = discovery?.supportedVersions?.includes(MODERN_PROTOCOL) !== true;
+        if (!fallback) identity = providerIdentity(discovery, MODERN_PROTOCOL);
       }
       if (!fallback) {
         era = "modern";
@@ -428,6 +433,7 @@ export function createStdioAdapter(
         return;
       }
       const epoch = ++lifecycleEpoch;
+      identity = undefined;
       startupDeadlineAt = Date.now() + manifest.startupTimeoutMs;
       startupToolListPending = true;
       try {
@@ -512,6 +518,7 @@ export function createStdioAdapter(
       if (current !== undefined) stopGeneration(current);
     },
 
+    identity: () => identity,
     health(): AdapterHealth {
       const current = generation;
       return current !== undefined && !current.stopped && current.child.exitCode === null

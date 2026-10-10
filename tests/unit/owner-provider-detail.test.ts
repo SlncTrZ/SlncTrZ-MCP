@@ -251,6 +251,25 @@ describe("Owner provider detail GET API", () => {
     expect(calls.remove).toBe(0);
   });
 
+  it("returns observed handshake identity without a network probe or manifest-version substitution", async () => {
+    const identity = {
+      name: "Running GitHub",
+      version: "9.1.0",
+      protocolVersion: "2025-11-25",
+      observedAt: "2026-10-10T00:00:00.000Z"
+    };
+    const { origin, calls, login } = await startOwner({
+      providers: [provider()],
+      discovered: () => discoveredSnapshot({ identity })
+    });
+    const { cookie } = await login();
+    const response = await fetch(`${origin}/owner/api/mcp/github/detail`, { headers: { cookie } });
+    const body = (await response.json()) as { identity: typeof identity };
+    expect(body.identity).toEqual(identity);
+    expect(body.identity.version).not.toBe("1.0.0");
+    expect(calls.discover).toBe(0);
+  });
+
   it("rejects unauthenticated requests with 401", async () => {
     const { origin } = await startOwner({ providers: [provider()] });
     const response = await fetch(`${origin}/owner/api/mcp/github/detail`);
