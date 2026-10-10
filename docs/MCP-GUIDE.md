@@ -69,6 +69,22 @@ Prediction, calibration, Dream reason-task and review operations are advanced/co
 
 Read `kb.help` immediately before using these surfaces because their exact schemas and availability can evolve independently of the gateway.
 
+## Gateway-owned optional Prediction Seam
+
+This is distinct from an agent's manual Prediction workflow. From v0.4.4, an owner can
+opt in through `SLNCTRZ_PREDICTION_SEAM_ENABLED=true`. The seam requires provider ID
+`cyberbrain` specifically; the `kb` example namespace above does not satisfy that binding.
+It records before non-read calls to other providers and resolves transport outcomes afterward,
+without copying caller arguments/provider output. It adds no client tool grant and remains
+disabled by default.
+
+The v0.4.5 source fix makes learning-deadline cancellation request-local and preserves
+indeterminate outcomes for pre-dispatch/queued cancellation. Keep the seam disabled on
+v0.4.4 to avoid the known shared-backend restart defect. Missing/unresolved learning remains
+possible; agents must not replay mutations or fabricate retrospective predictions to fill gaps.
+See [Deployment](DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam) and
+[v0.4.5 release notes](releases/v0.4.5.md) before enabling on a verified installed build.
+
 ## Security and privacy
 
 - Never store passwords, API keys, bearer tokens, OAuth codes, private signing keys or other credentials.

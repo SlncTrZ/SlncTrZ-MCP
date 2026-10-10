@@ -1,7 +1,8 @@
 # Troubleshooting Guide
 
 Start with the symptom, then check the running artifact and profile. Published baseline:
-v0.4.2. A source version alone does not identify an installed process or prove a fix is deployed.
+v0.4.4 as observed on 2026-10-10; v0.4.5 is source preparation. A source version alone does
+not identify an installed process or prove a fix is deployed.
 
 ## 1. Version Mismatch
 
@@ -72,8 +73,9 @@ Ed25519-signed manifest and its artifact hash.
 Inspect core.ping, the connection profile and the Owner MCP Servers panel. Gateway-only
 hides coding, media, context, skills and task tools. Configured providers can be unavailable;
 sync/reconnect must succeed before discovery reflects them. A failed provider call is not
-automatically replayed. Read the advertised provider help and preserve uncertain mutation
-outcomes before retrying.
+replayed after an ambiguous failure or cancellation. One replay is allowed only after explicit
+pre-dispatch session rejection establishes no execution and bounded recovery succeeds.
+Read the advertised provider help and preserve uncertain mutation outcomes before retrying.
 
 See [MCP Servers](../MCP_SERVERS.md), [Images](IMAGES.md) and [Project Status](PROJECT_STATUS.md).
 
@@ -90,7 +92,7 @@ not prove the whole machine lacks a login.
 | Home/config | Check HOME, configured XDG directories and CLI-specific overrides              | Check USERPROFILE, actual APPDATA/LOCALAPPDATA and CLI-specific overrides |
 | Config/auth | Confirm expected directory exists; use the CLI's safe status check             | Check ACLs/keyring/session availability under the same account            |
 
-The unreleased WP-00-E fix retains a minimal home/config environment for `core.exec` and
+From v0.4.3, the gateway retains a minimal home/config environment for `core.exec` and
 `task.start`: Linux HOME resolves through the OS account when absent; configured XDG
 directories and GH_CONFIG_DIR are retained. Windows uses its profile and actual known
 app-data folders, including redirected locations. It does not inherit arbitrary variables
@@ -114,14 +116,27 @@ resolution, version and exit status. Successful gh smoke does not certify every 
 
 | Symptom                                            | First check                                 | Recovery                                                                                     |
 | -------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Sign in appears while a session is being checked   | Running version/build and network trace     | Published v0.4.2 can show an initial login flash; the development fix is unreleased          |
+| Sign in appears while a session is being checked   | Running version/build and network trace     | Older v0.4.2 may show a login flash; update to a verified v0.4.3-or-later build              |
 | Data API returns 500/network/429                   | Session and data responses separately       | Resolve/retry the failed request; do not assume expired OAuth or rotate credentials          |
 | Session/data API returns 401                       | Actual authentication result                | Sign in through Owner UI; keep protected content hidden until checked                        |
 | Mutation returns CSRF 403                          | Error code and session state                | Recheck the session, then deliberately retry the intended action after reviewing its outcome |
 | Owner UI is unavailable after setting a public URL | Owner Web setting and allowed hosts/origins | Review explicit enablement; the public MCP URL is not the private control-plane URL          |
 
-The unreleased WP-05 UI keeps Sign in hidden until an auth result, offers Error/Retry for
+From v0.4.3, the UI keeps Sign in hidden until an auth result, offers Error/Retry for
 session/data failures, preserves the authenticated shell on data errors, and rechecks after
 history restoration. Retry reloads session/data; it does not automatically replay a mutation.
 Browser fixtures on Linux/Windows verified those changes, but no live /auth redirect or
 production cookie defect was established. Do not weaken cookie/CSRF policy to hide a flash.
+
+## 9. Prediction Seam deadlines or cancellation outcomes
+
+On v0.4.4 with the optional seam enabled, a one-second learning deadline can trigger
+shared CyberBrain restart, and pre-dispatch/queued cancellation can be recorded as
+contradicted. Disable `SLNCTRZ_PREDICTION_SEAM_ENABLED` and restart through the owning
+service/terminal while awaiting a verified update containing the v0.4.5 fix.
+
+In the v0.4.5 source contract, learning-deadline cancellation does not create a shared
+provider recovery incident, restart or quarantine; cancelled calls resolve indeterminate.
+Missing/unresolved predictions can still occur because learning is best-effort. Inspect
+provider readiness and running build identity; do not replay a mutation merely to obtain
+a learning record. A cancellation response does not prove absence or rollback of remote effects.

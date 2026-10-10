@@ -34,7 +34,11 @@ State is in-memory; a host crash is not durable task recovery.
 ### Downstream Providers & Secrets
 
 STDIO subprocesses are supervised; remote HTTP providers are independent services.
-A failed call is not automatically replayed, and stale-session recovery has a rolling budget.
+Ambiguous failures and cancellations are not replayed. At most one automatic replay is
+allowed after explicit pre-dispatch session rejection proves no execution; recovery keeps
+the original deadline and a rolling incident budget. In the v0.4.5 source contract, request
+cancellation does not create/overwrite provider recovery incidents or restart healthy providers.
+Cancellation is not proof that remote side effects were undone.
 Credential rotation rollback attempts to restore the active configuration; an external outage
 or failed rollback still needs diagnosis and does not have a zero-downtime guarantee.
 
@@ -56,5 +60,13 @@ Usage retains numeric gateway-boundary estimates, not prompt bodies, paths, tool
 or outputs. Audit has a different bounded event schema. The unwired lifecycle ledger sanitizes
 known sensitive keys and bearer-style strings; this is not a guarantee for arbitrary secret
 text under an innocuous field. Callers must keep credentials out of operation detail.
+
+Optional Prediction Seam is owner-controlled and default-off. It invokes the configured
+CyberBrain backend with gateway transport metadata, not a new client grant, and never copies
+tool arguments/provider output. It records before outcome and excludes CyberBrain/read-only
+calls. Its one-second learning deadlines can leave missing/unresolved records; shared provider
+credentials may collapse attribution into one backend identity. The v0.4.5 cancellation fix
+prevents those learning deadlines from triggering shared-provider recovery. Keep the seam
+disabled on v0.4.4 to avoid that known defect.
 
 See [Security](../SECURITY.md) and [Release](../RELEASE.md).

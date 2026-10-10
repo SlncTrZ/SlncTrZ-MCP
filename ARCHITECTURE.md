@@ -1,8 +1,8 @@
 # SlncTrZ-MCP Architecture
 
 The gateway gives authenticated Web AI and coding clients owner-controlled access to one
-Linux or Windows account. This guide describes published v0.4.2's product boundaries;
-unreleased development changes and runtime observations are separate facts in
+Linux or Windows account. This guide describes the v0.4.5 source contract, based on
+published v0.4.4 plus the pending cancellation fixes; publication and runtime observations are separate facts in
 [Project Status](docs/PROJECT_STATUS.md).
 
 ## 1. System Overview
@@ -47,7 +47,8 @@ uses that account's authority directly. Neither mode supplies an OS sandbox or s
 
 Full exposes available coding/context/task surfaces. Gateway-only hides those surfaces and
 retains `core.ping`, `connection.restrict`, Debate and enabled provider tools. Provider authority
-is a separate boundary; hiding gateway tools does not sandbox a provider.
+is a separate boundary; hiding gateway tools does not sandbox a provider. Gateway-only
+provider calls do not expose or require `context.bootstrap`; Full guarded calls retain receipts.
 
 ## 2. Core Components
 
@@ -85,10 +86,29 @@ endpoints. Modern `server/discover` negotiation falls back to supported legacy i
 The catalog namespaces exposed tools by provider ID and has a catalog Fingerprinting field.
 No CAD/CyberBrain provider is bundled or guaranteed available merely because it is named here.
 
-Calls are bounded and are not automatically replayed after failure. Failures are bounded:
+Calls are bounded. One automatic replay is permitted only after an explicit pre-dispatch
+session rejection proves the request was not executed, and recovery succeeds within the
+original deadline. Ambiguous failures and cancellations are not replayed. Failures are bounded:
 recurrent `session_invalid`
 incidents are additionally bounded by a rolling incident budget. Credential rotation stages
 a new opaque ref and attempts transactional activation/rollback; it is not a zero-downtime guarantee.
+
+In the v0.4.5 source contract, cancellation is request-local: active cancellation does not
+create or overwrite a shared recovery incident, restart the provider or consume its budget.
+Pre-dispatch and queued cancellation preserve `failureClass: cancelled`. Genuine request
+timeouts and provider faults retain bounded recovery. Cancellation does not prove rollback
+of remote effects.
+
+### Optional Prediction Seam
+
+From v0.4.4, owner-controlled `SLNCTRZ_PREDICTION_SEAM_ENABLED=true` enables best-effort
+transport learning for non-read tools on other providers. It invokes the configured
+`cyberbrain` runtime directly to record before dispatch and resolve after the outcome;
+it is not a new client capability grant. CyberBrain/read-only calls are excluded, and
+arguments/output are not copied. Each learning step is bounded to one second; failed or
+late recording skips resolution. Outcomes are confirmed for success, contradicted for
+errors and indeterminate for timeout/cancellation. The v0.4.5 fix prevents learning-deadline
+cancellation from triggering shared CyberBrain recovery. See [Deployment](docs/DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam).
 
 ### Operations & Lifecycle
 

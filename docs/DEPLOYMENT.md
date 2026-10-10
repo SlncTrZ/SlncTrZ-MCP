@@ -79,6 +79,8 @@ work. Updating files in a source tree does not restart or deploy a running insta
 
 From v0.4.4, an owner may enable gateway-owned transport prediction telemetry for non-read provider calls. The configured provider id must be `cyberbrain` and expose `prediction_record` and `prediction_resolve`. The feature is disabled by default, excludes CyberBrain/read-only calls and does not copy tool arguments or provider output. Each recording/resolution step is bounded to one second; failed learning never replaces the main tool result. This predicts transport success, not domain correctness.
 
+The v0.4.5 source fix keeps learning-deadline cancellation request-local: it no longer restarts/quarantines shared CyberBrain. Pre-dispatch/queued cancellation resolves as indeterminate. Keep the seam disabled on v0.4.4 if this availability defect is unacceptable; enable after verifying an installed published version containing the fix. Cancellation never proves a remote mutation was rolled back.
+
 For an operator-managed Linux user service, preserve the installed launcher entrypoint and add environment settings through a drop-in:
 
 ```ini

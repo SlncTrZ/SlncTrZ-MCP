@@ -2,6 +2,21 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.4.5
+
+Date: 2026-10-10
+
+### Fixed
+
+- Keep request cancellation local to that request instead of restarting or quarantining the shared provider. Prediction Seam recording/resolution deadlines no longer trigger CyberBrain recovery.
+- Preserve cancellation classification for requests aborted before dispatch or while queued, so Prediction Seam outcomes are indeterminate rather than contradicted.
+
+### Documentation / compatibility
+
+- Reconcile current architecture, provider management, deployment, troubleshooting and release acceptance guidance with the implemented contracts.
+- No new OAuth/database migration or reauthorization requirement; existing grants and provider credentials are retained. Prediction Seam remains disabled by default.
+- This is source preparation; exact-candidate signing, public Linux/Windows installs and installed browser acceptance remain required before stable publication.
+
 ## 0.4.4
 
 Date: 2026-10-10

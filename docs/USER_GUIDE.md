@@ -1,7 +1,7 @@
 # User Guide
 
-Install, connect and use the published gateway. Stable release: v0.4.2 as observed on
-2026-10-09. This development tree also contains unreleased changes; see
+Install, connect and use the published gateway. Stable release: v0.4.4 as observed on
+2026-10-10. This tree prepares the v0.4.5 cancellation patch; see
 [Project Status](PROJECT_STATUS.md) before assuming an installed binary has them.
 
 ## 1. Installation & Endpoints
@@ -212,3 +212,13 @@ effects before recreating work.
 
 Two-participant Debate history persists in SQLite. Instructions in a task or debate do not
 grant permissions. The lifecycle ledger foundation does not make these tasks durable.
+
+## 7. Optional provider transport learning
+
+Prediction Seam is disabled by default and requires owner-controlled runtime configuration
+plus a ready `cyberbrain` provider. It records transport expectations, not domain correctness,
+without copying tool arguments/output. The v0.4.5 patch fixes shared-provider recovery caused
+by learning cancellation and preserves indeterminate cancellation outcomes. Keep it disabled
+on v0.4.4 to avoid the known restart defect; see
+[Deployment](DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam) before enabling on a verified build.
+Cancellation does not prove remote mutations were undone; inspect uncertain effects before retrying.

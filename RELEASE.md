@@ -430,6 +430,19 @@ General-user release readiness remains blocked when critical evidence required b
 - browser evidence for Owner Console claims;
 - real-client evidence for named client claims.
 
+## v0.4.5 cancellation patch preparation
+
+The published v0.4.4 tag/assets remain unchanged. Its Prediction Seam cancellation fixes
+are assigned to v0.4.5, not backported by replacing signed assets. Source fix CI on `4b9a6b6`
+is evidence for that ref only; the combined version/docs candidate needs exact-ref CI,
+native identity, protected manifest signing, public Linux/Windows installs and installed
+Chromium before stable promotion. See [v0.4.5 notes](docs/releases/v0.4.5.md) and
+[Prediction Seam acceptance](docs/RELEASE_ACCEPTANCE.md#6-optional-prediction-seam-and-request-cancellation).
+
+Do not enable the seam on an older installed build solely because this source tree is fixed.
+Publishing or editing release metadata does not deploy/restart a live gateway. Keep the seam
+disabled on v0.4.4 when avoiding the known restart defect; use a verified patch update when available.
+
 ## Upgrading from pre-v0.3.0 clients
 
 v0.3.0 introduced global coding instructions and progressive Agent Skills. Setup/first start seeds

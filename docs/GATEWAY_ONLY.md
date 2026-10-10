@@ -113,5 +113,7 @@ is not the same as revoking the grant in Owner Connections. Serialize refresh re
 reusing a single-use token can fail. Follow [Troubleshooting](TROUBLESHOOTING.md) before
 treating every network or server error as an auth problem.
 
-The unreleased exec-environment and Owner session/navigation improvements are tracked separately
-in [Project Status](PROJECT_STATUS.md); they do not change this profile contract.
+The v0.4.3 exec-environment and Owner session/navigation improvements do not change this
+profile contract. Gateway-only provider calls no longer require context.bootstrap or a receipt;
+Full guards remain enforced. The unreleased v0.4.5 cancellation patch is tracked separately in
+[Project Status](PROJECT_STATUS.md) and does not change OAuth grants or ceilings.

@@ -39,7 +39,8 @@ file and restart the gateway. Retain hostname and certificate verification.
 
 For upgrades, preserve the service identity and encrypted credential source. Do not
 persist the decrypted value, disable TLS verification or copy host-specific descriptors
-into a public source repository. This change is not present in the published v0.4.2 binaries;
-no release is published by this change.
+into a public source repository. Support was added in v0.4.3; v0.4.2 binaries do not
+implement it. Published availability does not certify your service identity, ACLs or keyring;
+verify the installed build and credential resolution on the deployment host.
 
 See [ADR-029](adr/adr-029-systemd-provider-credential-references.md).

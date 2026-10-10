@@ -24,8 +24,9 @@ everyday use. Technical references explain the implementation without replacing 
 | Inspect lifecycle ledger wiring               | [Lifecycle Wiring](LIFECYCLE_WIRING.md)                                                                  |
 | Give an agent operational guidance            | [Model Guide](MODEL_GUIDE.md)                                                                            |
 
-Current guides were reconciled on 2026-10-09 against published v0.4.2 and the development
-tree's source contracts. Start with the [OS installation steps](USER_GUIDE.md#1-installation--endpoints),
+Current guides were reconciled on 2026-10-10 against published v0.4.4 and the v0.4.5
+source-preparation contract. [v0.4.5 notes](releases/v0.4.5.md) describe the pending patch;
+check [published releases](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest) for availability. Start with the [OS installation steps](USER_GUIDE.md#1-installation--endpoints),
 then [AI Web](USER_GUIDE.md#connect-an-ai-web-client) or [coding-agent recipes](GATEWAY_ONLY.md).
 The [client evidence matrix](CODING_AGENTS.md#client-evidence-matrix) marks help checks and
 documentation recipes separately from end-to-end acceptance.

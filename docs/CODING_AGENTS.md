@@ -67,8 +67,8 @@ refresh, reconnect or revoke result. Linux clients were not installed on the ins
 The local help check did not alter client config or run login. Its historical source
 baseline was package 0.4.2 at `021c45c00397918791d0c26b70357b8070c514b6`; no listed
 client was tested against an installed server artifact in that check. Foundational docs
-are now committed/pushed as `0cb09db`. [Project Status](PROJECT_STATUS.md#commit-and-ci-checkpoint)
-records current branch refs and CI separately from published v0.4.2 and the running process.
+are now committed/pushed as `0cb09db`. [Project Status](PROJECT_STATUS.md)
+records current source CI separately from published v0.4.4, pending v0.4.5 and the running process.
 The review branch is now merged into main together with PR #6/#7. Source integration,
 commit/push and main CI do not upgrade these client evidence levels.
 

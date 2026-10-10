@@ -14,8 +14,9 @@ tool counts and readiness come from runtime discovery, not this repository.
 4. Refresh discovery in your AI client and inspect `core.ping`. Use advertised tool names and
    schemas rather than guessing them from the provider's marketing name.
 
-Current v0.4.2 manages providers in the existing panel. A provider detail drawer and revised
-action confirmations are planned development work, not part of these installation steps.
+From v0.4.3, select a provider to open its authenticated detail drawer. Test/Sync actions
+are guarded; Disable/Remove require confirmation. Workspace display names do not change
+provider identity or authorization.
 
 Use the Owner Console MCP Servers panel to add a provider, test it, synchronize its catalog
 and enable/disable it. Check `core.ping` and refresh the client's advertised tool catalog after
@@ -43,9 +44,21 @@ replaying a potentially mutating provider call. Never copy credentials into docs
 
 ## 3. Recovery & Boundaries
 
-A stale-session call fails once and is not automatically replayed; later calls may recover
-within the bounded incident budget. Persistent failures can quarantine the affected provider.
-Inspect the Owner panel and diagnostic result before retrying.
+One automatic replay is allowed only for an explicit pre-dispatch session rejection that
+proves no tool execution occurred, after recovery within the original deadline. Other failed
+or cancelled mutations are not replayed. Persistent faults can quarantine the affected
+provider within the bounded incident budget; inspect status before retrying uncertain effects.
+
+The v0.4.5 source fix keeps cancellation request-local: it does not restart/quarantine a
+healthy shared provider or mutate its recovery incident. Cancellation before dispatch or
+while queued retains its classification. Genuine provider timeouts/faults still recover.
+This does not guarantee rollback of remote mutations.
+
+Optional owner-configured Prediction Seam telemetry uses provider ID `cyberbrain` specifically,
+not an arbitrary example namespace. It is disabled by default; see
+[Deployment](docs/DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam). Keep it disabled on
+v0.4.4 when avoiding the known learning-deadline restart defect; apply the v0.4.5 fix through
+a verified published update when available.
 
 Gateway-only hides gateway coding tools; provider tools retain their own authority. A STDIO
 process is isolated for supervision, not an OS sandbox. Remote application lifecycle remains

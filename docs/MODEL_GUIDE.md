@@ -47,8 +47,10 @@ Records are in-memory only. Reconcile prior effects before recreating work after
 
 True authorization/ownership denials are definitive stops; do not repeatedly retry.
 context_required/context_stale means operationExecuted:false: bootstrap before retrying.
-For other uncertain mutation failures, inspect actual effects first. Provider failures are not
-automatically replayed.
+For other uncertain mutation failures, inspect actual effects first. Ambiguous provider failures
+and cancellations are not replayed. The only automatic replay is one proven pre-dispatch
+session rejection after bounded recovery; do not assume other failures are safe to retry.
+Cancellation does not establish rollback of remote effects.
 
 ## 4. Images & Evidence
 

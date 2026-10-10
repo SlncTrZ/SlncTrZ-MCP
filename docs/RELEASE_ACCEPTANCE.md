@@ -41,7 +41,7 @@ need their own evidence; do not infer them from unit tests.
 ## 4. State Management & Migrations
 
 - Owner authority changes follow OLD -> committed -> active runtime NEW and fail/rollback safely.
-- Exercise official legacy + modern-only provider negotiation without replaying failed mutations.
+- Exercise official legacy + modern-only provider negotiation; permit at most one replay only for explicit pre-dispatch session rejection proving no execution. Never replay ambiguous failed/cancelled mutations.
 - Concurrent resource claims resolve to exactly one winner.
 - OAuth v1/v2 -> v3 migration preserves existing profile/label/token-expiry semantics.
 - New Gateway-only grants retain immutable ceilings, rotating refresh and restart/offline durability.
@@ -58,3 +58,14 @@ tests do not establish live execution-controller or restart-reconciliation accep
 
 Image validation must separately record authenticated transport, model perception and actual
 user display. Gateway image blocks alone do not prove the client rendered an attachment.
+
+## 6. Optional Prediction Seam and request cancellation
+
+- Verify default-off behavior, owner-controlled opt-in and CyberBrain/read-only exclusions.
+- Record before dispatch and resolve afterward without copying caller arguments/provider output.
+- Bound recording and resolution individually to one second; failed/late recording skips resolution and learning failures preserve the main result.
+- Exercise both learning deadlines through the real supervisor: no shared recovery incident, restart/quarantine or consumed restart budget; unrelated CyberBrain calls must still work.
+- Preserve cancelled classification for pre-aborted, queued-aborted and active-cancelled requests; MCP outcomes resolve indeterminate. Successful/error/timeout mapping remains confirmed/contradicted/indeterminate.
+- Genuine provider faults/timeouts must still recover within existing bounds; do not silently disable recovery to satisfy cancellation tests.
+- Cancellation is not rollback evidence. Verify no automatic replay and reconcile uncertain remote mutations before retrying.
+- Source regressions alone do not establish deployed-provider acceptance; identify the exact installed build for field claims.
