@@ -92,7 +92,7 @@ body{margin:0;min-height:100dvh;padding:2.5rem 1rem;background:radial-gradient(c
 .card:hover::after{opacity:.52}
 .card:last-child{margin-bottom:0}
 .panel{background:rgba(248,250,252,.78);border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.72)}
-.brand{display:flex;align-items:center;gap:.5rem;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#697586;margin:0 0 .6rem}
+.brand{display:flex;align-items:center;gap:.5rem;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#697586;margin:0 0 .6rem}
 .brand .dot{width:.5rem;height:.5rem;border-radius:50%;background:#2f5a9e}
 h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
 .login-frame h1{margin:0 0 1.15rem}
@@ -105,7 +105,7 @@ h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
 .overview-stats{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:1rem;margin-top:.95rem;padding-top:1rem;border-top:1px solid rgba(100,116,139,.16)}
 .stat-block{min-width:0;padding:.1rem .25rem .2rem}
 .stat-block+.stat-block{border-left:1px solid rgba(100,116,139,.16);padding-left:1.25rem}
-.stat-label{font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7b8492}
+.stat-label{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7b8492}
 .stat-value{margin-top:.28rem;font-size:2rem;font-weight:680;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.04em}
 .stat-note{margin-top:.45rem;font-size:.78rem;color:#697586}
 .health-list{display:flex;flex-wrap:wrap;gap:.45rem .9rem;margin-top:.55rem}
@@ -117,7 +117,7 @@ h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
 .status-dot.disabled{background:#8a94a3}
 .advanced-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem 1rem;padding-top:.9rem;border-top:1px solid rgba(100,116,139,.16)}
 .advanced-item{min-width:0}
-.advanced-key{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#7b8492}
+.advanced-key{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#7b8492}
 .advanced-value{margin-top:.18rem;font-size:.84rem;color:#344054;word-break:break-word}
 .advanced-actions{display:flex;justify-content:flex-end;margin-top:1rem;padding-top:.9rem;border-top:1px solid rgba(100,116,139,.16)}
 label{display:block;font-size:.82rem;font-weight:600;color:#1a1d21;margin:0 0 .35rem}
@@ -147,10 +147,10 @@ button:active,.button-link:active{transform:translateY(1px) scale(.985)}
 .conn-main{min-width:0}
 .conn-controls{display:flex;align-items:center;gap:1.25rem}
 .conn-field{display:grid;gap:.35rem}
-.conn-field-label{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted,#8f99a8)}
+.conn-field-label{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted,#8f99a8)}
 .conn-content{display:flex;align-items:center;gap:.5rem;font-size:.8rem;white-space:nowrap;cursor:pointer}
 .conn-content input{width:1rem;height:1rem;margin:0;accent-color:#5b8def}
-.conn-feedback{min-height:1.25rem;margin-top:.4rem;font-size:.72rem;color:var(--muted,#8f99a8)}
+.conn-feedback{min-height:1.25rem;margin-top:.4rem;font-size:12px;color:var(--muted,#8f99a8)}
 .conn-feedback[data-state="saved"]{color:#4d9e83;animation:conn-saved .24s cubic-bezier(.16,1,.3,1) both}
 .conn-feedback[data-state="error"]{color:#de7979}
 @keyframes conn-saved{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
@@ -159,7 +159,7 @@ button:active,.button-link:active{transform:translateY(1px) scale(.985)}
 
 .conn-top{display:flex;align-items:center;gap:.5rem;min-width:0}
 .conn-title{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.conn-badge{flex:none;font-size:.64rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#697586;border:1px solid #d0d5dd;border-radius:999px;padding:.12rem .55rem}
+.conn-badge{flex:none;font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#697586;border:1px solid #d0d5dd;border-radius:999px;padding:.12rem .55rem}
 .conn-badge.full{color:#2f5a9e;border-color:#2f5a9e}
 
 .conn-controls select{width:auto}

@@ -163,6 +163,8 @@ export const thinkingOrbScript = `(function () {
   var startTime = 0;
   var dpr = 1;
   var size = 20;
+  var height = 20;
+  var softGlow = null, errorGlow = null;
   var idleDirections = [];
   var lastDraw = 0;
 
@@ -185,7 +187,7 @@ export const thinkingOrbScript = `(function () {
     ];
   }
   function css(rgb, alpha) { return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')'; }
-  function ink(white) { return mix(activity === STATES.error ? errorRgb : primaryRgb, skyRgb, white); }
+  function ink(white) { return mix(activity === STATES.error ? errorRgb : (size > 80 ? [35, 150, 230] : primaryRgb), size > 80 ? [180, 231, 255] : skyRgb, white); }
 
   function fibDir(i, n) {
     var golden = Math.PI * (3 - Math.sqrt(5));
@@ -197,12 +199,21 @@ export const thinkingOrbScript = `(function () {
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    var measured = canvas.getBoundingClientRect().width || canvas.clientWidth;
+    var rect = canvas.getBoundingClientRect();
+    var measured = rect.width || canvas.clientWidth;
+    height = rect.height > 1 ? rect.height : measured;
     size = measured > 1 ? measured : 20;
     var px = Math.max(1, Math.round(size * dpr));
     if (canvas.width !== px) { canvas.width = px; }
-    if (canvas.height !== px) { canvas.height = px; }
+    var py = Math.max(1, Math.round(height * dpr));
+    if (canvas.height !== py) { canvas.height = py; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    function glow(rgb) {
+      var g = ctx.createRadialGradient(size / 2, height / 2, 0, size / 2, height / 2, Math.max(size, height) * 0.46);
+      g.addColorStop(0, css(rgb, 0.14)); g.addColorStop(0.6, css(rgb, 0.065)); g.addColorStop(1, css(rgb, 0));
+      return g;
+    }
+    softGlow = glow([79, 185, 255]); errorGlow = glow(errorRgb);
     var count = size > 80 ? Math.min(1600, Math.round(size * 2.5)) : 24;
     idleDirections = [];
     for (var i = 0; i < count; i++) { idleDirections.push(fibDir(i, count)); }
@@ -210,7 +221,7 @@ export const thinkingOrbScript = `(function () {
 
   function drawIdle(t) {
     var cx = size / 2;
-    var cy = size / 2;
+    var cy = height / 2;
     var R = size * 0.34 * (1 + 0.08 * Math.sin(t * 1.5));
     var n = idleDirections.length;
     var spin = t * 0.16, cos = Math.cos(spin), sin = Math.sin(spin);
@@ -230,7 +241,7 @@ export const thinkingOrbScript = `(function () {
 
   function drawConnecting(t) {
     var cx = size / 2;
-    var cy = size / 2;
+    var cy = height / 2;
     var R = size * 0.33;
     var rings = 3;
     for (var o = 0; o < rings; o++) {
@@ -268,7 +279,7 @@ export const thinkingOrbScript = `(function () {
 
   function drawWorking(t) {
     var cx = size / 2;
-    var cy = size / 2;
+    var cy = height / 2;
     var rings = 2;
     for (var o = 0; o < rings; o++) {
       var phase = o * (Math.PI / rings);
@@ -287,7 +298,7 @@ export const thinkingOrbScript = `(function () {
   function drawError() {
     if (size > 80) { drawIdle(0); return; }
     var cx = size / 2;
-    var cy = size / 2;
+    var cy = height / 2;
     var R = size * 0.36;
     ctx.fillStyle = css(errorRgb, 0.92);
     ctx.beginPath();
@@ -308,7 +319,8 @@ export const thinkingOrbScript = `(function () {
   }
 
   function draw(t) {
-    ctx.clearRect(0, 0, size, size);
+    ctx.clearRect(0, 0, size, height);
+    if (size > 80) { ctx.fillStyle = activity === STATES.error ? errorGlow : softGlow; ctx.fillRect(0, 0, size, height); }
     var mode = modeFor(activity);
     if (mode === 'idle') { drawIdle(t); }
     else if (mode === 'connecting') { drawConnecting(t); }

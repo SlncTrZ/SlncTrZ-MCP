@@ -175,6 +175,13 @@ const click = (id) =>
   client.evaluate("document.getElementById(" + JSON.stringify(id) + ").click()");
 const activity = (state) =>
   client.poll("window.SlncTrZOrb?.getActivity()===" + JSON.stringify(state));
+const fontFloor =
+  "(()=>[...document.querySelectorAll('body *')].filter(e=>e.getClientRects().length&&[...e.childNodes].some(n=>n.nodeType===3&&n.textContent.trim())).filter(e=>parseFloat(getComputedStyle(e).fontSize)<12).map(e=>({tag:e.tagName,cls:e.className,font:getComputedStyle(e).fontSize})))()";
+async function checkFontFloor(label) {
+  const small = await client.evaluate(fontFloor);
+  checks.push({ label, pass: small.length === 0 });
+  if (small.length) throw Error("Text below 12px: " + JSON.stringify(small));
+}
 async function navigate(path) {
   console.log(JSON.stringify({ stage: "navigate", path }));
   await client.navigate(origin + path);
@@ -230,6 +237,7 @@ try {
   sessionDelay = 0;
   for (const path of ["/#mcp", "/usage", "/debate"]) {
     await navigate(path);
+    await checkFontFloor(path + " text floor");
     await check(
       path + " full-width MeiLin above text",
       "(()=>{const c=document.getElementById('workspace-card').getBoundingClientRect(),m=document.getElementById('workspace-meilin').getBoundingClientRect(),t=document.querySelector('.workspace-copy').getBoundingClientRect();return !document.querySelector('.workspace-avatar')&&Math.abs(m.width-c.width+2)<2&&t.top>=m.bottom-1})()"
@@ -350,6 +358,7 @@ try {
     delay = 0;
   }
   await open("A");
+  await checkFontFloor("drawer text floor");
   const patches = requests.filter((r) => r.method === "PATCH" && r.path.includes("/mcp/")).length;
   await click("provider-action-disable");
   await check(
@@ -454,6 +463,45 @@ try {
   await navigate("/owner#overview");
   const quoteBefore = await client.evaluate("document.getElementById('header-quote').textContent");
   const quoteStarted = Date.now();
+  for (const [width, height] of [
+    [1366, 768],
+    [1440, 900]
+  ]) {
+    await client.send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false
+    });
+    await check(
+      "Overview fits " + width + "x" + height,
+      "document.documentElement.scrollHeight<=innerHeight+1"
+    );
+    await checkFontFloor("Overview " + width + " text floor");
+    await check(
+      "Sidebar fits " + width + "x" + height,
+      "(()=>{const s=document.getElementById('dashboard-sidebar');return s.scrollHeight<=s.clientHeight+1})()"
+    );
+    await check(
+      "Orb spans viewport " + width,
+      "(()=>{const r=document.getElementById('thinking-orb-canvas').getBoundingClientRect();return Math.abs(r.x)<1&&Math.abs(r.y)<1&&Math.abs(r.width-innerWidth)<1&&Math.abs(r.height-innerHeight)<1})()"
+    );
+    const compactScreenshot = await client.send("Page.captureScreenshot", { format: "png" });
+    await writeFile(
+      join(
+        resolve(report, ".."),
+        process.platform +
+          "-" +
+          (htmlOrigin ? "native" : "source") +
+          "-overview-" +
+          width +
+          "x" +
+          height +
+          ".png"
+      ),
+      Buffer.from(compactScreenshot.data, "base64")
+    );
+  }
   await client.poll(
     "document.getElementById('header-quote').textContent!==" + JSON.stringify(quoteBefore),
     12000
