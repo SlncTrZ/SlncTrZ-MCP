@@ -439,3 +439,9 @@ Gateway-only connections do not expose coding-context tools. Context receipts ar
 in-memory, expire after four hours and must be renewed after restart or instruction/policy changes.
 Read [HARNESS.md](docs/HARNESS.md) and [CODING_AGENTS.md](docs/CODING_AGENTS.md) before upgrading
 an automated integration. Existing authorization and provider ownership remain unchanged.
+
+### v0.4.3 acceptance-harness recovery
+
+The original signed v0.4.3 workflow completed source/native/signing and public Linux/Windows User Install gates, but its Chromium harness failed before browser startup because `spawn` was not imported. The harness is external test code, not a bundled product input.
+
+The dedicated `.github/workflows/v043-public-acceptance.yml` runs a corrected harness from a new main ref against the unchanged public v0.4.3 candidate. `scripts/verify-v043-candidate.mjs` pins the original release commit/run and all six public asset digests, requires the original quality/build/identity/signing/publication jobs to have succeeded, and rejects post-tag changes outside the recovery harness/workflow/evidence files. It reruns Linux and Windows clean installs and installed Chromium acceptance; promotion depends on all three and rechecks the candidate digests. It does not rebuild, re-sign, upload assets, move the tag, access signing secrets or change Environment protection. The original failed run remains visible. A product fix still requires a new version/tag.

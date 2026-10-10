@@ -1,0 +1,83 @@
+name: v0.4.3 public acceptance recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v043-public-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Verify original gates and unchanged signed assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verify-v043-candidate.mjs
+      - name: Check corrected browser harness
+        run: |
+          node --check scripts/usage-browser-e2e.mjs
+          git diff v0.4.3 -- scripts/usage-browser-e2e.mjs
+
+  clean-linux-user-install:
+    needs: verify-candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the unchanged public candidate
+        run: scripts/clean-release-user-e2e.sh v0.4.3
+
+  clean-windows-user-install:
+    needs: verify-candidate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the unchanged public candidate
+        shell: pwsh
+        run: ./scripts/clean-release-windows-user-e2e.ps1 -Tag v0.4.3
+
+  usage-browser-acceptance:
+    needs: verify-candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Accept installed public candidate with corrected harness
+        env:
+          SLNCTRZ_BROWSER_NO_SANDBOX: "1"
+        run: sh scripts/clean-release-usage-browser-e2e.sh v0.4.3
+
+  promote-release:
+    needs: [clean-linux-user-install, clean-windows-user-install, usage-browser-acceptance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Reverify immutable candidate before promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verify-v043-candidate.mjs
+      - name: Promote only after every public acceptance gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit v0.4.3 --repo SlncTrZ/SlncTrZ-MCP --prerelease=false --latest

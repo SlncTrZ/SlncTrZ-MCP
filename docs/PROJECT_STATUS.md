@@ -27,7 +27,7 @@ Local native artifacts used disposable verification keys and a preview build mar
 
 ### Release preparation CI
 
-The version/docs-only preparation commit `444edb3627bbe2d13aef7e0ce5d88e24eb215cab` passed Linux Node 22/24, license inventory and benchmark gates. Its Windows job passed 845 tests with 29 skips but timed out during minimal-environment AppData lookup. [Run 38019276911](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38019276911) records the failure. A fresh exact-ref CI run is required before tagging; no test assertion or product deadline is relaxed.
+The version/docs-only preparation commit `444edb3627bbe2d13aef7e0ce5d88e24eb215cab` passed Linux Node 22/24, license inventory and benchmark gates. Its Windows job passed 845 tests with 29 skips but timed out during minimal-environment AppData lookup. [Run 38019276911](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38019276911) records the failure. Fresh [CI 38019500045](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38019500045) passed all jobs on `6df67949bb303ae800e2e17ddcbea199bb9a640d`, which is the immutable v0.4.3 release commit. No test assertion or product deadline was relaxed.
 
 ## Remaining field acceptance
 
@@ -37,3 +37,9 @@ The version/docs-only preparation commit `444edb3627bbe2d13aef7e0ce5d88e24eb215c
 4. Record independent signing-custody evidence where such a claim is made.
 
 Windows System Install/service remains unsupported. Hosted clean User Install does not certify live service/keyring or named clients. Release and deployment remain separate operations.
+
+## v0.4.3 public candidate checkpoint
+
+[Original release run 38019726916](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38019726916) passed quality, both native builds/identities, protected manifest signing, candidate publication and both clean public User Installs. Installed Chromium acceptance failed before browser startup because the external test harness lacked its `spawn` import. Stable promotion was skipped.
+
+The corrected harness and pinned public-acceptance recovery workflow are committed separately from the immutable release tag. The recovery verifies the original successful gates and unchanged six-asset digests, reruns both public installs and Chromium against the signed candidate, then promotes only after all pass. Product bytes and signing protection remain unchanged; see [release procedure](../RELEASE.md#v043-acceptance-harness-recovery).
