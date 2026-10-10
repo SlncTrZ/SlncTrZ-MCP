@@ -215,3 +215,43 @@ describe("prediction-seam flow", () => {
     expect(vi.fn()).not.toHaveBeenCalled();
   });
 });
+
+describe("prediction-seam latency isolation", () => {
+  const input = {
+    canonicalId: "sample.mutate",
+    riskClass: "write" as const,
+    clientId: "c",
+    correlationId: "r",
+    now: NOW
+  };
+
+  it("bounds recording even when the backend ignores cancellation", async () => {
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const backend = runtimeWith({ invoke: async () => new Promise(() => undefined) });
+      void recordSeamPrediction(backend, input).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds resolution even when the backend never returns", async () => {
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const backend = runtimeWith({ invoke: async () => new Promise(() => undefined) });
+      void resolveSeamPrediction(backend, "pred-x", "success", NOW).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

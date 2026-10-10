@@ -2,6 +2,26 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.4.4
+
+Date: 2026-10-10
+
+### Added
+
+- Optional gateway-owned CyberBrain Prediction Seam in the signed runtime, disabled by default.
+- Record before non-read provider dispatch and resolve afterward without persisting caller arguments or provider output.
+
+### Fixed
+
+- Bound each learning operation to one second and propagate cancellation during recording.
+- Resolve predictions for thrown provider timeout/cancellation, classifying them as indeterminate.
+- Include the Chromium harness import correction used to accept v0.4.3 without changing its signed assets.
+
+### Deployment
+
+- Run the installed launcher instead of a local bundle override; keep required CA and seam environment variables.
+- Existing OAuth schema, grants and provider credentials are retained.
+
 ## 0.4.3
 
 Date: 2026-10-10

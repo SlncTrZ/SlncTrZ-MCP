@@ -15,6 +15,7 @@
  */
 
 import { providerOf, type RiskClass } from "../kernel/tool-identity.js";
+import type { ExtensionCallResult } from "./adapter.js";
 import type { ExtensionProviderRuntime } from "./runtime.js";
 
 /** Canonical provider id of the CyberBrain learning backend. */
@@ -50,6 +51,7 @@ export interface SeamPredictionInput {
   readonly clientId: string;
   readonly correlationId: string;
   readonly now: Date;
+  readonly signal?: AbortSignal;
 }
 
 export function buildPredictionArgs(input: SeamPredictionInput): Record<string, unknown> {
@@ -86,6 +88,40 @@ export interface SeamRuntime {
   readonly isReady: (providerId: string) => boolean;
 }
 
+/** Each optional learning operation may add at most one second of latency. */
+export const PREDICTION_SEAM_TIMEOUT_MS = 1_000;
+
+async function invokeBounded(
+  provider: ExtensionProviderRuntime,
+  toolId: string,
+  args: unknown,
+  caller?: AbortSignal
+): Promise<ExtensionCallResult | undefined> {
+  if (caller?.aborted === true) return undefined;
+  const controller = new AbortController();
+  let end: () => void = () => undefined;
+  const deadline = new Promise<undefined>((resolve) => {
+    end = () => {
+      controller.abort();
+      resolve(undefined);
+    };
+  });
+  const timer = setTimeout(end, PREDICTION_SEAM_TIMEOUT_MS);
+  caller?.addEventListener("abort", end, { once: true });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => {
+        if (controller.signal.aborted) return undefined;
+        return provider.invoke(toolId, args, { signal: controller.signal });
+      }),
+      deadline
+    ]);
+  } finally {
+    clearTimeout(timer);
+    caller?.removeEventListener("abort", end);
+  }
+}
+
 /**
  * Record the pre-action prediction. Returns the prediction id or undefined
  * when the seam is disabled, inapplicable, or fails for any reason.
@@ -99,8 +135,13 @@ export async function recordSeamPrediction(
     if (!runtime.isReady(PREDICTION_SEAM_PROVIDER_ID)) return undefined;
     const provider = runtime.provider(PREDICTION_SEAM_PROVIDER_ID);
     if (provider === undefined) return undefined;
-    const result = await provider.invoke("prediction_record", buildPredictionArgs(input));
-    if (result.isError) return undefined;
+    const result = await invokeBounded(
+      provider,
+      "prediction_record",
+      buildPredictionArgs(input),
+      input.signal
+    );
+    if (result === undefined || result.isError) return undefined;
     return extractPredictionId(result.text);
   } catch {
     return undefined;
@@ -122,7 +163,7 @@ export async function resolveSeamPrediction(
     if (!runtime.isReady(PREDICTION_SEAM_PROVIDER_ID)) return;
     const provider = runtime.provider(PREDICTION_SEAM_PROVIDER_ID);
     if (provider === undefined) return;
-    await provider.invoke("prediction_resolve", {
+    await invokeBounded(provider, "prediction_resolve", {
       prediction_id: predictionId,
       observed_outcome:
         auditResult === "success"

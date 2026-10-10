@@ -1,8 +1,7 @@
 # Deployment Guide
 
 For a foreground User install, start with [User Guide](USER_GUIDE.md#1-installation--endpoints).
-Use this guide for a Linux system service or a reachable HTTPS endpoint. Published baseline:
-v0.4.2; development changes and running identities are tracked in [Project Status](PROJECT_STATUS.md).
+Use this guide for a Linux system service or a reachable HTTPS endpoint. Published availability is determined by the GitHub release; source and running identities are tracked in [Project Status](PROJECT_STATUS.md).
 
 ## 1. Linux System Install (systemd)
 
@@ -75,3 +74,17 @@ their owning terminal; System installs through systemctl.
 Tasks and context receipts reset on restart. A forced kill, host crash or independent remote
 provider process has different cleanup behavior; reconcile effects before starting replacement
 work. Updating files in a source tree does not restart or deploy a running installed gateway.
+
+## 5. Optional CyberBrain Prediction Seam
+
+From v0.4.4, an owner may enable gateway-owned transport prediction telemetry for non-read provider calls. The configured provider id must be `cyberbrain` and expose `prediction_record` and `prediction_resolve`. The feature is disabled by default, excludes CyberBrain/read-only calls and does not copy tool arguments or provider output. Each recording/resolution step is bounded to one second; failed learning never replaces the main tool result. This predicts transport success, not domain correctness.
+
+For an operator-managed Linux user service, preserve the installed launcher entrypoint and add environment settings through a drop-in:
+
+```ini
+[Service]
+Environment=SLNCTRZ_PREDICTION_SEAM_ENABLED=true
+Environment=NODE_EXTRA_CA_CERTS=/absolute/path/to/internal-ca.pem
+```
+
+The CA entry is optional and specific to your providers. Reload the user daemon and restart the user service after changing its environment. A local-patch ExecStart override must be removed or replaced by the installed launcher; otherwise an update can change the installed version while the service keeps running an old bundle. Verify running build identity separately after restart. Standard Linux User Install does not create this user service for you.

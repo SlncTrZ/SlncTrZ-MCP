@@ -49,3 +49,9 @@ The corrected harness and pinned public-acceptance recovery workflow are committ
 [v0.4.3](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.3) is now the public latest stable release (not draft/prerelease). [Recovery run 38020258200](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38020258200) passed candidate integrity, clean public Linux/Windows User Install, installed Chromium Usage acceptance and stable promotion. All six public asset digests are unchanged from signed candidate publication.
 
 Chromium verified Owner sign-in, non-empty tool/context savings, all four ranges and custom price calculation against the installed public binary. This does not claim named-client OAuth or live service/keyring acceptance. The production gateway has not been upgraded or restarted by this release operation.
+
+## v0.4.4 preparation
+
+Pi's Prediction Seam source commit `b5c4bd7878774134a13f1178381552608c2af136` is on main. Local service inspection found a factory-integration Node entrypoint while installed current.json identified signed v0.4.3; runtime core.ping remained v0.4.2/build unknown.
+
+Four new regressions reproduced unbounded recording/resolution and missing outcome resolution for thrown provider timeout/cancellation. The focused Windows suite passed 17/17 after bounded, cancellable recording and finally-based resolution. Native Windows full source quality passed 862 tests with 29 skips plus typecheck/lint/format, docs and developer build. Release quality/public installation gates and live launcher cutover remain pending at this preparation checkpoint. Required CA and the seam flag will be retained; no credential rotation is requested.

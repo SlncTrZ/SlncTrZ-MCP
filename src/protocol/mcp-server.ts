@@ -2268,6 +2268,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             const startedAt = Date.now();
             let auditResult: "success" | "error" | "cancelled" | "timeout" = "error";
             let providerDiagnostic: ProviderDiagnostic | undefined;
+            let seamPredictionId: string | undefined;
             try {
               await requireHarness(args, context);
               // Re-check readiness immediately before dispatch. No name, endpoint, command or
@@ -2281,13 +2282,16 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               }
               // Gateway-owned Prediction Learning seam: record the expectation
               // BEFORE the outcome is known. Never throws; undefined skips resolve.
-              const seamPredictionId = seamEnabled
+              seamPredictionId = seamEnabled
                 ? await recordSeamPrediction(extensionRuntime, {
                     canonicalId: tool.canonicalId,
                     riskClass: tool.riskClass,
                     clientId: options.principal?.clientId ?? "unknown",
                     correlationId: String(context.mcpReq.id),
-                    now: new Date()
+                    now: new Date(),
+                    ...(context.http?.req?.signal === undefined
+                      ? {}
+                      : { signal: context.http.req.signal })
                   })
                 : undefined;
               const result = await provider.invoke(
@@ -2303,20 +2307,12 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               );
               providerDiagnostic = result.diagnostic;
               auditResult = result.isError
-                ? result.text === "provider_timeout"
-                  ? "timeout"
-                  : "error"
+                ? result.diagnostic?.failureClass === "cancelled"
+                  ? "cancelled"
+                  : result.text === "provider_timeout"
+                    ? "timeout"
+                    : "error"
                 : "success";
-              // Gateway-owned Prediction Learning seam: resolve the pre-action
-              // prediction now that the outcome is known. Never throws.
-              if (seamPredictionId !== undefined) {
-                await resolveSeamPrediction(
-                  extensionRuntime,
-                  seamPredictionId,
-                  auditResult,
-                  new Date()
-                );
-              }
               // Surface the provider's actual payload as machine-readable structuredContent
               // (not just {truncated}) so structured-first clients show the real result.
               const structuredContent = buildExtensionStructuredContent(
@@ -2335,11 +2331,26 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
               }
               if (error instanceof AdapterError) {
                 providerDiagnostic = error.diagnostic ?? provider.diagnostic?.();
-                auditResult = error.code === "provider_timeout" ? "timeout" : "error";
+                auditResult =
+                  error.failureClass === "cancelled"
+                    ? "cancelled"
+                    : error.code === "provider_timeout"
+                      ? "timeout"
+                      : "error";
                 return { isError: true, content: [{ type: "text", text: error.code }] };
               }
               throw error;
             } finally {
+              // Resolve once for returned errors and thrown/cancelled dispatch alike.
+              // The bounded seam cannot replace the main provider outcome.
+              if (seamPredictionId !== undefined) {
+                await resolveSeamPrediction(
+                  extensionRuntime,
+                  seamPredictionId,
+                  auditResult,
+                  new Date()
+                );
+              }
               emitToolAuditSafely(toolAudit, {
                 timestamp: new Date().toISOString(),
                 requestId: String(context.mcpReq.id),
