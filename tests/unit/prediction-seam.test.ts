@@ -9,7 +9,8 @@ import {
   resolveSeamPrediction,
   type SeamRuntime
 } from "../../src/extension/prediction-seam.js";
-import type { ExtensionCallResult } from "../../src/extension/adapter.js";
+import { AdapterError, type ExtensionCallResult } from "../../src/extension/adapter.js";
+import { createExtensionSupervisor } from "../../src/extension/supervisor.js";
 
 function okResult(text: string): ExtensionCallResult {
   return { isError: false, truncated: false, text };
@@ -224,6 +225,55 @@ describe("prediction-seam latency isolation", () => {
     correlationId: "r",
     now: NOW
   };
+
+  it.each(["record", "resolve"] as const)(
+    "%s deadline leaves the shared CyberBrain supervisor ready for other callers",
+    async (operation) => {
+      vi.useFakeTimers();
+      const start = vi.fn(async () => undefined);
+      const supervisor = createExtensionSupervisor({
+        maxRestarts: 0,
+        adapter: {
+          start,
+          stop: async () => undefined,
+          health: () => "ready",
+          listTools: async () => [],
+          callTool: async (toolId, _args, options) => {
+            if (toolId === "knowledge_search") return okResult("{}");
+            return new Promise((_resolve, reject) => {
+              options.signal?.addEventListener(
+                "abort",
+                () => reject(new AdapterError("provider_unavailable", "cancelled", "cancelled")),
+                { once: true }
+              );
+            });
+          }
+        }
+      });
+      try {
+        await supervisor.start();
+        const runtime: SeamRuntime = {
+          provider: () => supervisor,
+          isReady: () => supervisor.state === "ready"
+        };
+        const learning =
+          operation === "record"
+            ? recordSeamPrediction(runtime, input)
+            : resolveSeamPrediction(runtime, "pred-x", "success", NOW);
+        await vi.advanceTimersByTimeAsync(1100);
+        await learning;
+        expect(supervisor.state).toBe("ready");
+        expect(start).toHaveBeenCalledTimes(1);
+        expect(supervisor.diagnostic()).toBeUndefined();
+        await expect(supervisor.invoke("knowledge_search", {})).resolves.toMatchObject({
+          isError: false
+        });
+      } finally {
+        await supervisor.stop();
+        vi.useRealTimers();
+      }
+    }
+  );
 
   it("bounds recording even when the backend ignores cancellation", async () => {
     vi.useFakeTimers();

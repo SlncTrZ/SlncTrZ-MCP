@@ -164,6 +164,45 @@ describe("extension supervisor: state machine (fake-first)", () => {
     expect(adapter.callTools).toContain("p.findOne");
   });
 
+  it("does not restart a healthy provider after an adapter reports caller cancellation", async () => {
+    const adapter = new FakeAdapter();
+    adapter.callTool = async () => {
+      throw new AdapterError("provider_unavailable", "request cancelled", "cancelled");
+    };
+    const supervisor = createExtensionSupervisor({ adapter, maxRestarts: 0 });
+    await supervisor.start();
+    try {
+      const result = await supervisor.invoke("p.writeOne", {});
+      expect(result).toMatchObject({
+        isError: true,
+        text: "provider_unavailable",
+        diagnostic: { failureClass: "cancelled" }
+      });
+      await tick();
+      expect(supervisor.state).toBe("ready");
+      expect(adapter.startCalls).toBe(1);
+      expect(supervisor.diagnostic()).toBeUndefined();
+    } finally {
+      await supervisor.stop();
+    }
+  });
+
+  it("preserves cancellation identity before dispatch without executing the tool", async () => {
+    const adapter = new FakeAdapter();
+    const supervisor = createExtensionSupervisor({ adapter });
+    await supervisor.start();
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      await expect(
+        supervisor.invoke("p.writeOne", {}, { signal: controller.signal })
+      ).rejects.toMatchObject({ code: "provider_unavailable", failureClass: "cancelled" });
+      expect(adapter.callTools).toEqual([]);
+    } finally {
+      await supervisor.stop();
+    }
+  });
+
   it("maps an adapter failure to a stable provider_unavailable outcome", async () => {
     const adapter = new FakeAdapter();
     adapter.callBehavior = "reject";
@@ -465,6 +504,7 @@ describe("extension supervisor: state machine (fake-first)", () => {
     );
     expect(adapter.callTools).toHaveLength(1); // the queued one never dispatched
     expect(outcome).toBeInstanceOf(AdapterError);
+    expect(outcome).toMatchObject({ code: "provider_unavailable", failureClass: "cancelled" });
     // Release the active call so the test can settle.
     adapter.deferredCalls.shift()?.resolve({ isError: false, truncated: false, text: "ok" });
     await active;

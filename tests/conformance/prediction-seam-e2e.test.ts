@@ -9,6 +9,7 @@ import type {
   ExtensionProviderRuntime
 } from "../../src/extension/runtime.js";
 import { AdapterError } from "../../src/extension/adapter.js";
+import { createExtensionSupervisor } from "../../src/extension/supervisor.js";
 import { createKernelPolicySnapshot } from "../../src/policy/kernel-policy.js";
 
 const servers: Server[] = [];
@@ -19,7 +20,7 @@ afterEach(async () => {
   );
 });
 
-async function fixture(failure?: "timeout" | "cancelled") {
+async function fixture(failure?: "timeout" | "cancelled" | "pre-dispatch-cancelled") {
   vi.stubEnv("SLNCTRZ_PREDICTION_SEAM_ENABLED", "true");
   const events: { name: string; args: unknown }[] = [];
   const provider = (invoke: ExtensionProviderRuntime["invoke"]): ExtensionProviderRuntime => ({
@@ -33,7 +34,25 @@ async function fixture(failure?: "timeout" | "cancelled") {
     events.push({ name, args });
     return { isError: false, truncated: false, text: JSON.stringify({ id: "prediction-fixture" }) };
   });
+  const cancelledSupervisor = createExtensionSupervisor({
+    adapter: {
+      start: async () => undefined,
+      stop: async () => undefined,
+      health: () => "ready",
+      listTools: async () => [],
+      callTool: async (name, args) => {
+        events.push({ name, args });
+        return { isError: false, truncated: false, text: "{}" };
+      }
+    }
+  });
+  if (failure === "pre-dispatch-cancelled") await cancelledSupervisor.start();
   const main = provider(async (name, args) => {
+    if (failure === "pre-dispatch-cancelled") {
+      const controller = new AbortController();
+      controller.abort();
+      return cancelledSupervisor.invoke(name, args, { signal: controller.signal });
+    }
     events.push({ name, args });
     if (failure)
       throw new AdapterError(
@@ -142,6 +161,17 @@ describe("Prediction Seam provider dispatch", () => {
       "private-fixture-payload"
     );
   });
+  it("resolves pre-dispatch cancellation from the real supervisor as indeterminate", async () => {
+    const f = await fixture("pre-dispatch-cancelled");
+    const result = await f.call();
+    expect(result.result?.isError).toBe(true);
+    expect(f.events.map((event) => event.name)).toEqual([
+      "prediction_record",
+      "prediction_resolve"
+    ]);
+    expect(f.events.at(-1)?.args).toMatchObject({ assessment: "indeterminate" });
+  });
+
   it.each(["timeout", "cancelled"] as const)(
     "resolves a thrown provider %s honestly",
     async (failure) => {

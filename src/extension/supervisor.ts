@@ -1,6 +1,6 @@
 /**
  * Extension Supervisor — lifecycle state machine for one isolated provider.
- * Wing: extension | Topic: supervisor | Updated: 2026-08-27
+ * Wing: extension | Topic: supervisor | Updated: 2026-10-10 11:30
  *
  * The supervisor owns the state machine and resource bounds for one provider adapter. A
  * request timeout races the adapter so an uncooperative adapter cannot wedge the queue;
@@ -150,11 +150,15 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     options.metrics?.supervisorTransition(from, to);
   };
 
-  const rejectEntry = (entry: QueueEntry, code: AdapterError["code"]): void => {
+  const rejectEntry = (
+    entry: QueueEntry,
+    code: AdapterError["code"],
+    failureClass?: ProviderFailureClass
+  ): void => {
     if (entry.removed) return;
     entry.removed = true;
     entry.removeQueuedAbort?.();
-    entry.reject(new AdapterError(code, code));
+    entry.reject(new AdapterError(code, code, failureClass));
   };
 
   const rejectQueued = (code: AdapterError["code"]): void => {
@@ -198,7 +202,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
       options.metrics?.queueChanged(-1);
       if (next.removed) continue;
       if (next.options.signal?.aborted === true) {
-        rejectEntry(next, "provider_unavailable");
+        rejectEntry(next, "provider_unavailable", "cancelled");
         continue;
       }
       next.removeQueuedAbort?.();
@@ -356,15 +360,24 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
           recovery === undefined ? outcome.result : { ...outcome.result, diagnostic: recovery }
         );
         if (recovery !== undefined) incident = undefined;
+      } else if (outcome.kind === "adapter" && outcome.failureClass === "cancelled") {
+        // Cancellation belongs to this request, not to the shared provider's recovery state.
+        entry.resolve({
+          isError: true,
+          truncated: false,
+          text: "provider_unavailable",
+          diagnostic: {
+            correlationId: randomUUID(),
+            failureClass: "cancelled",
+            recoveryState: "recovered"
+          }
+        });
       } else if (outcome.kind === "adapter" && outcome.code === "provider_request_error") {
         entry.resolve({ isError: true, truncated: false, text: "provider_request_error" });
       } else if (outcome.kind === "adapter") {
         const callerCode =
           outcome.code === "provider_session_invalid" ? "provider_unavailable" : outcome.code;
-        const diagnostic =
-          stopped && outcome.failureClass === "cancelled"
-            ? undefined
-            : beginIncident(outcome.failureClass);
+        const diagnostic = beginIncident(outcome.failureClass);
         entry.resolve({
           isError: true,
           truncated: false,
@@ -386,7 +399,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
     }
     const signal = entry.options.signal;
     if (signal?.aborted === true) {
-      rejectEntry(entry, "provider_unavailable");
+      rejectEntry(entry, "provider_unavailable", "cancelled");
       return;
     }
     if (signal !== undefined) {
@@ -396,7 +409,7 @@ export function createExtensionSupervisor(options: ExtensionSupervisorOptions): 
           queue.splice(index, 1);
           options.metrics?.queueChanged(-1);
         }
-        rejectEntry(entry, "provider_unavailable");
+        rejectEntry(entry, "provider_unavailable", "cancelled");
       };
       signal.addEventListener("abort", onAbort, { once: true });
       entry.removeQueuedAbort = (): void => signal.removeEventListener("abort", onAbort);
