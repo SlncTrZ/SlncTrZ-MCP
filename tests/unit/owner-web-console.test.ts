@@ -9,6 +9,7 @@ import { managedStatePaths } from "../../src/owner/managed-state.js";
 import { createMcpProviderService } from "../../src/owner/mcp-provider-service.js";
 import { createMcpProviderStore } from "../../src/owner/mcp-provider-store.js";
 import type { PolicySnapshotStore } from "../../src/policy/policy-store.js";
+import { providerDrawerScript } from "../../src/owner/provider-drawer.js";
 import { createOwnerWebConsole } from "../../src/owner/web-console.js";
 import { compilePolicyDocument } from "../../src/policy/policy-config.js";
 import { buildActivePolicySnapshot } from "../../src/policy/policy-snapshot.js";
@@ -548,6 +549,11 @@ describe("Owner Console product surface", () => {
     expect(homepage.status).toBe(200);
     const ownerPage = await (await fetch(`${origin}/owner`)).text();
     expect(await homepage.text()).toBe(ownerPage);
+    const scripts = [...ownerPage.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+      (match) => match[1]
+    );
+    expect(scripts).toContain(providerDrawerScript);
+    expect(scripts.some((script) => script?.includes("SlncTrZProviderDrawer.init"))).toBe(true);
     expect(ownerPage).toContain('href="#connections"');
     expect(ownerPage).toContain('href="#mcp"');
     expect((await fetch(`${origin}/owner/api/session`)).status).toBe(401);

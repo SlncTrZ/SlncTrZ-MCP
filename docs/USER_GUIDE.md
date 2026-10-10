@@ -6,8 +6,9 @@ Install, connect and use the published gateway. Stable release: v0.4.2 as observ
 
 ## 1. Installation & Endpoints
 
-Release targets are Linux x64 and Windows x64 with Git Bash for bootstrap. Installed SEA
-binaries include Node; Git Bash/npm are not required to run the Windows gateway.
+Release targets are Linux x64 and Windows x64 with Git Bash for the installer bootstrap
+(`install.sh`). Installed SEA binaries include Node; Git Bash/npm are not required to run the
+Windows gateway.
 
 | Mode         | Program                    | State                      | Config                |
 | ------------ | -------------------------- | -------------------------- | --------------------- |
@@ -45,8 +46,9 @@ User mode needs no system service. For a managed service, follow
 
 ### Install on Windows
 
-Use **Git Bash**, not PowerShell, for the bootstrap command. Git Bash supplies the POSIX tools
-and `cygpath`. Choose an existing directory and use an absolute Git Bash path:
+Use **Git Bash**, not PowerShell, for the installer bootstrap command (`install.sh`). Git Bash
+supplies the POSIX tools and `cygpath`. Choose an existing directory and use an absolute Git
+Bash path:
 
 ```bash
 curl --fail --location --proto '=https' --tlsv1.2 \
@@ -187,9 +189,16 @@ OAuth redirect URIs do not select this setting.
 
 ## 5. Agent Context & Skills
 
+`context.bootstrap` here is the Full-profile MCP tool that returns a harness context receipt;
+it is distinct from the installer bootstrap (`install.sh`) used in section 1 to install the
+gateway software. Only Full connections call it.
+
 Call `context.bootstrap` before Full coding work and read its instructions/catalog.
 Pass its receipt as `slnctrzContext`; load a needed skill with `skills.read` before requesting
 its resources. Re-bootstrap after expiry, restart, policy or instruction changes.
+
+Gateway-only connections skip context.bootstrap and slnctrzContext and use enabled providers
+and Debate directly.
 
 Fresh installs seed code-review/debug-and-test only. Additional repository skills require
 explicit project discovery or owner installation. See [Harness](HARNESS.md).

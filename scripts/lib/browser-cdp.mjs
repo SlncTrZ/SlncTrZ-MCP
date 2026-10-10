@@ -75,6 +75,12 @@ export class CdpClient {
   async navigate(url) {
     const current = new URL(await this.evaluate("location.href")),
       target = new URL(url);
+    if (current.href === target.href) {
+      const loaded = this.waitFor("Page.loadEventFired");
+      await this.send("Page.reload");
+      await loaded;
+      return;
+    }
     if (
       current.origin === target.origin &&
       current.pathname === target.pathname &&

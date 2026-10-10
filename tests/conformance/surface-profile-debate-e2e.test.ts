@@ -65,15 +65,21 @@ function issueGrant(
   }).access_token;
 }
 
-async function mcpPayload(response: Response): Promise<{
+interface McpRpcResponse {
   readonly result?: {
     readonly isError?: boolean;
     readonly content?: readonly { readonly text?: string }[];
     readonly structuredContent?: Record<string, unknown>;
-    readonly tools?: readonly { readonly name: string }[];
+    readonly tools?: readonly {
+      readonly name: string;
+      readonly description?: string;
+      readonly inputSchema?: { readonly properties?: Record<string, unknown> };
+    }[];
   };
   readonly error?: { readonly code?: number; readonly message?: string };
-}> {
+}
+
+async function mcpPayload(response: Response): Promise<McpRpcResponse> {
   const text = await response.text();
   const payload = response.headers.get("content-type")?.includes("text/event-stream")
     ? text
@@ -83,15 +89,7 @@ async function mcpPayload(response: Response): Promise<{
         .trim()
     : text;
   if (payload === undefined) throw new Error("Missing MCP payload");
-  return JSON.parse(payload) as {
-    result?: {
-      isError?: boolean;
-      content?: { text?: string }[];
-      structuredContent?: Record<string, unknown>;
-      tools?: { name: string }[];
-    };
-    error?: { code?: number; message?: string };
-  };
+  return JSON.parse(payload) as unknown as McpRpcResponse;
 }
 
 describe("surface profile and Debate integration", () => {
@@ -170,7 +168,11 @@ describe("surface profile and Debate integration", () => {
     const address = await listenGateway(server, { host: "127.0.0.1", port: 0 });
     const origin = `http://127.0.0.1:${address.port}`;
     let requestId = 0;
-    const rpc = async (token: string, method: string, params: Record<string, unknown>) =>
+    const rpc = async (
+      token: string,
+      method: string,
+      params: Record<string, unknown>
+    ): Promise<McpRpcResponse> =>
       mcpPayload(
         await fetch(`${origin}/mcp`, {
           method: "POST",
@@ -187,6 +189,11 @@ describe("surface profile and Debate integration", () => {
     const nativeList = await rpc(nativeGatewayToken, "tools/list", {});
     expect(nativeList.result?.tools?.map((tool) => tool.name)).toContain("sample.echo");
     expect(nativeList.result?.tools?.map((tool) => tool.name)).not.toContain("core.read");
+    const nativeEchoTool = nativeList.result?.tools?.find((tool) => tool.name === "sample.echo");
+    expect(nativeEchoTool?.inputSchema?.properties?.slnctrzContext).toBeUndefined();
+    const nativePingTool = nativeList.result?.tools?.find((tool) => tool.name === "core.ping");
+    expect(nativePingTool?.description).not.toContain("context.bootstrap");
+
     const nativeDenied = await rpc(nativeGatewayToken, "tools/call", {
       name: "core.read",
       arguments: { path: "visible.txt" }
@@ -198,13 +205,26 @@ describe("surface profile and Debate integration", () => {
     });
     expect(nativeProvider.result?.structuredContent).toMatchObject({ value: "native-gateway" });
 
+    const nativePing = await rpc(nativeGatewayToken, "tools/call", {
+      name: "core.ping",
+      arguments: {}
+    });
+    expect(nativePing.result?.structuredContent?.surfaceProfile).toBe("gateway-only");
+    expect(String(nativePing.result?.structuredContent?.guidance ?? "")).toContain(
+      "Provider calls do not require a gateway harness context"
+    );
+
     const fullList = await rpc(firstToken, "tools/list", {});
-    const fullNames = fullList.result?.tools?.map((tool) => tool.name) ?? [];
+    const fullNames = (fullList.result?.tools ?? []).map((tool: { name: string }) => tool.name);
     expect(fullNames).toContain("core.read");
     expect(fullNames).toContain("context.bootstrap");
     expect(fullNames).toContain("sample.echo");
     expect(fullNames).toContain("debate.create");
     expect(fullNames).toContain("connection.restrict");
+    const fullEchoTool = fullList.result?.tools?.find((tool) => tool.name === "sample.echo");
+    expect(fullEchoTool?.inputSchema?.properties?.slnctrzContext).toBeDefined();
+    const fullPingTool = fullList.result?.tools?.find((tool) => tool.name === "core.ping");
+    expect(fullPingTool?.description).toContain("initialize context.bootstrap first");
     const waitTool = fullList.result?.tools?.find((tool) => tool.name === "debate.wait") as
       { description?: string; inputSchema?: unknown } | undefined;
     expect(waitTool?.description).toContain("20 seconds per call");
@@ -310,6 +330,13 @@ describe("surface profile and Debate integration", () => {
     expect(gatewayNames.some((name) => name.startsWith("context."))).toBe(false);
     expect(gatewayNames.some((name) => name.startsWith("skills."))).toBe(false);
     expect(gatewayNames.some((name) => name.startsWith("task."))).toBe(false);
+
+    const restrictedEchoTool = gatewayList.result?.tools?.find(
+      (tool) => tool.name === "sample.echo"
+    );
+    expect(restrictedEchoTool?.inputSchema?.properties?.slnctrzContext).toBeUndefined();
+    const restrictedPingTool = gatewayList.result?.tools?.find((tool) => tool.name === "core.ping");
+    expect(restrictedPingTool?.description).not.toContain("context.bootstrap");
 
     const hiddenDirect = await rpc(firstToken, "tools/call", {
       name: "core.read",

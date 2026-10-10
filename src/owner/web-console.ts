@@ -12,21 +12,33 @@ import type { OwnerConnectionService } from "../auth/owner-connection-service.js
 import { verifyOwnerSecret } from "../auth/owner-verifier.js";
 import { DebateError, type DebateService } from "../debate/index.js";
 import { compileCommandCatalog, parseCommandAllowlist } from "../kernel/command-catalog.js";
-import type { ExtensionManifestV1 } from "../extension/manifest.js";
+import { EXTENSION_ID_PATTERN, type ExtensionManifestV1 } from "../extension/manifest.js";
 import { readBoundedJson } from "../shared/http-body.js";
 import { withPolicyMutation, type PolicySnapshotStore } from "../policy/policy-store.js";
-import type { ManagedStatePaths } from "./managed-state.js";
+import { DEFAULT_WORKSPACE_ID, type ManagedStatePaths } from "./managed-state.js";
 import type { PolicyMutationService } from "./policy-mutation.js";
 import type { McpCredentialStore } from "./mcp-credential-store.js";
+import type { ManagedMcpProvider } from "./mcp-provider-store.js";
 import type { McpProviderService } from "./mcp-provider-service.js";
 import type { McpOwnerCredentialIntent, McpOwnerOrchestrator } from "./mcp-owner-orchestrator.js";
-import { deriveProviderStatus, summarizeProviderStatuses } from "./mcp-presentation.js";
+import {
+  deriveProviderStatus,
+  projectProviderDetail,
+  summarizeProviderStatuses,
+  type OwnerMcpProviderDetail
+} from "./mcp-presentation.js";
+import {
+  createWorkspacePreferenceStore,
+  WorkspacePreferenceError,
+  type WorkspacePreference
+} from "./workspace-preference.js";
 import type { UsageReader } from "../observability/usage-query.js";
 import { parseUsageRange } from "../observability/usage-query.js";
 import { sendDebatePage } from "./debate-page.js";
 import { sendUsagePage } from "./usage-page.js";
 import { dashboardChrome, dashboardCss, dashboardEnd, dashboardScript } from "./dashboard-shell.js";
 import { ownerSessionMarkup, ownerSessionScript } from "./dashboard-session.js";
+import { providerDrawerHtml, providerDrawerCss, providerDrawerScript } from "./provider-drawer.js";
 
 const SESSION_IDLE_TTL_MS = 3 * 60 * 60_000;
 const SESSION_ABSOLUTE_TTL_MS = 12 * 60 * 60_000;
@@ -80,7 +92,7 @@ body{margin:0;min-height:100dvh;padding:2.5rem 1rem;background:radial-gradient(c
 .card:hover::after{opacity:.52}
 .card:last-child{margin-bottom:0}
 .panel{background:rgba(248,250,252,.78);border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:1rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.72)}
-.brand{display:flex;align-items:center;gap:.5rem;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#697586;margin:0 0 .6rem}
+.brand{display:flex;align-items:center;gap:.5rem;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#697586;margin:0 0 .6rem}
 .brand .dot{width:.5rem;height:.5rem;border-radius:50%;background:#2f5a9e}
 h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
 .login-frame h1{margin:0 0 1.15rem}
@@ -93,7 +105,7 @@ h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
 .overview-stats{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:1rem;margin-top:.95rem;padding-top:1rem;border-top:1px solid rgba(100,116,139,.16)}
 .stat-block{min-width:0;padding:.1rem .25rem .2rem}
 .stat-block+.stat-block{border-left:1px solid rgba(100,116,139,.16);padding-left:1.25rem}
-.stat-label{font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7b8492}
+.stat-label{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7b8492}
 .stat-value{margin-top:.28rem;font-size:2rem;font-weight:680;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.04em}
 .stat-note{margin-top:.45rem;font-size:.78rem;color:#697586}
 .health-list{display:flex;flex-wrap:wrap;gap:.45rem .9rem;margin-top:.55rem}
@@ -105,7 +117,7 @@ h1{font-size:1.12rem;font-weight:650;line-height:1.25;margin:0}
 .status-dot.disabled{background:#8a94a3}
 .advanced-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem 1rem;padding-top:.9rem;border-top:1px solid rgba(100,116,139,.16)}
 .advanced-item{min-width:0}
-.advanced-key{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#7b8492}
+.advanced-key{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#7b8492}
 .advanced-value{margin-top:.18rem;font-size:.84rem;color:#344054;word-break:break-word}
 .advanced-actions{display:flex;justify-content:flex-end;margin-top:1rem;padding-top:.9rem;border-top:1px solid rgba(100,116,139,.16)}
 label{display:block;font-size:.82rem;font-weight:600;color:#1a1d21;margin:0 0 .35rem}
@@ -135,10 +147,10 @@ button:active,.button-link:active{transform:translateY(1px) scale(.985)}
 .conn-main{min-width:0}
 .conn-controls{display:flex;align-items:center;gap:1.25rem}
 .conn-field{display:grid;gap:.35rem}
-.conn-field-label{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted,#8f99a8)}
+.conn-field-label{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted,#8f99a8)}
 .conn-content{display:flex;align-items:center;gap:.5rem;font-size:.8rem;white-space:nowrap;cursor:pointer}
 .conn-content input{width:1rem;height:1rem;margin:0;accent-color:#5b8def}
-.conn-feedback{min-height:1.25rem;margin-top:.4rem;font-size:.72rem;color:var(--muted,#8f99a8)}
+.conn-feedback{min-height:1.25rem;margin-top:.4rem;font-size:12px;color:var(--muted,#8f99a8)}
 .conn-feedback[data-state="saved"]{color:#4d9e83;animation:conn-saved .24s cubic-bezier(.16,1,.3,1) both}
 .conn-feedback[data-state="error"]{color:#de7979}
 @keyframes conn-saved{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
@@ -147,7 +159,7 @@ button:active,.button-link:active{transform:translateY(1px) scale(.985)}
 
 .conn-top{display:flex;align-items:center;gap:.5rem;min-width:0}
 .conn-title{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.conn-badge{flex:none;font-size:.64rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#697586;border:1px solid #d0d5dd;border-radius:999px;padding:.12rem .55rem}
+.conn-badge{flex:none;font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#697586;border:1px solid #d0d5dd;border-radius:999px;padding:.12rem .55rem}
 .conn-badge.full{color:#2f5a9e;border-color:#2f5a9e}
 
 .conn-controls select{width:auto}
@@ -196,6 +208,7 @@ input:focus,textarea:focus,select:focus{border-color:#5b8def;box-shadow:0 0 0 3p
 @media (max-width:900px){.app-grid{grid-template-columns:1fr}}
 @media (max-width:640px){.row{flex-direction:column;align-items:stretch}.item{align-items:stretch;flex-direction:column}.item button{width:100%}.overview-stats,.advanced-grid{grid-template-columns:1fr}.stat-block+.stat-block{border-left:0;border-top:1px solid rgba(100,116,139,.16);padding-left:.25rem;padding-top:1rem}.button-link{width:auto}.conn-rename{flex:1;min-width:0}}
 ${dashboardCss}
+${providerDrawerCss}
 </style></head><body>${dashboardChrome("owner")}
 <div class="brandmark">&nbsp;&nbsp;&nbsp;&nbsp;SlncTrZ&nbsp;&nbsp;&nbsp;&nbsp;</div>
 <!-- LOGIN: neon frame chỉ quanh card login nhỏ -->
@@ -270,7 +283,7 @@ if(!(list||[]).length){const empty=document.createElement('div');empty.className
 async function refresh(){const generation=++refreshGeneration;const d=await api('/owner/api/state');if(generation!==refreshGeneration||!ownerSession?.authenticated)return;q('authority').value=d.authorityMode||'restricted';renderOverview(d);renderAdvanced(d);renderConnections(d.connections||[]);const paths=q('paths');paths.innerHTML='';(d.paths||[]).forEach(p=>{const r=document.createElement('div');r.className='item';const t=document.createElement('div');t.className='grow mono';t.textContent=p;r.appendChild(t);r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove path '+p+'?'))return;await api('/owner/api/paths',{method:'DELETE',body:JSON.stringify({path:p})});await refresh()}));paths.appendChild(r)});if((d.paths||[]).length===0){const e=document.createElement('div');e.className='empty';e.textContent='No paths configured.';paths.appendChild(e)}renderCommands(d.commands||[],d.commandCatalog);renderMcp(d.mcpServers||[]);syncCommandHeight();ownerSession?.ready()}
 function syncCommandHeight(){}
 function renderCommands(list,state){const el=q('commands');el.innerHTML='';if(state&&state.status!=='ready'){const e=document.createElement('div');e.className='error';e.textContent=state.message||('Command catalog '+state.status+'.');el.appendChild(e)}const risky=new Set(['bash','sh','powershell','cmd','python','python3','node','perl','ruby','sudo','su','docker','systemctl','apt','apt-get']);list.forEach(c=>{const name=String(c[0]||'');const chip=document.createElement('span');chip.className='cmd-chip';const label=document.createElement('span');label.textContent=c.join(' ')+(risky.has(name)?' ⚠':'');if(risky.has(name))label.title='This command can exercise the full OS permissions of the SlncTrZ runtime account.';const x=document.createElement('button');x.className='chip-x';x.title='Remove '+name;x.textContent='×';x.onclick=guardOwnerAction(async()=>{if(!confirm('Remove command '+name+'?'))return;await removeCommand(name);await refresh()});chip.append(label,x);el.appendChild(chip)});if(list.length===0&&(!state||state.status==='ready')){const e=document.createElement('div');e.className='empty';e.textContent='No commands allowed.';el.appendChild(e)}}
-function renderMcp(list){const el=q('mcp');el.innerHTML='';list.forEach(p=>{const r=document.createElement('div');r.className='item';const main=document.createElement('div');main.className='grow';const title=document.createElement('div');title.textContent=p.name||p.id;const meta=document.createElement('div');meta.className='muted';meta.dataset.status=p.status||'unavailable';meta.textContent=(p.tools||0)+' tools · '+(p.status||'Unavailable');main.append(title,meta);r.appendChild(main);r.appendChild(btn('Test','btn-deny',async()=>{await api('/owner/api/mcp/'+encodeURIComponent(p.id)+'/test',{method:'POST',body:'{}'});await refresh()}));r.appendChild(btn(p.enabled?'Disable':'Enable','btn-deny',async()=>{await api('/owner/api/mcp/'+encodeURIComponent(p.id),{method:'PATCH',body:JSON.stringify({enabled:!p.enabled})});await refresh()}));r.appendChild(btn('Sync','btn-deny',async()=>{await api('/owner/api/mcp/'+encodeURIComponent(p.id)+'/sync',{method:'POST',body:'{}'});await refresh()}));r.appendChild(btn('Remove','btn-danger',async()=>{if(!confirm('Remove MCP server '+p.id+'?'))return;await api('/owner/api/mcp/'+encodeURIComponent(p.id),{method:'DELETE',body:'{}'});await refresh()}));el.appendChild(r)});if(list.length===0){const e=document.createElement('div');e.className='empty';e.textContent='No MCP servers configured.';el.appendChild(e)}}
+function renderMcp(list){const el=q('mcp');el.innerHTML='';list.forEach(p=>{const r=document.createElement('div');r.className='item';const main=document.createElement('div');main.className='grow';const title=document.createElement('div');title.textContent=p.name||p.id;title.style.cursor='pointer';title.title='Click to view details in drawer';title.onclick=()=>{try{window.SlncTrZProviderDrawer?.open(p.id)}catch(_){}};const meta=document.createElement('div');meta.className='muted';meta.dataset.status=p.status||'unavailable';meta.textContent=(p.tools||0)+' tools · '+(p.status||'Unavailable');main.append(title,meta);r.appendChild(main);r.appendChild(btn('Details','btn-deny',()=>window.SlncTrZProviderDrawer?.open(p.id)));el.appendChild(r)});if(list.length===0){const e=document.createElement('div');e.className='empty';e.textContent='No MCP servers configured.';el.appendChild(e)}}
 async function session(){ownerSession??=createOwnerSession({contentId:'app',loginId:'login',onInvalidate:()=>{csrf='';refreshGeneration++},onAuthenticated:async data=>{csrf=data.csrf||'';await refresh()}});return ownerSession.run()}
 q('signin').onclick=async()=>{clearError(q('login-error'));try{const d=await api('/owner/api/login',{method:'POST',body:JSON.stringify({secret:q('secret').value})});csrf=d.csrf;q('secret').value='';await session()}catch(e){showError(q('login-error'),String(e))}};
 q('secret').addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();q('signin').click()}});
@@ -294,7 +307,7 @@ q('cancel-mcp').onclick=()=>q('mcp-form').classList.add('hidden');
 q('mcp-transport').onchange=()=>{const stdio=q('mcp-transport').value==='stdio';q('mcp-target').placeholder=stdio?'/absolute/command':'https://service.example.com/mcp';q('mcp-args-row').classList.toggle('hidden',!stdio)};
 q('add-mcp').onclick=async()=>{const id=q('mcp-id').value.trim(),name=q('mcp-name').value.trim(),transport=q('mcp-transport').value,target=q('mcp-target').value.trim();if(!id||!target)return;const manifest={id,version:'managed',transport,tools:[]};const desc=q('mcp-desc').value.trim();if(desc)manifest.description=desc;if(transport==='stdio'){manifest.command=target;const args=q('mcp-args').value.trim();manifest.args=args?args.split(/\\s+/):[]}else manifest.endpoint=target;let auth;const kind=q('mcp-auth').value,value=q('mcp-auth-value').value,nameField=q('mcp-auth-name').value.trim();if(kind!=='none'){auth={kind,value};if(kind==='http-header'||kind==='env')auth.name=nameField}try{await api('/owner/api/mcp',{method:'POST',body:JSON.stringify({manifest,name:name||undefined,auth})});q('mcp-form').classList.add('hidden');q('mcp-auth-value').value='';await refresh()}catch(e){ownerSession?.reportError(e)}};
 session();
-</script>${dashboardEnd}${dashboardScript}</body></html>`;
+</script>${providerDrawerHtml}${dashboardEnd}${dashboardScript}<script>${providerDrawerScript}</script><script>window.SlncTrZProviderDrawer.init({getCsrf:()=>csrf,request:(path,opt)=>ownerSession.request(path,opt),onChanged:()=>refresh()});</script></body></html>`;
 }
 
 function sendPage(res: ServerResponse): void {
@@ -304,7 +317,7 @@ function sendPage(res: ServerResponse): void {
     "content-type": "text/html; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
     "content-security-policy":
-      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff"
   });
@@ -508,6 +521,29 @@ export function createOwnerWebConsole(options: {
       };
     });
   };
+
+  const providerDetail = async (provider: ManagedMcpProvider): Promise<OwnerMcpProviderDetail> => {
+    const health = options.policyStore.capture().extensionStatus?.() ?? [];
+    const runtime = health.find((entry) => entry.providerId === provider.id);
+    const credentials =
+      options.mcpCredentials === undefined ? [] : await options.mcpCredentials.list();
+    const discovered = options.mcpProviders?.getDiscovered(provider.id);
+    const toolDrift = discovered?.diff.hasChanges ?? false;
+    return projectProviderDetail({
+      provider,
+      runtime: runtime === undefined ? undefined : { state: runtime.state, health: runtime.health },
+      credentials,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      workspaceGranted: true,
+      toolDrift,
+      ...(discovered === undefined ? {} : { discoveredCount: discovered.tools.length }),
+      ...(discovered === undefined ? {} : { discoveredAt: discovered.at })
+    });
+  };
+
+  const workspacePreference = createWorkspacePreferenceStore(
+    options.statePaths.workspacePreferenceFile
+  );
 
   return Object.freeze({
     async handle(req: IncomingMessage, res: ServerResponse, pathname: string) {
@@ -1057,6 +1093,44 @@ export function createOwnerWebConsole(options: {
         sendJson(res, outcome.result.activated ? 200 : 409, { ...outcome.result, entries });
         return true;
       }
+      if (method === "GET" && pathname === "/owner/api/workspace") {
+        let preference: WorkspacePreference;
+        try {
+          preference = await workspacePreference.get();
+        } catch (error) {
+          if (error instanceof WorkspacePreferenceError) {
+            sendJson(res, 500, { error: { code: error.code, message: error.message } });
+            return true;
+          }
+          throw error;
+        }
+        sendJson(res, 200, { displayName: preference.displayName });
+        return true;
+      }
+      if (method === "PATCH" && pathname === "/owner/api/workspace") {
+        if (!requireCsrf(req, res, session)) return true;
+        const body = (await readBoundedJson(req, MAX_BODY_BYTES)) as
+          { displayName?: unknown } | undefined;
+        if (body === undefined || typeof body.displayName !== "string") {
+          sendJson(res, 400, {
+            error: { code: "invalid_display_name", message: "displayName is required" }
+          });
+          return true;
+        }
+        let preference: WorkspacePreference;
+        try {
+          preference = await workspacePreference.setDisplayName(body.displayName);
+        } catch (error) {
+          if (error instanceof WorkspacePreferenceError) {
+            const status = error.code === "invalid_display_name" ? 400 : 500;
+            sendJson(res, status, { error: { code: error.code, message: error.message } });
+            return true;
+          }
+          throw error;
+        }
+        sendJson(res, 200, { ok: true, displayName: preference.displayName });
+        return true;
+      }
       if (method === "POST" && pathname === "/owner/api/mcp") {
         if (!requireCsrf(req, res, session)) return true;
         if (options.mcpOrchestrator === undefined) {
@@ -1088,6 +1162,41 @@ export function createOwnerWebConsole(options: {
           enabled: true
         });
         sendJson(res, result.status === "committed" ? 201 : 409, result);
+        return true;
+      }
+      const detailMatch = /^\/owner\/api\/mcp\/([^/]+)\/detail$/u.exec(pathname);
+      if (method === "GET" && detailMatch !== null) {
+        if (options.mcpProviders === undefined) {
+          sendJson(res, 503, {
+            error: { code: "mcp_unavailable", message: "MCP management is unavailable" }
+          });
+          return true;
+        }
+        let providerId: string;
+        try {
+          providerId = decodeURIComponent(detailMatch[1] ?? "");
+        } catch {
+          sendJson(res, 400, {
+            error: { code: "invalid_provider_id", message: "Provider ID is malformed" }
+          });
+          return true;
+        }
+        if (providerId.length === 0 || !EXTENSION_ID_PATTERN.test(providerId)) {
+          sendJson(res, 400, {
+            error: { code: "invalid_provider_id", message: "Provider ID is malformed" }
+          });
+          return true;
+        }
+        const provider = (await options.mcpProviders.list()).find(
+          (entry) => entry.id === providerId
+        );
+        if (provider === undefined) {
+          sendJson(res, 404, {
+            error: { code: "unknown_provider", message: "Provider not found" }
+          });
+          return true;
+        }
+        sendJson(res, 200, await providerDetail(provider));
         return true;
       }
       const match = /^\/owner\/api\/mcp\/([^/]+)(?:\/(test|sync|auth))?$/u.exec(pathname);

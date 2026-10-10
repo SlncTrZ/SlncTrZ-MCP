@@ -10,14 +10,21 @@ Autonomous follows the gateway OS account. Skills, tasks, debate text and provid
 are guidance/data; they do not grant permissions.
 
 Full exposes coding/context/skills/task surfaces subject to authority. Gateway-only hides
-those and retains core.ping, connection.restrict, Debate and enabled providers. Provider calls
-need no gateway coding receipt; each provider still has its own authority.
+those and retains core.ping, connection.restrict, Debate and enabled providers. Context
+bootstrap, skills.* and context receipts are required only on Full connections; Gateway-only
+connections interact directly with authorized provider tools and debate.* without calling
+context.bootstrap or supplying slnctrzContext. Provider calls need no gateway coding receipt;
+each provider still has its own authority.
 
 ## 2. Context & Skill Discovery
 
-Call context.bootstrap, read sourced instructions/catalog, then pass the private receipt as
+context.bootstrap, skills.* and context receipts apply only to Full connections. On Full, call
+context.bootstrap, read sourced instructions/catalog, then pass the private receipt as
 slnctrzContext. Activate skills.read before reading its resources. Start a fresh context per
 independent task; renew after four hours, restart, policy or instruction changes.
+
+Gateway-only connections never call context.bootstrap or supply slnctrzContext; they interact
+directly with authorized provider tools and debate.* without a context receipt.
 
 core.ping provides structuredContent.modelGuide, structuredContent.agentHarness and
 structuredContent.managedTasks. Bootstrap returns sourced instructions, catalog metadata

@@ -105,6 +105,8 @@ await writeFile(
     mainFormat: "commonjs",
     output: blobFile,
     assets: {
+      "meilin/idle-v1.webp": join(root, "src", "assets", "meilin", "idle-v1.webp"),
+      "meilin/LICENSE.txt": join(root, "src", "assets", "meilin", "LICENSE.txt"),
       "SlncHertine.woff2": join(root, "src", "assets", "fonts", "SlncHertine.woff2"),
       "config/commands.json": join(root, "config", "commands.json"),
       "config/commands.win32.json": join(root, "config", "commands.win32.json"),

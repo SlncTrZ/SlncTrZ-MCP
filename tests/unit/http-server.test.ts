@@ -891,3 +891,13 @@ describe("gateway HTTP surface", () => {
     expect(status).toBe(403);
   });
 });
+
+it("serves the bundled MeiLin artwork without owner authentication", async () => {
+  const { origin } = await startTestServer();
+  const response = await fetch(origin + "/assets/meilin/idle-v1.webp");
+  const expected = await readFile(join(process.cwd(), "src", "assets", "meilin", "idle-v1.webp"));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("image/webp");
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(expected);
+});
