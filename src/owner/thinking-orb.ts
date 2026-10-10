@@ -2,7 +2,7 @@
  * Thinking Orb Canvas Wrapper — self-contained canvas engine + client controller.
  * Wing: owner | Topic: thinking-orb | Updated: 2026-10-09 23:00
  *
- * Renders the header activity orb for the native Owner surfaces without pulling React
+ * Renders the background activity orb for the native Owner surfaces without pulling React
  * into the dashboard. The visual language (depth-shaded dotted spheres, tilted orbit
  * rings, harmonic oscillation) follows the upstream "thinking-orbs" project, but this
  * module is a zero-dependency Canvas implementation: no React, no runtime CDN, no npm
@@ -163,6 +163,8 @@ export const thinkingOrbScript = `(function () {
   var startTime = 0;
   var dpr = 1;
   var size = 20;
+  var idleDirections = [];
+  var lastDraw = 0;
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -183,7 +185,7 @@ export const thinkingOrbScript = `(function () {
     ];
   }
   function css(rgb, alpha) { return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')'; }
-  function ink(white) { return mix(primaryRgb, skyRgb, white); }
+  function ink(white) { return mix(activity === STATES.error ? errorRgb : primaryRgb, skyRgb, white); }
 
   function fibDir(i, n) {
     var golden = Math.PI * (3 - Math.sqrt(5));
@@ -201,21 +203,27 @@ export const thinkingOrbScript = `(function () {
     if (canvas.width !== px) { canvas.width = px; }
     if (canvas.height !== px) { canvas.height = px; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var count = size > 80 ? Math.min(1600, Math.round(size * 2.5)) : 24;
+    idleDirections = [];
+    for (var i = 0; i < count; i++) { idleDirections.push(fibDir(i, count)); }
   }
 
   function drawIdle(t) {
     var cx = size / 2;
     var cy = size / 2;
     var R = size * 0.34 * (1 + 0.08 * Math.sin(t * 1.5));
-    var n = 24;
+    var n = idleDirections.length;
+    var spin = t * 0.16, cos = Math.cos(spin), sin = Math.sin(spin);
     for (var i = 0; i < n; i++) {
-      var d = fibDir(i, n);
-      var depth = (d[2] + 1) / 2;
-      var x = cx + d[0] * R;
+      var d = idleDirections[i];
+      var xRot = d[0] * cos + d[2] * sin;
+      var zRot = d[2] * cos - d[0] * sin;
+      var depth = (zRot + 1) / 2;
+      var x = cx + xRot * R;
       var y = cy - d[1] * R;
       ctx.fillStyle = css(ink(1 - depth), 0.45 + 0.5 * depth);
       ctx.beginPath();
-      ctx.arc(x, y, 0.9 + 1.2 * depth, 0, Math.PI * 2);
+      ctx.arc(x, y, (size > 80 ? 0.55 + 0.65 * depth : 0.9 + 1.2 * depth), 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -228,7 +236,7 @@ export const thinkingOrbScript = `(function () {
     for (var o = 0; o < rings; o++) {
       var tilt = 0.25 + (o / rings) * 0.85;
       var spin = o * 1.7 + t * (0.4 + o * 0.18);
-      var seg = 20;
+      var seg = size > 80 ? 96 : 20;
       ctx.strokeStyle = css(ink(0.8), 0.6);
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -265,7 +273,7 @@ export const thinkingOrbScript = `(function () {
     for (var o = 0; o < rings; o++) {
       var phase = o * (Math.PI / rings);
       var R = size * (0.2 + 0.09 * Math.sin(t * 3.2 + phase) + 0.05 * Math.sin(t * 5.1 + phase * 1.6));
-      var seg = 22;
+      var seg = size > 80 ? 160 : 22;
       ctx.fillStyle = css(ink(o === 0 ? 0.05 : 0.4), 0.85);
       for (var k = 0; k < seg; k++) {
         var a = (k / seg) * Math.PI * 2 + t * 0.7;
@@ -277,6 +285,7 @@ export const thinkingOrbScript = `(function () {
   }
 
   function drawError() {
+    if (size > 80) { drawIdle(0); return; }
     var cx = size / 2;
     var cy = size / 2;
     var R = size * 0.36;
@@ -310,7 +319,7 @@ export const thinkingOrbScript = `(function () {
   function frame(ts) {
     if (!running) { return; }
     if (!startTime) { startTime = ts; }
-    draw((ts - startTime) / 1000);
+    if (ts - lastDraw >= 1000 / 30) { draw((ts - startTime) / 1000); lastDraw = ts; }
     rafId = window.requestAnimationFrame(frame);
   }
 
@@ -334,6 +343,8 @@ export const thinkingOrbScript = `(function () {
     canvas.setAttribute('aria-label', label);
     canvas.setAttribute('title', label);
     canvas.setAttribute('data-activity', state);
+    var status = document.getElementById('gateway-status');
+    if (status) { status.dataset.state = modeFor(state) === 'idle' ? 'ready' : modeFor(state); status.setAttribute('aria-label', label); status.setAttribute('title', label); }
     if (reduceMotion) { draw(0); }
   }
 

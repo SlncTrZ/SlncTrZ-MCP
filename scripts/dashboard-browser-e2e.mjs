@@ -32,6 +32,11 @@ let name = "Persisted workspace",
   mutationFailure = false,
   sessionDelay = 0;
 let chrome, client, origin;
+let gateSession = false,
+  releaseSession;
+const sessionGate = new Promise((resolve) => {
+  releaseSession = resolve;
+});
 const providers = new Map(
   ["A", "B"].map((id) => [id, { id, name: id, enabled: true, status: "ready", tools: 0 }])
 );
@@ -47,6 +52,7 @@ const fixture = createServer(async (req, res) => {
       const record = { path, method: req.method, completed: false };
       requests.push(record);
       if (path === "/owner/api/session") {
+        if (gateSession) await sessionGate;
         await new Promise((r) => setTimeout(r, sessionDelay));
         json(res, 200, { authenticated: true, csrf });
         record.completed = true;
@@ -142,6 +148,14 @@ const fixture = createServer(async (req, res) => {
       res.end(bytes);
       return;
     }
+    if (path === "/assets/fonts/SlncHertine.woff2") {
+      const bytes = await readFile(
+        new URL("../src/assets/fonts/SlncHertine.woff2", import.meta.url)
+      );
+      res.writeHead(200, { "content-type": "font/woff2" });
+      res.end(bytes);
+      return;
+    }
     if (await owner.handle(req, res, path)) return;
     res.writeHead(404);
     res.end();
@@ -192,6 +206,12 @@ try {
   await client.send("Page.enable");
   await client.send("Runtime.enable");
   await client.send("Network.enable");
+  await client.send("Emulation.setDeviceMetricsOverride", {
+    width: 1440,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false
+  });
   await client.send("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-motion", value: "reduce" }]
   });
@@ -200,10 +220,12 @@ try {
       "window.__dashboardErrors=[];addEventListener('error',e=>__dashboardErrors.push(e.message));addEventListener('securitypolicyviolation',e=>__dashboardErrors.push('CSP '+e.violatedDirective));"
   });
   // Session delay exposes the connecting state, including initialization before the Orb exists.
-  sessionDelay = 500;
+  gateSession = true;
   await client.navigate(origin + "/#mcp");
   await activity("connecting");
   checks.push({ label: "session-connects", pass: true });
+  gateSession = false;
+  releaseSession();
   await client.poll("document.getElementById('owner-session-status')?.dataset.state==='ready'");
   sessionDelay = 0;
   for (const path of ["/#mcp", "/usage", "/debate"]) {
@@ -260,6 +282,50 @@ try {
     );
     await check(path + " CSP and runtime", "window.__dashboardErrors.length===0");
   }
+  await navigate("/#mcp");
+  await client.evaluate("document.fonts.load('24px SlncHertine')", true);
+  await check("project font really loads", "document.fonts.check('24px SlncHertine')");
+  await check(
+    "header has only quote and status dot",
+    "!document.querySelector('.breadcrumb,.header-owner,#gateway-status-text') && !document.querySelector('.dashboard-header canvas') && getComputedStyle(document.getElementById('header-quote')).fontFamily.includes('SlncHertine')"
+  );
+  await check(
+    "larger release and status dot",
+    "parseFloat(getComputedStyle(document.querySelector('.sidebar-footer')).fontSize)===13 && document.querySelector('.gateway-status-dot').getBoundingClientRect().width===12"
+  );
+  await check(
+    "Orb is a large noninteractive background",
+    "(()=>{const c=document.getElementById('thinking-orb-container'),r=c.getBoundingClientRect();return !c.closest('header')&&getComputedStyle(c).pointerEvents==='none'&&document.getElementById('thinking-orb-canvas').getBoundingClientRect().width>=280&&getComputedStyle(document.getElementById('dashboard-main')).zIndex>getComputedStyle(c).zIndex})()"
+  );
+  const hoverPoint = await client.evaluate(
+    "(()=>{const r=document.querySelector('[data-section=usage]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()"
+  );
+  await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...hoverPoint });
+  await client.poll(
+    "document.querySelector('.dashboard-nav a[data-highlighted]')?.dataset.section==='usage'"
+  );
+  await new Promise((r) => setTimeout(r, 300));
+  await check(
+    "one indicator follows hover without navigating",
+    "(()=>{const n=document.querySelector('.dashboard-nav');const r=n.querySelector('.nav-indicator').getBoundingClientRect(),u=n.querySelector('[data-section=usage]').getBoundingClientRect();return n.querySelectorAll('[data-highlighted]').length===1&&n.querySelector('[aria-current=page]').dataset.section==='mcp'&&Math.abs(r.top-u.top)<1&&[...n.querySelectorAll('a')].every(a=>getComputedStyle(a).backgroundColor==='rgba(0, 0, 0, 0)')})()"
+  );
+  await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 700, y: 150 });
+  await client.poll(
+    "document.querySelector('.dashboard-nav a[data-highlighted]')?.dataset.section==='mcp'"
+  );
+  checks.push({ label: "indicator returns to committed tab on pointer leave", pass: true });
+  await check(
+    "status dot follows actual session activity",
+    "document.getElementById('gateway-status').dataset.state==='ready'"
+  );
+  await client.evaluate("document.querySelector('[data-section=settings]').click()");
+  await client.poll(
+    "location.hash==='#settings' && document.querySelector('.dashboard-nav [aria-current=page]')?.dataset.section==='settings'"
+  );
+  await check(
+    "click commits the previewed tab",
+    "!document.querySelector('[data-owner-panel=settings]').hidden && document.querySelector('.dashboard-nav [data-highlighted]').dataset.section==='settings'"
+  );
   await navigate("/#mcp");
   await check(
     "row has only Details",
@@ -385,6 +451,21 @@ try {
     deviceScaleFactor: 1,
     mobile: false
   });
+  await navigate("/owner#overview");
+  const quoteBefore = await client.evaluate("document.getElementById('header-quote').textContent");
+  const quoteStarted = Date.now();
+  await client.poll(
+    "document.getElementById('header-quote').textContent!==" + JSON.stringify(quoteBefore),
+    12000
+  );
+  checks.push({
+    label: "header quote rotates on the ten-second schedule",
+    pass: Date.now() - quoteStarted >= 9000 && Date.now() - quoteStarted <= 11000
+  });
+  await check(
+    "header quote stays on one line",
+    "getComputedStyle(document.getElementById('header-quote')).whiteSpace==='nowrap'"
+  );
   const sidebarScreenshot = await client.send("Page.captureScreenshot", { format: "png" });
   await writeFile(
     join(
@@ -442,6 +523,7 @@ try {
   );
   throw error;
 } finally {
+  releaseSession?.();
   client?.close();
   if (chrome?.pid !== undefined && chrome.exitCode === null) {
     const stopped = once(chrome, "exit");

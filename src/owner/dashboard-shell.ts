@@ -38,14 +38,15 @@ export function dashboardChrome(page: DashboardPage): string {
 <aside class="dashboard-sidebar" id="dashboard-sidebar" aria-label="Main navigation">
 <a class="dashboard-brand" href="${page === "owner" ? "#overview" : "/#overview"}"><span class="brand-symbol" aria-hidden="true">S</span><span><b>SlncTrZ</b><small>MCP WORKSPACE</small></span></a>
 <div class="workspace-label" id="workspace-card"><div id="workspace-meilin" class="workspace-meilin" aria-hidden="true"></div><span class="workspace-copy"><span id="workspace-greeting" class="workspace-greeting">Welcome back!</span><span class="workspace-name-row"><b id="workspace-name" class="workspace-name">Owner workspace</b><button type="button" id="workspace-edit-btn" class="workspace-edit-btn" aria-label="Edit workspace name" title="Edit workspace name"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z"/></svg></button></span><form id="workspace-edit-form" class="workspace-edit-form" hidden><input id="workspace-name-input" class="workspace-name-input" type="text" maxlength="64" autocomplete="off" aria-label="Workspace name"><span class="workspace-edit-actions"><button type="submit" id="workspace-name-save" class="workspace-name-save">Save</button><button type="button" id="workspace-name-cancel" class="workspace-name-cancel">Cancel</button></span></form><span id="workspace-name-feedback" class="workspace-name-feedback" role="status" aria-live="polite" hidden></span><small class="workspace-subtitle">Private gateway</small></span></div>
-<div class="nav-caption">WORKSPACE</div><nav class="dashboard-nav">${links
+<div class="nav-caption">WORKSPACE</div><nav class="dashboard-nav"><span class="nav-indicator" aria-hidden="true"></span>${links
     .map(([key, label, target]) => {
       const href = page === "owner" && target.startsWith("/#") ? target.slice(1) : target;
       return `<a href="${href}"${page === key || (page === "owner" && key === "overview") ? ' aria-current="page"' : ""} data-section="${key}">${icon(key)}<span>${label}</span></a>`;
     })
     .join("")}</nav>
 <div class="sidebar-bottom"><span class="sidebar-footer" aria-label="Release version">v${APP_VERSION}</span></div></aside>
-<div class="dashboard-body"><header class="dashboard-header"><button type="button" id="nav-toggle" aria-controls="dashboard-sidebar" aria-expanded="false" aria-label="Toggle navigation"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="breadcrumb">Workspace <span>/</span> <b id="dashboard-title">${page === "owner" ? "Overview" : page === "usage" ? "Usage" : "Debate"}</b></div><div class="header-owner"><div class="gateway-status" id="gateway-status" role="status" aria-live="polite" data-state="ready"><span class="gateway-status-dot" aria-hidden="true"></span><span class="gateway-status-text" id="gateway-status-text">Owner access</span></div><div id="thinking-orb-container" class="thinking-orb-container">${thinkingOrbHtml}</div></div></header>
+<div class="dashboard-body"><header class="dashboard-header"><button type="button" id="nav-toggle" aria-controls="dashboard-sidebar" aria-expanded="false" aria-label="Toggle navigation"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><span id="dashboard-title" hidden>${page === "owner" ? "Overview" : page === "usage" ? "Usage" : "Debate"}</span><div class="header-quote" id="header-quote">Today was a tough day, but also a great day!</div><div class="gateway-status" id="gateway-status" role="status" aria-live="polite" aria-label="SlncTrZ gateway ready" title="SlncTrZ gateway ready" data-state="ready"><span class="gateway-status-dot" aria-hidden="true"></span></div></header>
+<div id="thinking-orb-container" class="thinking-orb-container" aria-hidden="true">${thinkingOrbHtml}</div>
 <main id="dashboard-main" class="dashboard-main" tabindex="-1">`;
 }
 export const dashboardEnd = `</main></div><div class="startup-intro hidden" id="startup-intro" aria-hidden="true"><div class="intro-orbit"></div><div class="intro-copy"><span class="intro-kicker">YOUR AI. CONNECTED.</span><span class="intro-wordmark">SlncTrZ</span><span class="intro-rule"></span><span class="intro-tagline">One gateway. Endless possibilities.</span></div><button type="button" id="intro-skip" aria-label="Skip introduction">Skip intro</button></div>`;
@@ -135,8 +136,24 @@ const compact=matchMedia('(max-width:767px)');function syncNav(){root.inert=comp
 toggle.addEventListener('click',()=>{const open=document.body.classList.toggle('nav-open');toggle.setAttribute('aria-expanded',String(open));syncNav()});
 root.addEventListener('click',e=>{if(e.target.closest('a'))closeNav()});document.addEventListener('click',e=>{if(document.body.classList.contains('nav-open')&&!root.contains(e.target)&&!toggle.contains(e.target))closeNav()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(document.body.classList.contains('nav-open'))toggle.focus();closeNav();hideIntro()}});
+const nav=root.querySelector('.dashboard-nav'),indicator=nav.querySelector('.nav-indicator');
+let hoveredLink=null,focusedLink=null;
+function syncIndicator(){const selected=hoveredLink||focusedLink||nav.querySelector('[aria-current=page]');nav.querySelectorAll('a').forEach(a=>a.toggleAttribute('data-highlighted',a===selected));if(!selected)return;indicator.style.height=selected.offsetHeight+'px';indicator.style.transform='translateY('+selected.offsetTop+'px)';indicator.style.opacity='1'}
+nav.addEventListener('pointerover',e=>{const a=e.target.closest('a');if(a&&nav.contains(a)){hoveredLink=a;syncIndicator()}});
+nav.addEventListener('pointerleave',()=>{hoveredLink=null;syncIndicator()});
+nav.addEventListener('focusin',e=>{focusedLink=e.target.closest('a');syncIndicator()});
+nav.addEventListener('focusout',e=>{focusedLink=e.relatedTarget&&nav.contains(e.relatedTarget)?e.relatedTarget.closest('a'):null;syncIndicator()});
+window.addEventListener('resize',syncIndicator);
+const navObserver=new ResizeObserver(syncIndicator);navObserver.observe(nav);
+window.addEventListener('pagehide',()=>navObserver.disconnect());
+syncIndicator();
+const quote=document.getElementById('header-quote'),quotes=["Today was a tough day, but also a great day!","Nothing is perfect, but we can get it better day by day!","Small steps today, better possibilities tomorrow.","Progress takes patience. Keep going."];
+let quoteIndex=0,quoteTimer=null;
+function stopQuotes(){if(quoteTimer!==null){clearInterval(quoteTimer);quoteTimer=null}}
+function startQuotes(){stopQuotes();if(document.hidden)return;quoteTimer=setInterval(()=>{quoteIndex=(quoteIndex+1)%quotes.length;quote.textContent=quotes[quoteIndex];quote.title=quotes[quoteIndex]},10000)}
+quote.title=quotes[0];document.addEventListener('visibilitychange',startQuotes);window.addEventListener('pagehide',stopQuotes);window.addEventListener('pageshow',startQuotes);startQuotes();
 const titles={overview:'Overview',connections:'Connections',mcp:'MCP Servers',access:'Access & permissions',settings:'Settings'};
-function selectSection(){if(location.pathname!=='/'&&location.pathname!=='/owner')return;const key=Object.hasOwn(titles,location.hash.slice(1))?location.hash.slice(1):'overview';document.querySelectorAll('[data-owner-panel]').forEach(el=>{el.hidden=el.dataset.ownerPanel!==key});root.querySelectorAll('[data-section]').forEach(el=>{if(el.dataset.section===key)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('dashboard-title').textContent=titles[key];document.title='SlncTrZ Owner · '+titles[key]}
+function selectSection(){if(location.pathname!=='/'&&location.pathname!=='/owner')return;const key=Object.hasOwn(titles,location.hash.slice(1))?location.hash.slice(1):'overview';document.querySelectorAll('[data-owner-panel]').forEach(el=>{el.hidden=el.dataset.ownerPanel!==key});root.querySelectorAll('[data-section]').forEach(el=>{if(el.dataset.section===key)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('dashboard-title').textContent=titles[key];syncIndicator();document.title='SlncTrZ Owner · '+titles[key]}
 window.addEventListener('hashchange',selectSection);window.addEventListener('popstate',selectSection);selectSection();
 const intro=document.getElementById('startup-intro');let timer;
 function hideIntro(){clearTimeout(timer);intro.classList.add('hidden');intro.setAttribute('aria-hidden','true')}
@@ -234,32 +251,30 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .workspace-name-feedback[data-state=saving]{color:#9FC0E2}
 .workspace-name-feedback[data-state=saved]{color:#7FE0B0}
 .nav-caption{font-size:9px;font-weight:700;letter-spacing:1.7px;margin:0 13px 11px;color:var(--sky)}
-.dashboard-nav{display:grid;gap:5px}
+.dashboard-nav{display:grid;gap:5px;position:relative;isolation:isolate;flex-shrink:0}
+.nav-indicator{position:absolute;top:0;left:0;right:0;height:44px;border-radius:8px;background:rgba(0,85,160,.55);box-shadow:inset 3px 0 0 var(--sky);pointer-events:none;z-index:-1;opacity:0;transition:transform var(--motion-drawer) var(--motion-ease),height var(--motion-drawer) var(--motion-ease)}
 .dashboard-nav a{color:#C7D3E8;display:flex;align-items:center;gap:12px;text-decoration:none;min-height:44px;padding:11px 13px;border-radius:8px;font-size:12px;font-weight:550;border:1px solid transparent}
-.dashboard-nav a:hover{color:#FFFFFF;background:rgba(67,139,196,.18);box-shadow:0 0 12px var(--glow)}
-.dashboard-nav a[aria-current=page]{background:rgba(0,85,160,.55);color:#FFFFFF;box-shadow:inset 3px 0 0 var(--sky)}
+.dashboard-nav a[data-highlighted]{color:#FFFFFF}
 
 .sidebar-bottom{margin-top:auto;padding:28px 10px 0}
-.sidebar-footer{display:block;font-size:9px;border-top:1px solid var(--glass-border);padding-top:17px;color:#8A9CB8}
+.sidebar-footer{display:block;font-size:13px;border-top:1px solid var(--glass-border);padding-top:17px;color:#8A9CB8}
 
 /* Header - frosted light glass */
-.dashboard-body{margin-left:244px;min-width:0}
+.dashboard-body{margin-left:244px;min-width:0;position:relative;isolation:isolate}
 .dashboard-header{position:sticky;top:0;z-index:20;height:78px;display:flex;align-items:center;justify-content:space-between;padding:0 40px;background:var(--glass-header);-webkit-backdrop-filter:blur(12px) saturate(1.4);backdrop-filter:blur(12px) saturate(1.4);border-bottom:1px solid var(--line);box-shadow:inset 0 -1px 0 rgba(255,255,255,.4)}
-.breadcrumb{font-size:12px;color:var(--muted);display:flex;gap:13px;align-items:center}
-.breadcrumb span{color:#B9C2CE}
-.breadcrumb b{font-weight:550;color:var(--text)}
-.header-owner{display:flex;align-items:center;gap:15px}
-.gateway-status{display:inline-flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.4px;color:var(--muted)}
-.gateway-status-dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px rgba(31,122,85,.15),0 0 8px rgba(31,122,85,.35)}
-.gateway-status[data-state=checking] .gateway-status-dot{background:var(--warn);box-shadow:0 0 0 3px rgba(150,98,15,.15),0 0 8px rgba(150,98,15,.35)}
+.header-quote{font-family:"SlncHertine",sans-serif;font-size:clamp(13px,1.8vw,24px);font-weight:400;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;line-height:1.6;padding:0 20px;color:var(--ink)}
+.gateway-status{flex:none;display:inline-flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.4px;color:var(--muted)}
+.gateway-status-dot{width:12px;height:12px;flex:none;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px rgba(31,122,85,.15),0 0 8px rgba(31,122,85,.35)}
+.gateway-status[data-state=connecting] .gateway-status-dot{background:var(--warn);box-shadow:0 0 0 3px rgba(150,98,15,.15),0 0 8px rgba(150,98,15,.35)}
+.gateway-status[data-state=working] .gateway-status-dot{background:var(--interactive);box-shadow:0 0 0 3px rgba(67,139,196,.15),0 0 8px rgba(67,139,196,.35)}
 .gateway-status[data-state=error] .gateway-status-dot{background:var(--bad);box-shadow:0 0 0 3px rgba(178,58,74,.15),0 0 8px rgba(178,58,74,.35)}
-.thinking-orb-container{display:grid;place-items:center;width:34px;height:34px;flex:none}
+.thinking-orb-container{position:fixed;inset:78px 0 0 244px;display:grid;place-items:center;overflow:hidden;pointer-events:none;z-index:0;opacity:.28;--slnctrz-orb-size:min(640px,70vw,78vh)}
 .owner-avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:650}
 #nav-toggle{display:none;border:0;background:transparent;color:var(--text);cursor:pointer;border-radius:8px;width:38px;height:38px}
 #nav-toggle:hover{background:var(--accent-soft)}
 
 /* Main content */
-.dashboard-main{max-width:1536px;margin:auto;padding:36px 40px 48px;outline:none;scroll-margin-top:88px}
+.dashboard-main{position:relative;z-index:1;max-width:1536px;margin:auto;padding:36px 40px 48px;outline:none;scroll-margin-top:88px}
 .shell{max-width:none;padding:0;margin:0}
 .hero{margin:0 0 28px;align-items:center;gap:20px}
 .hero h1,.page-heading h1{font-size:29px;letter-spacing:-1px;font-weight:650;line-height:1.2;margin:0 0 9px}
@@ -372,13 +387,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .overview-banner h2{color:var(--text)}
 .overview-banner p{color:var(--muted)}
 .card{box-shadow:none}
-.breadcrumb span{color:#7E8CA6}
 }
 
 /* Responsive breakpoints */
 @media(min-width:1440px){.dashboard-main{padding:44px 56px}.dashboard-header{padding:0 56px}}
-@media(max-width:1024px){.dashboard-sidebar{width:210px;padding-left:14px;padding-right:14px}.dashboard-body{margin-left:210px}.dashboard-main{padding:28px 24px}.dashboard-header{padding:0 24px}.owner-overview{grid-template-columns:1fr}.overview-stats{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:24px}.stat-block:nth-child(3){border-left:0;padding-left:0}.hero{align-items:flex-start;flex-direction:column}.workspace{grid-template-columns:210px minmax(0,1fr)}}
-@media(max-width:767px){.dashboard-sidebar{transform:translateX(-100%);transition:transform var(--motion-drawer) var(--motion-ease)}.nav-open .dashboard-sidebar{transform:translateX(0);box-shadow:20px 0 80px rgba(18,40,75,.28)}.dashboard-body{margin-left:0}.dashboard-header{height:64px;padding:0 20px;gap:14px}#nav-toggle{display:grid;place-items:center}.breadcrumb{margin-right:auto}.gateway-status{display:none}.dashboard-main{padding:28px 20px}.workspace{grid-template-columns:1fr}.sidebar{border-bottom:1px solid var(--line);border-right:0}.debate-list{max-height:180px}.owner-overview{grid-template-columns:1fr}.skip-link{left:20px}.overview-banner{align-items:flex-start;flex-direction:column}}
+@media(max-width:1024px){.dashboard-sidebar{width:210px;padding-left:14px;padding-right:14px}.dashboard-body{margin-left:210px}.thinking-orb-container{left:210px}.dashboard-main{padding:28px 24px}.dashboard-header{padding:0 24px}.owner-overview{grid-template-columns:1fr}.overview-stats{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:24px}.stat-block:nth-child(3){border-left:0;padding-left:0}.hero{align-items:flex-start;flex-direction:column}.workspace{grid-template-columns:210px minmax(0,1fr)}}
+@media(max-width:767px){.dashboard-sidebar{transform:translateX(-100%);transition:transform var(--motion-drawer) var(--motion-ease)}.nav-open .dashboard-sidebar{transform:translateX(0);box-shadow:20px 0 80px rgba(18,40,75,.28)}.dashboard-body{margin-left:0}.thinking-orb-container{left:0;top:64px}.dashboard-header{height:64px;padding:0 20px;gap:14px}#nav-toggle{display:grid;place-items:center}.header-quote{padding:0;font-size:13px}.dashboard-main{padding:28px 20px}.workspace{grid-template-columns:1fr}.sidebar{border-bottom:1px solid var(--line);border-right:0}.debate-list{max-height:180px}.owner-overview{grid-template-columns:1fr}.skip-link{left:20px}.overview-banner{align-items:flex-start;flex-direction:column}}
 @media(max-width:375px){.dashboard-main{padding:24px 16px}.hero h1,.page-heading h1{font-size:25px}.card{padding:19px}.overview-stats{grid-template-columns:1fr}.stat-block+.stat-block{padding-left:0;border-left:0;border-top:1px solid var(--line);padding-top:16px;margin-top:16px}.overview-banner{padding:20px}.conn-controls{flex-wrap:wrap}.conn-controls select{min-width:0;width:100%}.row{flex-wrap:wrap}.row input,.row select{min-width:0}.intro-tagline{font-size:10px;letter-spacing:1px}.intro-kicker{font-size:9px;letter-spacing:3px}}
 
 /* Motion */
@@ -405,6 +419,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 @keyframes dashboard-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 
 /* Reduced motion */
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.startup-intro{display:none!important}.dashboard-sidebar,button,a{transition:none!important;animation:none!important}[data-owner-panel] .page-heading,[data-owner-panel] .card,#dashboard .hero,#dashboard .card,#app>.hero,#app>.workspace,.panel,.mcp-form,.dashboard-nav a svg,.quick-links a span{animation:none!important;transition:none!important;transform:none!important}.card button,.action,.range button,.button-link,.debate-item{transition:none!important;transform:none!important}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.startup-intro{display:none!important}.dashboard-sidebar,.nav-indicator,button,a{transition:none!important;animation:none!important}[data-owner-panel] .page-heading,[data-owner-panel] .card,#dashboard .hero,#dashboard .card,#app>.hero,#app>.workspace,.panel,.mcp-form,.dashboard-nav a svg,.quick-links a span{animation:none!important;transition:none!important;transform:none!important}.card button,.action,.range button,.button-link,.debate-item{transition:none!important;transform:none!important}}
 ${thinkingOrbCss}
 `;
