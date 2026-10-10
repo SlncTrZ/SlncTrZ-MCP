@@ -96,14 +96,15 @@ See [Security](SECURITY.md) and [Backup and Restore](docs/BACKUP_RESTORE.md).
 | Add MCP providers or custom skills    | [MCP Servers](MCP_SERVERS.md) · [Harness](docs/HARNESS.md)        |
 | Diagnose or update an installation    | [Troubleshooting](docs/TROUBLESHOOTING.md)                        |
 | Contribute or inspect the design      | [Contributing](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md) |
-| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.2.md)        |
+| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.3.md)        |
 | Browse all documentation              | [Documentation index](docs/README.md)                             |
 
-Linux x64 and Windows x64 are the standalone release targets. As of 2026-10-09,
-[v0.4.2](docs/releases/v0.4.2.md) is the published stable release and includes Gateway-only
-consent. This development tree retains package version 0.4.2 and contains unreleased
-exec-environment and Owner session/navigation changes planned for v0.4.3. Source, published
-release and running process are separate identities; see [Project Status](docs/PROJECT_STATUS.md).
+Linux x64 and Windows x64 are the standalone release targets. This tree prepares
+[v0.4.3](docs/releases/v0.4.3.md); publication becomes stable only after the signed
+release workflow passes its public installation and browser gates. Check the
+[latest published release](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest)
+for current availability. Source, published release and running process are separate
+identities; see [Project Status](docs/PROJECT_STATUS.md).
 
 ## Development
 

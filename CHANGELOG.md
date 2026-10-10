@@ -2,6 +2,28 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.4.3
+
+Date: 2026-10-10
+
+### Changed
+
+- Unified compact Owner/Usage/Debate dashboard, offline MeiLin artwork, rotating greetings, full-page activity Orb and 12px minimum text.
+- Durable workspace display name and authenticated provider detail drawer with guarded Test/Sync and confirmed Disable/Remove actions.
+- Gateway-only agents no longer need context.bootstrap or a context receipt; Full bootstrap and authorization ceilings remain enforced.
+
+### Fixed
+
+- Isolate workspace-name read failures from dashboard loading and clear stale provider details on selection changes.
+- Preserve Owner session/navigation state and isolate asynchronous provider actions.
+- Resolve account home/config paths across Linux and Windows without cold native PowerShell module loading.
+- Resolve provider bearer credentials from systemd credential references.
+
+### Verification / promotion
+
+- Protected signing and exact public Linux/Windows User Install plus installed browser acceptance gate stable promotion.
+- Named real-client OAuth/Gateway-only and live service/keyring acceptance remain pending installation of this release.
+
 ## 0.4.2
 
 Date: 2026-10-08
