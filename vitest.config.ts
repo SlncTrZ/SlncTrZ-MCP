@@ -6,8 +6,8 @@ export default defineConfig({
     include: ["tests/unit/**/*.test.ts", "tests/conformance/**/*.test.ts"],
     globals: false,
     environment: "node",
-    // Bound native ACL/process fixture contention on Windows without changing product deadlines.
-    maxWorkers: process.platform === "win32" ? 2 : undefined,
+    // Run Windows process/ACL fixtures serially; cold native helpers retain their product deadlines.
+    maxWorkers: process.platform === "win32" ? 1 : undefined,
     testTimeout: process.platform === "win32" ? 15_000 : 5_000,
     coverage: {
       provider: "v8",
