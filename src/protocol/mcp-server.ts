@@ -52,6 +52,11 @@ import {
 } from "../kernel/fs-search.js";
 import { type WriteOptions, WriteError, writeContainedFile } from "../kernel/fs-write.js";
 import { AdapterError, type ProviderDiagnostic } from "../extension/adapter.js";
+import {
+  isSeamEnabled,
+  recordSeamPrediction,
+  resolveSeamPrediction
+} from "../extension/prediction-seam.js";
 import { toolNameOf } from "../kernel/tool-identity.js";
 import { buildAgentHarnessInstructions, type AgentHarness } from "../shared/agent-harness.js";
 import { APP_VERSION } from "../shared/build-info.js";
@@ -173,6 +178,11 @@ export interface McpServerOptions {
   readonly authenticatedConnection?: AuthenticatedConnection;
   readonly debateService?: DebateService;
   readonly restrictSurfaceProfile?: (profile: SurfaceProfile) => AuthenticatedConnection;
+  /**
+   * Enable the CyberBrain Prediction Learning seam for mutating provider calls.
+   * When undefined, the `SLNCTRZ_PREDICTION_SEAM_ENABLED` environment applies.
+   */
+  readonly predictionSeam?: boolean;
 }
 
 function authorizedContext(
@@ -507,6 +517,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       workspaceId: "default"
     });
   const toolAudit = options.toolAudit ?? NOOP_TOOL_AUDIT;
+  const seamEnabled = options.predictionSeam ?? isSeamEnabled();
   const harnessRuntime = options.harnessRuntime;
   const registerBuiltinTool = ((...args: Parameters<typeof server.registerTool>) => {
     const tool = server.registerTool(...args);
@@ -2268,6 +2279,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                   content: [{ type: "text", text: "provider_unavailable" }]
                 };
               }
+              // Gateway-owned Prediction Learning seam: record the expectation
+              // BEFORE the outcome is known. Never throws; undefined skips resolve.
+              const seamPredictionId = seamEnabled
+                ? await recordSeamPrediction(extensionRuntime, {
+                    canonicalId: tool.canonicalId,
+                    riskClass: tool.riskClass,
+                    clientId: options.principal?.clientId ?? "unknown",
+                    correlationId: String(context.mcpReq.id),
+                    now: new Date()
+                  })
+                : undefined;
               const result = await provider.invoke(
                 toolNameOf(tool.canonicalId),
                 Object.fromEntries(
@@ -2285,6 +2307,16 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
                   ? "timeout"
                   : "error"
                 : "success";
+              // Gateway-owned Prediction Learning seam: resolve the pre-action
+              // prediction now that the outcome is known. Never throws.
+              if (seamPredictionId !== undefined) {
+                await resolveSeamPrediction(
+                  extensionRuntime,
+                  seamPredictionId,
+                  auditResult,
+                  new Date()
+                );
+              }
               // Surface the provider's actual payload as machine-readable structuredContent
               // (not just {truncated}) so structured-first clients show the real result.
               const structuredContent = buildExtensionStructuredContent(
