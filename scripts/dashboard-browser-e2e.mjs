@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
+import { APP_VERSION } from "../dist/shared/build-info.js";
 import { createOwnerWebConsole } from "../dist/owner/web-console.js";
 import { CdpClient, startBrowser } from "./lib/browser-cdp.mjs";
 
@@ -210,6 +211,11 @@ try {
     await check(
       path + " full-width MeiLin above text",
       "(()=>{const c=document.getElementById('workspace-card').getBoundingClientRect(),m=document.getElementById('workspace-meilin').getBoundingClientRect(),t=document.querySelector('.workspace-copy').getBoundingClientRect();return !document.querySelector('.workspace-avatar')&&Math.abs(m.width-c.width+2)<2&&t.top>=m.bottom-1})()"
+    );
+    await check(
+      path + " release-only sidebar footer",
+      "!document.querySelector('.sidebar-note,.intro-replay') && document.querySelector('.sidebar-footer').textContent===" +
+        JSON.stringify("v" + APP_VERSION)
     );
     await check(
       path + " contiguous menu",

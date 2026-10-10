@@ -1,4 +1,5 @@
 /** Shared native dashboard shell for the authenticated owner surfaces. */
+import { APP_VERSION } from "../shared/build-info.js";
 import { thinkingOrbHtml, thinkingOrbCss, thinkingOrbScript } from "./thinking-orb.js";
 
 export type DashboardPage = "owner" | "usage" | "debate";
@@ -43,7 +44,7 @@ export function dashboardChrome(page: DashboardPage): string {
       return `<a href="${href}"${page === key || (page === "owner" && key === "overview") ? ' aria-current="page"' : ""} data-section="${key}">${icon(key)}<span>${label}</span></a>`;
     })
     .join("")}</nav>
-<div class="sidebar-bottom"><div class="sidebar-note">Your tools. Your machine.<br>Your control.</div><button type="button" class="intro-replay">Play introduction ${icon("debate")}</button><span class="sidebar-footer">SlncTrZ-MCP / Owner console</span></div></aside>
+<div class="sidebar-bottom"><span class="sidebar-footer" aria-label="Release version">v${APP_VERSION}</span></div></aside>
 <div class="dashboard-body"><header class="dashboard-header"><button type="button" id="nav-toggle" aria-controls="dashboard-sidebar" aria-expanded="false" aria-label="Toggle navigation"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="breadcrumb">Workspace <span>/</span> <b id="dashboard-title">${page === "owner" ? "Overview" : page === "usage" ? "Usage" : "Debate"}</b></div><div class="header-owner"><div class="gateway-status" id="gateway-status" role="status" aria-live="polite" data-state="ready"><span class="gateway-status-dot" aria-hidden="true"></span><span class="gateway-status-text" id="gateway-status-text">Owner access</span></div><div id="thinking-orb-container" class="thinking-orb-container">${thinkingOrbHtml}</div></div></header>
 <main id="dashboard-main" class="dashboard-main" tabindex="-1">`;
 }
@@ -140,7 +141,7 @@ window.addEventListener('hashchange',selectSection);window.addEventListener('pop
 const intro=document.getElementById('startup-intro');let timer;
 function hideIntro(){clearTimeout(timer);intro.classList.add('hidden');intro.setAttribute('aria-hidden','true')}
 function playIntro(){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;hideIntro();intro.classList.remove('hidden');intro.setAttribute('aria-hidden','false');timer=setTimeout(hideIntro,2600)}
-document.getElementById('intro-skip').addEventListener('click',hideIntro);document.querySelector('.intro-replay').addEventListener('click',playIntro);
+document.getElementById('intro-skip').addEventListener('click',hideIntro);
 try{if(!sessionStorage.getItem('slnctrz-intro-seen')){sessionStorage.setItem('slnctrz-intro-seen','1');playIntro()}}catch{}
 const meilin=document.getElementById('workspace-meilin'),motion=matchMedia('(prefers-reduced-motion: reduce)');
 let emoteTimer=null,emoteStep=0;
@@ -239,10 +240,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .dashboard-nav a[aria-current=page]{background:rgba(0,85,160,.55);color:#FFFFFF;box-shadow:inset 3px 0 0 var(--sky)}
 
 .sidebar-bottom{margin-top:auto;padding:28px 10px 0}
-.sidebar-note{font-size:12px;line-height:1.8;color:#A9B8D0}
-.intro-replay{display:flex;align-items:center;gap:12px;border:0;background:none;color:#B9C8E0;padding:16px 0;font-size:11px;cursor:pointer;border-radius:8px}
-.intro-replay:hover{color:#fff}
-.intro-replay svg{width:14px;height:14px}
 .sidebar-footer{display:block;font-size:9px;border-top:1px solid var(--glass-border);padding-top:17px;color:#8A9CB8}
 
 /* Header - frosted light glass */
