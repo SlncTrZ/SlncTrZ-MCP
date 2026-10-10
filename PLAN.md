@@ -2,7 +2,8 @@
 
 Published baseline: v0.4.4 as observed on 2026-10-10. The next patch is v0.4.5 in source
 preparation, not yet a published or deployed version. [Project Status](docs/PROJECT_STATUS.md)
-separates source, public release and running identity.
+separates source, public release and running identity. Publication is deliberately deferred
+while additional fixes accumulate; no tag, official release or deployment is requested.
 
 ## 1. Current product
 
@@ -23,8 +24,14 @@ separates source, public release and running identity.
 | --- | --- | --- |
 | Learning deadlines must not restart shared CyberBrain | Source fixed in `4b9a6b6` | Real-supervisor record/resolve deadline tests preserve readiness and unrelated calls |
 | Pre-dispatch/queued cancellation must remain indeterminate | Source fixed in `4b9a6b6` | Cancelled error identity and real-supervisor MCP outcome tests |
-| Current guides reflect implemented behavior and release boundaries | Version/docs preparation | Docs contract, links, formatting and exact-ref CI |
-| Publish exact verified patch artifacts | Pending | Native identity, protected signing, public installs and installed Chromium |
+| Observed HTTP/STDIO provider software identity and protocol | Source implemented in `919dc64` | Handshake/API tests; unknown values, timestamps and no GET probe |
+| Local command disclosure, Tools total and flexible list height | Source implemented in `919dc64` | Source Chromium dashboard 83/83 checks; argv/env excluded |
+| Current guides reflect implemented behavior and release boundaries | Preparation `8743d8c` passed CI; checkpoint docs updated | Docs contract, links, formatting and exact-ref CI |
+| Publish exact verified patch artifacts | Deferred until owner requests release | Native identity, protected signing, public installs and installed Chromium |
+
+Latest implementation `919dc64` passed hosted Linux Node 22/24 and Windows native CI.
+Local full quality passed 871 tests with 29 skips plus typecheck/lint/format, docs and build.
+These are source checks; the final accumulated candidate must be verified again before release.
 
 Existing published tags and signed assets remain unchanged. No new database migration,
 OAuth grant change, credential rotation or reauthorization is part of this patch.
