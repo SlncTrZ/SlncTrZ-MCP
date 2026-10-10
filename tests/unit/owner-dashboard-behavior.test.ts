@@ -160,7 +160,7 @@ function harness(
       workspaceCardControllerScript +
       providerDrawerScript +
       ";globalThis.SlncTrZWorkspaceCard=createWorkspaceCard({reducedMotion:true});" +
-      "ownerSession=createOwnerSession({contentId:'app',loginId:'login',onAuthenticated:async()=>{}});" +
+      "ownerSession=createOwnerSession({contentId:'app',loginId:'login',onAuthenticated:async()=>{await ownerSession.request('/owner/api/state')}});" +
       "SlncTrZProviderDrawer.init({request:(path,opt)=>ownerSession.request(path,opt),onChanged});" +
       "globalThis.session=ownerSession;",
     context
@@ -183,6 +183,83 @@ function harness(
 }
 
 describe("Owner dashboard behavior", () => {
+  it("clears A's detail and actions while B loads and after B fails", async () => {
+    const pending = gate();
+    const h = harness(async (path) =>
+      path.endsWith("/A/detail")
+        ? response({
+            ...detail("A"),
+            connection: { kind: "remote", endpoint: "https://a.invalid/mcp" },
+            tools: { accepted: [{ canonicalId: "A.tool", riskClass: "read" }] }
+          })
+        : path.endsWith("/B/detail")
+          ? pending.promise
+          : undefined
+    );
+    await h.session.run();
+    await h.drawer.open("A");
+    expect(
+      h.el("provider-drawer-meta").children.some((el) => el.textContent.includes("a.invalid"))
+    ).toBe(true);
+    const opening = h.drawer.open("B");
+    expect(h.el("provider-drawer-id").textContent).toBe("B");
+    expect(h.el("provider-drawer-body").hidden).toBe(true);
+    expect(h.el("provider-drawer-actions").hidden).toBe(true);
+    expect(h.el("provider-drawer-meta").children).toHaveLength(0);
+    expect(h.el("provider-drawer-tools").children).toHaveLength(0);
+    pending.resolve(response({ error: { message: "B unavailable" } }, 503));
+    await opening;
+    expect(h.el("provider-drawer-error").textContent).toBe("B unavailable");
+    expect(h.el("provider-drawer-body").hidden).toBe(true);
+    expect(h.el("provider-drawer-actions").hidden).toBe(true);
+    for (const action of ["test", "sync", "disable", "remove"]) {
+      await h.el("provider-action-" + action).emit("click");
+    }
+    expect(
+      h.calls.filter((call) => call.options.method && call.options.method !== "GET")
+    ).toHaveLength(0);
+    await h.drawer.open("A");
+    expect(h.el("provider-drawer-body").hidden).toBe(false);
+    expect(h.el("provider-drawer-actions").hidden).toBe(false);
+  });
+
+  it.each([500, 503])(
+    "loads protected page data despite a workspace-name HTTP %s failure and recovers",
+    async (status) => {
+      let failing = true;
+      const h = harness(async (path) =>
+        path.endsWith("/workspace") && failing
+          ? response({ error: { code: "preference_corrupt", message: "Name unavailable" } }, status)
+          : undefined
+      );
+      const previousName = h.card.savedName;
+      await h.session.run();
+      expect(h.el("owner-session-status").dataset.state).toBe("ready");
+      expect(h.calls.filter((call) => call.path === "/owner/api/state")).toHaveLength(1);
+      expect(h.card.savedName).toBe(previousName);
+      expect(h.el("workspace-name-feedback").hidden).toBe(false);
+      expect(h.el("workspace-name-feedback").dataset.state).toBe("error");
+      expect(h.calls.filter((call) => call.options.method === "PATCH")).toHaveLength(0);
+      failing = false;
+      await h.session.run();
+      expect(h.card.savedName).toBe("Persisted workspace");
+      expect(h.el("workspace-name-feedback").hidden).toBe(true);
+      expect(h.calls.filter((call) => call.path === "/owner/api/state")).toHaveLength(2);
+    }
+  );
+
+  it("still expires the session instead of loading protected data when workspace-name access returns 401", async () => {
+    const h = harness(async (path) =>
+      path.endsWith("/workspace")
+        ? response({ error: { message: "Session expired" } }, 401)
+        : undefined
+    );
+    await h.session.run();
+    expect(h.el("owner-session-status").dataset.state).toBe("unauthenticated");
+    expect(h.calls.filter((call) => call.path === "/owner/api/state")).toHaveLength(0);
+    expect(h.el("workspace-name-feedback").hidden).toBe(true);
+  });
+
   it("does not reopen a closed drawer when an animation frame arrives late", async () => {
     const frames: (() => void)[] = [];
     const h = harness(undefined, frames);

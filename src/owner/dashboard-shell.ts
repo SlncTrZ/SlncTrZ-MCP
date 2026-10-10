@@ -102,7 +102,17 @@ if(current===generation){saving=false;input.disabled=false;saveBtn.disabled=fals
 }
 }
 function reset(){generation++;saving=false;input.disabled=false;saveBtn.disabled=false;cancelBtn.disabled=false;closeEdit();setFeedback('','')}
-async function reload(){const current=generation;const data=await request('/owner/api/workspace');if(current===generation&&data&&typeof data.displayName==='string'){savedName=data.displayName;nameEl.textContent=data.displayName}}
+async function reload(){
+const current=generation;
+try{
+const data=await request('/owner/api/workspace');
+if(current===generation&&data&&typeof data.displayName==='string'){savedName=data.displayName;nameEl.textContent=data.displayName;if(!editing)setFeedback('','')}
+}catch(error){
+if(current!==generation)return;
+if(error?.status===401||error?.name==='AbortError')throw error;
+setFeedback('Could not load the workspace name. Reload this page to retry.','error');
+}
+}
 function rotateGreeting(){
 if(reducedMotion){setGreeting(greetings[0]);return}
 if(greetingPaused)return;

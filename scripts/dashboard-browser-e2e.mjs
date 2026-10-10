@@ -30,7 +30,9 @@ const owner = createOwnerWebConsole({
 let name = "Persisted workspace",
   delay = 0,
   mutationFailure = false,
-  sessionDelay = 0;
+  sessionDelay = 0,
+  workspaceFailure = false,
+  detailFailure = null;
 let chrome, client, origin;
 let gateSession = false,
   releaseSession;
@@ -71,6 +73,13 @@ const fixture = createServer(async (req, res) => {
         }
       }
       if (path === "/owner/api/workspace") {
+        if (req.method === "GET" && workspaceFailure) {
+          json(res, 500, {
+            error: { code: "preference_corrupt", message: "Fixture workspace name unavailable" }
+          });
+          record.completed = true;
+          return;
+        }
         if (req.method === "PATCH") {
           let body = "";
           for await (const part of req) body += part;
@@ -105,16 +114,24 @@ const fixture = createServer(async (req, res) => {
           p.enabled = JSON.parse(body).enabled;
           p.status = p.enabled ? "ready" : "disabled";
           json(res, 200, {});
-        } else if (path.endsWith("/detail"))
-          json(res, 200, {
-            ...p,
-            tools: {
-              accepted: [
-                { canonicalId: id + ".tool", description: "Fixture tool", riskClass: "low" }
-              ]
-            }
-          });
-        else json(res, 200, {});
+        } else if (path.endsWith("/detail")) {
+          if (detailFailure === id) {
+            json(res, 503, { error: { message: "Fixture provider detail unavailable" } });
+          } else {
+            json(res, 200, {
+              ...p,
+              connection: {
+                kind: "remote",
+                endpoint: "https://" + id.toLowerCase() + ".invalid/mcp"
+              },
+              tools: {
+                accepted: [
+                  { canonicalId: id + ".tool", description: "Fixture tool", riskClass: "low" }
+                ]
+              }
+            });
+          }
+        } else json(res, 200, {});
       } else
         json(res, 200, {
           estimatedTotalTokens: 0,
@@ -235,6 +252,32 @@ try {
   releaseSession();
   await client.poll("document.getElementById('owner-session-status')?.dataset.state==='ready'");
   sessionDelay = 0;
+
+  workspaceFailure = true;
+  for (const path of ["/#mcp", "/usage", "/debate"]) {
+    const start = requests.length;
+    await navigate(path);
+    await check(
+      path + " workspace failure stays local",
+      "!document.getElementById('workspace-name-feedback').hidden && document.getElementById('workspace-name-feedback').dataset.state==='error' && document.getElementById('owner-session-status').dataset.state==='ready'"
+    );
+    checks.push({
+      label: path + " still loads protected page data",
+      pass: requests
+        .slice(start)
+        .some(
+          (r) => r.completed && r.path !== "/owner/api/session" && r.path !== "/owner/api/workspace"
+        )
+    });
+    if (!checks.at(-1).pass) throw Error("Workspace failure blocked protected page data");
+  }
+  workspaceFailure = false;
+  await navigate("/#mcp");
+  await check(
+    "workspace-name reload recovers without overwriting stored name",
+    "document.getElementById('workspace-name-feedback').hidden && document.getElementById('workspace-name').textContent===" +
+      JSON.stringify(name)
+  );
   for (const path of ["/#mcp", "/usage", "/debate"]) {
     await navigate(path);
     await checkFontFloor(path + " text floor");
@@ -342,6 +385,29 @@ try {
   await client.evaluate("document.querySelector('#mcp .item button').click()");
   await client.poll(
     "document.getElementById('provider-drawer-id').textContent==='A' && document.getElementById('provider-drawer-loading').hidden"
+  );
+
+  detailFailure = "B";
+  const mutationsBeforeDetailFailure = requests.filter((r) => r.method !== "GET").length;
+  await open("B");
+  await check(
+    "failed B detail cannot display A metadata/tools/actions",
+    "document.getElementById('provider-drawer-id').textContent==='B' && document.getElementById('provider-drawer-body').hidden && document.getElementById('provider-drawer-actions').hidden && document.getElementById('provider-drawer-meta').children.length===0 && document.getElementById('provider-drawer-tools').children.length===0 && !document.getElementById('provider-drawer-error').hidden"
+  );
+  await client.evaluate(
+    "['test','sync','disable','remove'].forEach(a=>document.getElementById('provider-action-'+a).click())"
+  );
+  checks.push({
+    label: "failed detail cannot dispatch provider mutations",
+    pass: requests.filter((r) => r.method !== "GET").length === mutationsBeforeDetailFailure
+  });
+  detailFailure = null;
+  await click("owner-session-retry");
+  await activity("ready");
+  await open("B");
+  await check(
+    "provider detail recovers after retry",
+    "!document.getElementById('provider-drawer-body').hidden && !document.getElementById('provider-drawer-actions').hidden && document.getElementById('provider-drawer-tools').textContent.includes('B.tool')"
   );
   for (const action of ["test", "sync"]) {
     delay = 350;

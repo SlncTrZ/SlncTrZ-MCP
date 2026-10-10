@@ -413,6 +413,14 @@ export const providerDrawerScript: string = String.raw`(() => {
     activeAbort = new AbortController();
     closeConfirmation();
     currentDetail = null;
+    tools = [];
+    toolFilter = '';
+    q('provider-drawer-body').hidden = true;
+    q('provider-drawer-actions').hidden = true;
+    q('provider-drawer-meta').replaceChildren();
+    q('provider-drawer-tools').replaceChildren();
+    q('provider-drawer-tools-search').value = '';
+    q('provider-drawer-tools-empty').hidden = true;
     ['test', 'sync', 'disable', 'remove'].forEach(function (action) { setBusy('provider-action-' + action, false); });
     currentProviderId = providerId;
     drawerTrigger = trigger || document.activeElement;
