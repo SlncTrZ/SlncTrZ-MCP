@@ -34,6 +34,88 @@ function registerTestClient(service: OAuthService): string {
   }).client_id;
 }
 
+function registerLoopbackClient(service: OAuthService, redirectUri: string): string {
+  return service.registerClient({
+    client_name: "Loopback MCP Client",
+    redirect_uris: [redirectUri],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none"
+  }).client_id;
+}
+
+// RFC 8252 §7.3.3 — native app nhận callback trên port loopback ngẫu nhiên.
+describe("loopback redirect matching", () => {
+  function begin(service: OAuthService, clientId: string, redirectUri: string) {
+    return service.beginAuthorization({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code_challenge: service.pkceChallenge("l".repeat(43)),
+      code_challenge_method: "S256",
+      resource: RESOURCE.href,
+      scope: "mcp:tools"
+    });
+  }
+
+  it("accepts a loopback redirect on a different port than the registered one", () => {
+    const service = createService();
+    const clientId = registerLoopbackClient(service, "http://127.0.0.1:19876/mcp/oauth/callback");
+
+    const pending = begin(service, clientId, "http://127.0.0.1:39141/mcp/oauth/callback");
+
+    expect(pending.redirectUri).toBe("http://127.0.0.1:39141/mcp/oauth/callback");
+  });
+
+  it("accepts an ephemeral IPv6 loopback port", () => {
+    const service = createService();
+    const clientId = registerLoopbackClient(service, "http://[::1]:19876/callback");
+
+    const pending = begin(service, clientId, "http://[::1]:45000/callback");
+
+    expect(pending.redirectUri).toBe("http://[::1]:45000/callback");
+  });
+
+  it("still rejects a loopback redirect with a different path", () => {
+    const service = createService();
+    const clientId = registerLoopbackClient(service, "http://127.0.0.1:19876/mcp/oauth/callback");
+
+    expect(() => begin(service, clientId, "http://127.0.0.1:39141/callback")).toThrowError(
+      "redirect_uri is not registered"
+    );
+  });
+
+  it("still rejects a different loopback host with the same path", () => {
+    const service = createService();
+    const clientId = registerLoopbackClient(service, "http://127.0.0.1:19876/mcp/oauth/callback");
+
+    expect(() =>
+      begin(service, clientId, "http://localhost:19876/mcp/oauth/callback")
+    ).toThrowError("redirect_uri is not registered");
+  });
+
+  it("still rejects a query mismatch on loopback", () => {
+    const service = createService();
+    const clientId = registerLoopbackClient(service, "http://127.0.0.1:19876/callback?tenant=a");
+
+    expect(() => begin(service, clientId, "http://127.0.0.1:39141/callback?tenant=b")).toThrowError(
+      "redirect_uri is not registered"
+    );
+  });
+
+  it("still rejects a non-loopback redirect on a different port", () => {
+    const service = createService();
+    const clientId = registerLoopbackClient(
+      service,
+      "https://client.example.com:8443/oauth/callback"
+    );
+
+    expect(() =>
+      begin(service, clientId, "https://client.example.com/oauth/callback")
+    ).toThrowError("redirect_uri is not registered");
+  });
+});
+
 describe("OAuthService", () => {
   it("publishes OAuth and protected-resource discovery metadata", () => {
     const service = createService();
@@ -514,14 +596,15 @@ describe("OAuthService", () => {
     });
     expect(refreshed.refresh_token).not.toBe(issued.refresh_token);
 
-    expect(() =>
-      service.exchangeRefreshToken({
-        grant_type: "refresh_token",
-        refresh_token: issued.refresh_token,
-        client_id: clientId,
-        resource: RESOURCE.href
-      })
-    ).toThrowError(OAuthError);
+    // Concurrent/lost-response retries reuse the committed pair, without extending expiry.
+    const reused = service.exchangeRefreshToken({
+      grant_type: "refresh_token",
+      refresh_token: issued.refresh_token,
+      client_id: clientId,
+      resource: RESOURCE.href
+    });
+    expect(reused.access_token === refreshed.access_token).toBe(true);
+    expect(reused.refresh_token === refreshed.refresh_token).toBe(true);
   });
 
   it("revokes all dynamic sessions for owner lockdown", async () => {

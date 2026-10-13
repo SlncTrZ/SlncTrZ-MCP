@@ -15,11 +15,14 @@ Date: 2026-10-10
 
 - Keep request cancellation local to that request instead of restarting or quarantining the shared provider. Prediction Seam recording/resolution deadlines no longer trigger CyberBrain recovery.
 - Preserve cancellation classification for requests aborted before dispatch or while queued, so Prediction Seam outcomes are indeterminate rather than contradicted.
+- Accept a native client's loopback redirect URI when only its port differs from the registered URI (RFC 8252 §7.3.3); scheme, hostname, path and query must still match exactly.
+- Return the original rotation result when a refresh request is retried inside the configurable grace window (default 60s, `refreshRotationGraceSeconds`), instead of minting a parallel successor that left the other consumer with `invalid_refresh_token` and a browser re-authorization.
+- Revoke the whole grant when a consumed refresh token is replayed outside the grace window, or immediately when the window is 0; token revocation and owner revocation now also cover refresh hashes that were already rotated.
 
 ### Documentation / compatibility
 
 - Reconcile current architecture, provider management, deployment, troubleshooting and release acceptance guidance with the implemented contracts.
-- No new OAuth/database migration or reauthorization requirement; existing grants and provider credentials are retained. Prediction Seam remains disabled by default.
+- OAuth rotation history is an additive `refresh_history` table; the grant schema version stays v3, so an existing database remains readable by a v0.4.4 binary during rollback. Existing grants and provider credentials are retained; no reauthorization is required for these fixes. Prediction Seam remains disabled by default.
 - This is source preparation; exact-candidate signing, public Linux/Windows installs and installed browser acceptance remain required before stable publication.
 
 ## 0.4.4

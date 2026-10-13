@@ -3,6 +3,7 @@
  */
 import { closeSync, chmodSync, lstatSync, mkdirSync, openSync } from "node:fs";
 import { dirname } from "node:path";
+import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import * as z from "zod/v4";
 import { ensureWindowsPrivateAcl } from "../shared/windows-private-acl.js";
@@ -16,6 +17,7 @@ import {
 } from "./connection-profile.js";
 
 const SCHEMA_VERSION = 3;
+const MAX_ROTATION_GRACE_SECONDS = 3_600;
 const idSchema = z.string().min(1).max(256);
 const timeSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const profileSchema = z.enum(["full", "gateway-only"]);
@@ -72,16 +74,32 @@ export interface NewGrant {
   /** Optional initial display label; defaults to the next free "Agent N" name. */
   readonly label?: string;
 }
+export interface RefreshRotationReceipt {
+  readonly grant: VerifiedGrantToken;
+  /** Public per-rotation salt, unusable without the presented parent credential. */
+  readonly nonce: string;
+  readonly issuedAt: number;
+  readonly replayed: boolean;
+}
+type RotationTokenFactory = (
+  grant: VerifiedGrantToken,
+  nonce: string,
+  issuedAt: number
+) => readonly StoredToken[];
+
 export interface OAuthGrantStore {
   issue(grant: NewGrant, tokens: readonly StoredToken[], now: number): void;
   rotate(
     refreshHash: string,
     clientId: string,
     resource: string,
-    tokens: readonly StoredToken[],
-    now: number
-  ): boolean;
+    createTokens: RotationTokenFactory,
+    now: number,
+    graceSeconds?: number
+  ): RefreshRotationReceipt | undefined;
   findToken(hash: string, kind: "access" | "refresh", now: number): VerifiedGrantToken | undefined;
+  /** Includes retired hashes for revocation and authenticated replay detection. */
+  findRefreshTokenForRevocation(hash: string, now: number): VerifiedGrantToken | undefined;
   restrictByAccessToken(
     hash: string,
     profile: SurfaceProfile,
@@ -103,6 +121,7 @@ export interface OAuthGrantStore {
 interface StoreOptions {
   readonly maxTokens?: number;
   readonly maxClientDefaults?: number;
+  readonly maxRefreshHistory?: number;
 }
 function validTime(now: number): void {
   if (!timeSchema.safeParse(now).success) throw new Error("oauth_grant_store_invalid_time");
@@ -151,7 +170,8 @@ export function createSqliteOAuthGrantStore(
 ): OAuthGrantStore {
   const maxTokens = options.maxTokens ?? 50_000;
   const maxDefaults = options.maxClientDefaults ?? 1_024;
-  for (const limit of [maxTokens, maxDefaults]) {
+  const maxHistory = options.maxRefreshHistory ?? 50_000;
+  for (const limit of [maxTokens, maxDefaults, maxHistory]) {
     if (!Number.isSafeInteger(limit) || limit < 1)
       throw new Error("oauth_grant_store_invalid_capacity");
   }
@@ -164,7 +184,13 @@ export function createSqliteOAuthGrantStore(
   }
   try {
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
-    if (version !== 0 && version !== 1 && version !== 2 && version !== SCHEMA_VERSION)
+    if (
+      version !== 0 &&
+      version !== 1 &&
+      version !== 2 &&
+      version !== SCHEMA_VERSION &&
+      version !== 4
+    )
       throw new Error("unsupported_schema");
     db.exec(
       "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"
@@ -237,6 +263,28 @@ export function createSqliteOAuthGrantStore(
         `);
       });
     }
+    // History is additive. Legacy v3 binaries continue to see only live credentials.
+    transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS refresh_history (
+        tokenHash TEXT PRIMARY KEY CHECK(length(tokenHash)=64),
+        grantId TEXT NOT NULL REFERENCES grants(grantId) ON DELETE CASCADE,
+        expiresAt INTEGER,
+        supersededAt INTEGER NOT NULL,
+        nonce TEXT CHECK(nonce IS NULL OR length(nonce)=64)
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS refresh_history_expiry ON refresh_history(expiresAt);
+      CREATE INDEX IF NOT EXISTS refresh_history_grant ON refresh_history(grantId);`);
+      if (version === 4) {
+        // Repair the unreleased v4 layout without restoring consumed tokens to live status.
+        // No salt exists for those legacy rotations, so they cannot replay a cached response.
+        db.exec(`INSERT INTO refresh_history(tokenHash,grantId,expiresAt,supersededAt,nonce)
+          SELECT tokenHash,grantId,expiresAt,supersededAt,NULL FROM tokens
+          WHERE kind='refresh' AND supersededAt IS NOT NULL;
+          DELETE FROM tokens WHERE supersededAt IS NOT NULL;
+          ALTER TABLE tokens DROP COLUMN supersededAt;
+          PRAGMA user_version=3;`);
+      }
+    });
     // Additive presentation state preserves OAuth-v3 authority and downgrade compatibility.
     transaction(() => {
       db.exec(`CREATE TABLE IF NOT EXISTS grant_result_delivery (
@@ -256,6 +304,9 @@ export function createSqliteOAuthGrantStore(
       "SELECT grantId, clientId, resource, scopes, surfaceProfile, profileCeiling, label, createdAt, lastSeenAt FROM grants LIMIT 0"
     ).all();
     db.prepare("SELECT tokenHash, kind, grantId, expiresAt FROM tokens LIMIT 0").all();
+    db.prepare(
+      "SELECT tokenHash, grantId, expiresAt, supersededAt, nonce FROM refresh_history LIMIT 0"
+    ).all();
     if (path !== ":memory:") {
       for (const candidate of [path, path + "-wal", path + "-shm"]) {
         if (lstatSync(candidate, { throwIfNoEntry: false }) !== undefined) secureFile(candidate);
@@ -280,6 +331,9 @@ export function createSqliteOAuthGrantStore(
   function prune(now: number): void {
     validTime(now);
     db.prepare("DELETE FROM tokens WHERE expiresAt <= ?").run(now);
+    // Retain replay evidence for the original credential lifetime. Everlasting grants
+    // retain history until revocation; a separate capacity bound fails closed without eviction.
+    db.prepare("DELETE FROM refresh_history WHERE expiresAt <= ?").run(now);
     db.exec(
       "DELETE FROM grants WHERE NOT EXISTS (SELECT 1 FROM tokens WHERE tokens.grantId=grants.grantId)"
     );
@@ -302,7 +356,8 @@ export function createSqliteOAuthGrantStore(
       SELECT g.*, t.expiresAt, COALESCE(d.resultDelivery,'structured') AS resultDelivery
       FROM tokens t JOIN grants g ON g.grantId=t.grantId
       LEFT JOIN grant_result_delivery d ON d.grantId=g.grantId
-      WHERE t.tokenHash=? AND t.kind=? AND (t.expiresAt>? OR (t.expiresAt IS NULL AND t.kind='refresh'))
+      WHERE t.tokenHash=? AND t.kind=?
+        AND (t.expiresAt>? OR (t.expiresAt IS NULL AND t.kind='refresh'))
     `
       )
       .get(hash, kind, now);
@@ -314,6 +369,40 @@ export function createSqliteOAuthGrantStore(
       throw new Error("oauth_grant_store_invalid_record");
     return { ...grant, expiresAt: expiresAt.data };
   }
+  function retired(
+    hash: string,
+    now: number
+  ):
+    | {
+        readonly grant: VerifiedGrantToken;
+        readonly nonce: string | null;
+        readonly issuedAt: number;
+      }
+    | undefined {
+    validTime(now);
+    const row = db
+      .prepare(
+        `SELECT g.*, h.expiresAt, h.supersededAt, h.nonce,
+      COALESCE(d.resultDelivery,'structured') AS resultDelivery
+      FROM refresh_history h JOIN grants g ON g.grantId=h.grantId
+      LEFT JOIN grant_result_delivery d ON d.grantId=g.grantId
+      WHERE h.tokenHash=? AND (h.expiresAt>? OR h.expiresAt IS NULL)`
+      )
+      .get(hash, now);
+    if (row === undefined) return undefined;
+    const grant = grantFromRow(row);
+    const expiresAt = timeSchema.nullable().parse(row.expiresAt);
+    const issuedAt = timeSchema.parse(row.supersededAt);
+    const nonce = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .nullable()
+      .parse(row.nonce);
+    if (expiresAt === null && grant.profileCeiling !== "gateway-only")
+      throw new Error("oauth_grant_store_invalid_record");
+    return { grant: { ...grant, expiresAt }, nonce, issuedAt };
+  }
+
   function insertTokens(grantId: string, tokens: readonly StoredToken[], now: number): void {
     if (tokens.length !== 2 || tokens[0]?.kind !== "access" || tokens[1]?.kind !== "refresh") {
       throw new Error("oauth_grant_store_invalid_tokens");
@@ -390,16 +479,53 @@ export function createSqliteOAuthGrantStore(
         insertTokens(grant.grantId, tokens, now);
       });
     },
-    rotate(refreshHash, clientId, resource, tokens, now) {
+    rotate(refreshHash, clientId, resource, createTokens, now, graceSeconds = 0) {
+      if (
+        !Number.isSafeInteger(graceSeconds) ||
+        graceSeconds < 0 ||
+        graceSeconds > MAX_ROTATION_GRACE_SECONDS
+      )
+        throw new Error("oauth_grant_store_invalid_grace");
       return transaction(() => {
         prune(now);
-        const grant = find(refreshHash, "refresh", now);
+        const live = find(refreshHash, "refresh", now);
+        const history = live === undefined ? retired(refreshHash, now) : undefined;
+        const grant = live ?? history?.grant;
         if (grant === undefined || grant.clientId !== clientId || grant.resource !== resource)
-          return false;
+          return undefined;
+        if (history !== undefined) {
+          const age = now - history.issuedAt;
+          if (graceSeconds === 0 || age >= graceSeconds) {
+            // Return, rather than throw, so the family revocation commits atomically.
+            db.prepare("DELETE FROM grants WHERE grantId=?").run(grant.grantId);
+            return undefined;
+          }
+          if (age < 0 || history.nonce === null) return undefined;
+          const tokens = createTokens(grant, history.nonce, history.issuedAt);
+          // A stale retry must not resurrect a successor already rotated or expired.
+          if (
+            tokens.length !== 2 ||
+            tokens[0]?.kind !== "access" ||
+            tokens[1]?.kind !== "refresh" ||
+            tokens.some(
+              (token) => find(token.tokenHash, token.kind, now)?.grantId !== grant.grantId
+            )
+          )
+            return undefined;
+          db.prepare("UPDATE grants SET lastSeenAt=? WHERE grantId=?").run(now, grant.grantId);
+          return { grant, nonce: history.nonce, issuedAt: history.issuedAt, replayed: true };
+        }
+        if (Number(db.prepare("SELECT count(*) AS n FROM refresh_history").get()?.n) >= maxHistory)
+          throw new Error("oauth_grant_store_history_capacity");
+        const nonce = randomBytes(32).toString("hex");
+        const tokens = createTokens(grant, nonce, now);
+        db.prepare(
+          "INSERT INTO refresh_history(tokenHash,grantId,expiresAt,supersededAt,nonce) VALUES(?,?,?,?,?)"
+        ).run(refreshHash, grant.grantId, grant.expiresAt, now, nonce);
         db.prepare("DELETE FROM tokens WHERE tokenHash=?").run(refreshHash);
         insertTokens(grant.grantId, tokens, now);
         db.prepare("UPDATE grants SET lastSeenAt=? WHERE grantId=?").run(now, grant.grantId);
-        return true;
+        return { grant, nonce, issuedAt: now, replayed: false };
       });
     },
     findToken(hash, kind, now) {
@@ -409,6 +535,12 @@ export function createSqliteOAuthGrantStore(
         if (record !== undefined)
           db.prepare("UPDATE grants SET lastSeenAt=? WHERE grantId=?").run(now, record.grantId);
         return record;
+      });
+    },
+    findRefreshTokenForRevocation(hash, now) {
+      return transaction(() => {
+        prune(now);
+        return find(hash, "refresh", now) ?? retired(hash, now)?.grant;
       });
     },
     restrictByAccessToken(hash, profile, now) {

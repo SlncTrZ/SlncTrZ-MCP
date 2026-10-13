@@ -31,7 +31,13 @@ const RESOURCE = new URL("https://mcp.example.com/mcp");
 const REDIRECT = "https://client.example.com/callback";
 const directories: string[] = [];
 const stores: ReturnType<typeof createSqliteOAuthGrantStore>[] = [];
-function fixture(options: { maxTokens?: number } = {}) {
+function fixture(
+  options: {
+    maxTokens?: number;
+    maxRefreshHistory?: number;
+    refreshRotationGraceSeconds?: number;
+  } = {}
+) {
   const directory = mkdtempSync(join(tmpdir(), "oauth-grants-"));
   directories.push(directory);
   const path = join(directory, "oauth-grants.sqlite3");
@@ -45,6 +51,9 @@ function fixture(options: { maxTokens?: number } = {}) {
       ownerSecretHash: HASH,
       now: () => now,
       grantStore: store,
+      ...(options.refreshRotationGraceSeconds === undefined
+        ? {}
+        : { refreshRotationGraceSeconds: options.refreshRotationGraceSeconds }),
       dynamicClientStore: createDynamicClientFileStore(join(directory, "oauth-clients.json"), 10)
     });
     const owner = new OwnerConnectionService(store, () => now);
@@ -98,6 +107,169 @@ afterEach(() => {
 });
 
 describe("durable OAuth grants and profiles", () => {
+  it("repairs an unreleased v4 database without resurrecting retired tokens", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client, "gateway-only");
+    f.store.close();
+    const db = new DatabaseSync(f.path);
+    try {
+      db.exec("ALTER TABLE tokens ADD COLUMN supersededAt INTEGER; PRAGMA user_version=4;");
+      db.prepare("UPDATE tokens SET supersededAt=1000 WHERE kind='refresh'").run();
+    } finally {
+      db.close();
+    }
+    f.advance(61);
+    const reopened = f.open();
+    expect(() => refresh(reopened.service, client, token.refresh_token)).toThrow();
+    await expect(reopened.service.verifyAccessToken(token.access_token)).rejects.toThrow();
+    const inspect = new DatabaseSync(f.path, { readOnly: true });
+    try {
+      expect(inspect.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
+      expect(
+        inspect
+          .prepare("PRAGMA table_info(tokens)")
+          .all()
+          .some((row) => row.name === "supersededAt")
+      ).toBe(false);
+    } finally {
+      inspect.close();
+    }
+  });
+
+  it("does not resurrect a successor that was rotated before an ancestor retry", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client);
+    const first = refresh(f.service, client, token.refresh_token);
+    const second = refresh(f.service, client, first.refresh_token);
+    expect(() => refresh(f.service, client, token.refresh_token)).toThrow();
+    expect(await f.service.verifyAccessToken(second.access_token)).toBeDefined();
+  });
+
+  it("preserves the current credential if bounded history is full", async () => {
+    const f = fixture({ maxRefreshHistory: 1 });
+    const client = register(f.service);
+    const token = issue(f.service, client);
+    const next = refresh(f.service, client, token.refresh_token);
+    expect(() => refresh(f.service, client, next.refresh_token)).toThrow("history_capacity");
+    expect(await f.service.verifyAccessToken(next.access_token)).toBeDefined();
+    expect(f.service.revokeTokenByOwner(next.refresh_token)).toBe(true);
+  });
+
+  it("enforces strict single-use in the same second and revokes the replayed family", async () => {
+    const f = fixture({ refreshRotationGraceSeconds: 0 });
+    const client = register(f.service);
+    const token = issue(f.service, client);
+    const sibling = issue(f.service, client);
+    const next = refresh(f.service, client, token.refresh_token);
+    expect(() => refresh(f.service, client, token.refresh_token)).toThrow();
+    await expect(f.service.verifyAccessToken(next.access_token)).rejects.toThrow();
+    expect(await f.service.verifyAccessToken(sibling.access_token)).toBeDefined();
+  });
+
+  it("revokes a superseded refresh token while it is still accepted for retry", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client);
+    const next = refresh(f.service, client, token.refresh_token);
+    f.advance(1);
+    f.service.revokeToken({ client_id: client, token: token.refresh_token });
+    expect(() => refresh(f.service, client, token.refresh_token)).toThrow();
+    await expect(f.service.verifyAccessToken(next.access_token)).rejects.toThrow();
+  });
+
+  it("lets the owner revoke an everlasting retired token beyond the old history retention", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client, "gateway-only");
+    const next = refresh(f.service, client, token.refresh_token);
+    f.advance(3601);
+    expect(f.service.revokeTokenByOwner(token.refresh_token)).toBe(true);
+    expect(() => refresh(f.service, client, next.refresh_token)).toThrow();
+  });
+
+  it("returns the same rotation result after reopen without inserting more credentials", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client, "gateway-only");
+    const next = refresh(f.service, client, token.refresh_token);
+    f.store.close();
+    f.advance(1);
+    const reopened = f.open();
+    const retried = refresh(reopened.service, client, token.refresh_token);
+    expect(retried.refresh_token === next.refresh_token).toBe(true);
+    expect(retried.access_token === next.access_token).toBe(true);
+    expect(retried.expires_in).toBe(next.expires_in - 1);
+    const db = new DatabaseSync(f.path, { readOnly: true });
+    expect(db.prepare("SELECT count(*) AS n FROM tokens").get()?.n).toBe(3);
+    db.close();
+    for (const name of readdirSync(f.directory).filter((n) => n.startsWith("oauth-grants"))) {
+      const bytes = readFileSync(join(f.directory, name));
+      for (const value of [
+        token.access_token,
+        token.refresh_token,
+        next.access_token,
+        next.refresh_token
+      ])
+        expect(bytes.includes(Buffer.from(value))).toBe(false);
+    }
+  });
+
+  it("rejects replay at the exact grace boundary and revokes every successor", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client);
+    const next = refresh(f.service, client, token.refresh_token);
+    f.advance(59);
+    expect(
+      refresh(f.service, client, token.refresh_token).refresh_token === next.refresh_token
+    ).toBe(true);
+    f.advance(1);
+    expect(() => refresh(f.service, client, token.refresh_token)).toThrow();
+    expect(() => refresh(f.service, client, next.refresh_token)).toThrow();
+    await expect(f.service.verifyAccessToken(next.access_token)).rejects.toThrow();
+  });
+
+  it("does not revoke a family on mismatched client or resource replay", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const other = register(f.service);
+    const token = issue(f.service, client);
+    const next = refresh(f.service, client, token.refresh_token);
+    f.advance(61);
+    expect(() => refresh(f.service, other, token.refresh_token)).toThrow();
+    expect(() =>
+      f.service.exchangeRefreshToken({
+        grant_type: "refresh_token",
+        client_id: client,
+        refresh_token: token.refresh_token,
+        resource: "https://other.example/mcp"
+      })
+    ).toThrow();
+    expect(await f.service.verifyAccessToken(next.access_token)).toBeDefined();
+  });
+
+  it("preserves the v3 rollback schema and removes retired refreshes from the live token table", () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client);
+    refresh(f.service, client, token.refresh_token);
+    const db = new DatabaseSync(f.path, { readOnly: true });
+    try {
+      expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
+      expect(
+        db
+          .prepare("PRAGMA table_info(tokens)")
+          .all()
+          .map((row) => row.name)
+      ).toEqual(["tokenHash", "kind", "grantId", "expiresAt"]);
+      expect(db.prepare("SELECT count(*) AS n FROM tokens WHERE kind='refresh'").get()?.n).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
   it("retains access, refresh, identity and profile across reopen without plaintext persistence", async () => {
     const f = fixture();
     const clientId = register(f.service);
@@ -127,10 +299,9 @@ describe("durable OAuth grants and profiles", () => {
       grantId: identity.grantId,
       surfaceProfile: "gateway-only"
     });
+    f.advance(61); // Replay outside grace revokes the complete family.
     expect(() => refresh(reopened.service, clientId, token.refresh_token)).toThrow();
-    expect(await reopened.service.verifyAccessToken(token.access_token)).toMatchObject({
-      clientId
-    });
+    await expect(reopened.service.verifyAccessToken(token.access_token)).rejects.toThrow();
   });
 
   it("isolates grants of one client, snapshots future defaults, and forbids self promotion", async () => {
@@ -177,10 +348,35 @@ describe("durable OAuth grants and profiles", () => {
       "gateway-only"
     );
     const next = refresh(other.service, client, token.refresh_token);
-    expect(() => refresh(f.service, client, token.refresh_token)).toThrow();
+    // The second handle retries the same committed rotation within grace.
+    expect(refresh(f.service, client, token.refresh_token).access_token).toBeTruthy();
     expect(await f.service.authenticateConnection(next.access_token)).toMatchObject({
       grantId: identity.grantId
     });
+    f.advance(61);
+    expect(() => refresh(f.service, client, token.refresh_token)).toThrow();
+    await expect(f.service.authenticateConnection(next.access_token)).rejects.toThrow();
+  });
+
+  it("accepts a just-superseded refresh token inside the rotation grace window", async () => {
+    const f = fixture();
+    const client = register(f.service);
+    const token = issue(f.service, client, "gateway-only");
+
+    const first = refresh(f.service, client, token.refresh_token);
+    // Both consumers receive the same committed rotation result.
+    const second = refresh(f.service, client, token.refresh_token);
+    expect(second.refresh_token === first.refresh_token).toBe(true);
+    expect(second.access_token === first.access_token).toBe(true);
+    expect(await f.service.authenticateConnection(first.access_token)).toMatchObject({
+      clientId: client
+    });
+    expect(await f.service.authenticateConnection(second.access_token)).toMatchObject({
+      clientId: client
+    });
+
+    f.advance(61);
+    expect(() => refresh(f.service, client, token.refresh_token)).toThrow();
   });
 
   it("revokes a whole grant by token, respects client binding, and leaves sibling grants usable", async () => {
@@ -512,7 +708,7 @@ describe("gateway-only onboarding", () => {
       grantId: original.grantId,
       surfaceProfile: "gateway-only"
     });
-    expect(() => refresh(reopened.service, client, token.refresh_token)).toThrow();
+    f.advance(61);
     const db = new DatabaseSync(f.path);
     expect(
       db.prepare("SELECT expiresAt FROM tokens WHERE kind='refresh'").get()?.expiresAt
@@ -644,6 +840,7 @@ describe("per-connection result delivery", () => {
       "structured"
     );
     const inspect = new DatabaseSync(f.path);
+    // The additive rotation table preserves the authority schema and v3 rollback.
     expect(inspect.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
     inspect.close();
   });

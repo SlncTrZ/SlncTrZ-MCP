@@ -26,7 +26,8 @@ afterEach(async () => {
 async function startOAuthServer(
   staticClient?: OAuthServiceOptions["staticClient"],
   audit?: AuthAuditSink,
-  staticRedirectStore?: OAuthServiceOptions["staticRedirectStore"]
+  staticRedirectStore?: OAuthServiceOptions["staticRedirectStore"],
+  now?: () => number
 ): Promise<{
   readonly origin: string;
   readonly service: OAuthService;
@@ -37,7 +38,8 @@ async function startOAuthServer(
     ownerSecretHash: createOwnerSecretHash(OWNER_SECRET),
     ...(staticClient === undefined ? {} : { staticClient }),
     ...(audit === undefined ? {} : { audit }),
-    ...(staticRedirectStore === undefined ? {} : { staticRedirectStore })
+    ...(staticRedirectStore === undefined ? {} : { staticRedirectStore }),
+    ...(now === undefined ? {} : { now })
   });
   const server = createGatewayServer({ oauthService: service });
   servers.push(server);
@@ -58,6 +60,82 @@ function transactionFromHtml(html: string): string {
 }
 
 describe("OAuth HTTP flow", () => {
+  it.each(["full", "gateway-only"] as const)(
+    "makes HTTP revocation final for a retired %s refresh token inside grace",
+    async (profile) => {
+      let now = 1000;
+      const { origin, service } = await startOAuthServer(
+        undefined,
+        undefined,
+        undefined,
+        () => now
+      );
+      try {
+        const clientId = service.registerClient({
+          redirect_uris: ["http://127.0.0.1:8000/callback"]
+        }).client_id;
+        const verifier = "r".repeat(43);
+        const pending = service.beginAuthorization({
+          response_type: "code",
+          client_id: clientId,
+          redirect_uri: "http://127.0.0.1:9000/callback",
+          code_challenge: service.pkceChallenge(verifier),
+          code_challenge_method: "S256",
+          resource: RESOURCE
+        });
+        const redirect = service.approveAuthorization(pending.transactionId, OWNER_SECRET, profile);
+        const original = service.exchangeAuthorizationCode({
+          grant_type: "authorization_code",
+          client_id: clientId,
+          redirect_uri: "http://127.0.0.1:9000/callback",
+          code: redirect.searchParams.get("code") ?? "",
+          code_verifier: verifier,
+          resource: RESOURCE
+        });
+        const form = {
+          grant_type: "refresh_token",
+          client_id: clientId,
+          refresh_token: original.refresh_token,
+          resource: RESOURCE
+        };
+        const first = await fetch(origin + "/token", {
+          method: "POST",
+          body: new URLSearchParams(form)
+        });
+        expect(first.status).toBe(200);
+        const next = (await first.json()) as { access_token: string; refresh_token: string };
+        now += 1;
+        const retry = await fetch(origin + "/token", {
+          method: "POST",
+          body: new URLSearchParams(form)
+        });
+        expect(retry.status).toBe(200);
+        const retried = (await retry.json()) as { refresh_token: string; expires_in: number };
+        expect(retried.refresh_token === next.refresh_token).toBe(true);
+        expect(retried.expires_in).toBe(899);
+        const revoke = await fetch(origin + "/revoke", {
+          method: "POST",
+          body: new URLSearchParams({
+            client_id: clientId,
+            token: original.refresh_token,
+            token_type_hint: "refresh_token"
+          })
+        });
+        expect(revoke.status).toBe(200);
+        await revoke.text();
+        const rejected = await fetch(origin + "/token", {
+          method: "POST",
+          body: new URLSearchParams(form)
+        });
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toMatchObject({ error: "invalid_grant" });
+        await expect(service.verifyAccessToken(next.access_token)).rejects.toThrow();
+      } finally {
+        service.close();
+      }
+    }
+  );
+
   it.each(["/authorize", "/owner", "/mcp"])("keeps the Origin boundary on %s", async (path) => {
     const { origin } = await startOAuthServer();
     for (const requestOrigin of ["null", "https://untrusted.example"]) {

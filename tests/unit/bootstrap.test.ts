@@ -96,6 +96,7 @@ describe("bootstrap lifecycle", () => {
     await lifecycle.shutdown();
 
     for (const [path, user_version] of [
+      // Rotation history is additive; live credentials retain the v3 rollback contract.
       [oauthPath, 3],
       [debatePath, 1]
     ] as const) {

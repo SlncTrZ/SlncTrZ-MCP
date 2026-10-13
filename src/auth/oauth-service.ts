@@ -7,7 +7,7 @@
  * ADR-012, and ADR-013.
  */
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   OAuthError,
   OAuthErrorCode,
@@ -28,6 +28,10 @@ const AUTHORIZATION_CODE_TTL_SECONDS = 300;
 const PENDING_AUTHORIZATION_TTL_SECONDS = 600;
 const ACCESS_TOKEN_TTL_SECONDS = 900;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+// Lost-response/concurrent retries return the original rotation result within a bounded grace.
+// Replaying outside grace revokes the grant; consumers should use separate grants.
+const DEFAULT_REFRESH_ROTATION_GRACE_SECONDS = 60;
+const MAX_REFRESH_ROTATION_GRACE_SECONDS = 3_600;
 const PKCE_VERIFIER_PATTERN = /^[A-Za-z0-9\-._~]{43,128}$/u;
 const PKCE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const MAX_REDIRECT_URIS = 10;
@@ -104,6 +108,8 @@ export interface OAuthServiceOptions {
   /** Hooked whenever a token is issued; used to auto-bind an authenticated client into default. */
   readonly onAuthorized?: (clientId: string) => Promise<void>;
   readonly now?: () => number;
+  /** Rotation retry grace in seconds. 0 is strict single-use; default 60, exclusive boundary. */
+  readonly refreshRotationGraceSeconds?: number;
 }
 
 /** Serializable dynamic-client registration (public client; no secret). */
@@ -214,9 +220,7 @@ function validateRedirectUri(value: string): string {
     throw new OAuthError(OAuthErrorCode.InvalidRedirectUri, "Invalid redirect URI");
   }
 
-  const loopback =
-    url.protocol === "http:" &&
-    (url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "localhost");
+  const loopback = isLoopbackRedirectUrl(url);
   const secure = url.protocol === "https:";
 
   if (
@@ -248,6 +252,42 @@ function isGeminiRedirectRegistrationCandidate(redirectUri: string): boolean {
   );
 }
 
+/**
+ * URL có phải origin loopback HTTP hợp lệ cho OAuth native app hay không.
+ * Danh sách host khớp với kiểm tra origin ở trên (127.0.0.1, [::1], localhost).
+ */
+function isLoopbackRedirectUrl(url: URL): boolean {
+  return (
+    url.protocol === "http:" &&
+    (url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "localhost")
+  );
+}
+
+/**
+ * So khớp redirect URI client yêu cầu với allowlist đã đăng ký.
+ *
+ * RFC 8252 §7.3.3 (Loopback Interface Redirection): authorization server PHẢI chấp nhận
+ * port bất kỳ cho redirect URI loopback, vì native app nhận callback trên port ngẫu nhiên
+ * do hệ điều hành cấp (opencode/pi lấy port động mỗi phiên). Vì vậy khi cả hai đầu đều là
+ * loopback thì bỏ qua port; scheme, hostname, path và query vẫn phải khớp chính xác để
+ * không nới rộng allowlist ngoài phạm vi cho phép.
+ */
+function redirectUriMatchesRegistered(registered: readonly string[], requested: string): boolean {
+  if (registered.includes(requested)) return true;
+  const requestedUrl = safeUrl(requested, "Invalid redirect URI");
+  if (!isLoopbackRedirectUrl(requestedUrl)) return false;
+  return registered.some((candidate) => {
+    const candidateUrl = safeUrl(candidate, "Invalid redirect URI");
+    return (
+      isLoopbackRedirectUrl(candidateUrl) &&
+      candidateUrl.protocol === requestedUrl.protocol &&
+      candidateUrl.hostname === requestedUrl.hostname &&
+      candidateUrl.pathname === requestedUrl.pathname &&
+      candidateUrl.search === requestedUrl.search
+    );
+  });
+}
+
 function safeUrl(value: string | URL, message: string): URL {
   try {
     return new URL(value);
@@ -276,6 +316,7 @@ export class OAuthService implements OAuthTokenVerifier {
   readonly #resource: URL;
   readonly #ownerSecretHash: string;
   readonly #now: () => number;
+  readonly #refreshRotationGraceSeconds: number;
   readonly #audit: AuthAuditSink;
   readonly #maxDynamicClients: number;
   readonly #maxPendingAuthorizations: number;
@@ -304,6 +345,17 @@ export class OAuthService implements OAuthTokenVerifier {
     validateOwnerSecretHash(options.ownerSecretHash);
     this.#ownerSecretHash = options.ownerSecretHash;
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1_000));
+    this.#refreshRotationGraceSeconds =
+      options.refreshRotationGraceSeconds ?? DEFAULT_REFRESH_ROTATION_GRACE_SECONDS;
+    if (
+      !Number.isSafeInteger(this.#refreshRotationGraceSeconds) ||
+      this.#refreshRotationGraceSeconds < 0 ||
+      this.#refreshRotationGraceSeconds > MAX_REFRESH_ROTATION_GRACE_SECONDS
+    ) {
+      throw new RangeError(
+        `refreshRotationGraceSeconds must be an integer between 0 and ${MAX_REFRESH_ROTATION_GRACE_SECONDS}`
+      );
+    }
     this.#audit = options.audit ?? (() => undefined);
     this.#maxDynamicClients = options.maxDynamicClients ?? DEFAULT_MAX_DYNAMIC_CLIENTS;
     if (!Number.isSafeInteger(this.#maxDynamicClients) || this.#maxDynamicClients <= 0) {
@@ -518,7 +570,7 @@ export class OAuthService implements OAuthTokenVerifier {
       requiredString(parameters.redirect_uri, "redirect_uri")
     );
     let pendingRedirectRegistration: PendingRedirectRegistration | undefined;
-    if (!client.redirectUris.includes(redirectUri)) {
+    if (!redirectUriMatchesRegistered(client.redirectUris, redirectUri)) {
       if (
         clientId !== this.#staticClientId ||
         this.#staticRedirectStore === undefined ||
@@ -824,7 +876,7 @@ export class OAuthService implements OAuthTokenVerifier {
     } catch (error) {
       return this.#failTokenExchange(error, "invalid_request");
     }
-    const record = this.#grants.findToken(hashToken(token), "refresh", this.#now());
+    const record = this.#grants.findRefreshTokenForRevocation(hashToken(token), this.#now());
     if (record === undefined) {
       return this.#failTokenExchange(
         new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token"),
@@ -869,11 +921,26 @@ export class OAuthService implements OAuthTokenVerifier {
     }
 
     try {
-      return this.#issueTokens(record.clientId, record.resource, record.scopes, "token.refreshed", {
-        existingGrantId: record.grantId,
-        surfaceProfile: record.profileCeiling,
-        refreshHash: hashToken(token)
-      });
+      const now = this.#now();
+      const receipt = this.#grants.rotate(
+        hashToken(token),
+        clientId,
+        resource,
+        (grant, nonce, issuedAt) => this.#rotationTokens(token, grant, nonce, issuedAt).tokens,
+        now,
+        this.#refreshRotationGraceSeconds
+      );
+      if (receipt === undefined)
+        throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
+      const { response } = this.#rotationTokens(
+        token,
+        receipt.grant,
+        receipt.nonce,
+        receipt.issuedAt
+      );
+      this.#emit("token.refreshed", "success", clientId);
+      void this.#onAuthorized?.(clientId).catch(() => undefined);
+      return { ...response, expires_in: receipt.issuedAt + ACCESS_TOKEN_TTL_SECONDS - now };
     } catch (error) {
       return this.#failTokenExchange(
         error,
@@ -905,12 +972,12 @@ export class OAuthService implements OAuthTokenVerifier {
       parameters.token_type_hint === "access_token"
         ? this.#grants.findToken(hashToken(token), "access", this.#now())
         : parameters.token_type_hint === "refresh_token"
-          ? this.#grants.findToken(hashToken(token), "refresh", this.#now())
+          ? this.#grants.findRefreshTokenForRevocation(hashToken(token), this.#now())
           : undefined;
     const record =
       hinted ??
       this.#grants.findToken(hashToken(token), "access", this.#now()) ??
-      this.#grants.findToken(hashToken(token), "refresh", this.#now());
+      this.#grants.findRefreshTokenForRevocation(hashToken(token), this.#now());
     if (record === undefined) {
       this.#emit("token.revoked", "ignored", clientId, "invalid_token");
       return;
@@ -929,7 +996,7 @@ export class OAuthService implements OAuthTokenVerifier {
     this.#purgeExpired();
     const record =
       this.#grants.findToken(hashToken(token), "access", this.#now()) ??
-      this.#grants.findToken(hashToken(token), "refresh", this.#now());
+      this.#grants.findRefreshTokenForRevocation(hashToken(token), this.#now());
     if (record === undefined) return false;
     this.#grants.revokeGrant(record.grantId);
     this.#emit("token.revoked", "success", record.clientId);
@@ -1060,22 +1127,65 @@ export class OAuthService implements OAuthTokenVerifier {
     return [...new Set(scopes)];
   }
 
+  #rotationTokens(parentToken: string, grant: VerifiedGrantToken, nonce: string, issuedAt: number) {
+    // The store retains only a public random salt and token hashes. Each generation gets
+    // a fresh salt, so knowledge of a retired parent cannot predict future credentials.
+    const derive = (kind: "access" | "refresh") =>
+      createHmac("sha256", parentToken)
+        .update(
+          JSON.stringify([
+            "slnctrz-oauth-rotation-v1",
+            kind,
+            grant.grantId,
+            grant.clientId,
+            grant.resource,
+            nonce,
+            issuedAt
+          ])
+        )
+        .digest("base64url");
+    const accessToken = `at_${derive("access")}`;
+    const refreshToken = `rt_${derive("refresh")}`;
+    const response: OAuthTokenResponse = {
+      access_token: accessToken,
+      token_type: "Bearer",
+      expires_in: ACCESS_TOKEN_TTL_SECONDS,
+      refresh_token: refreshToken,
+      scope: grant.scopes.join(" "),
+      resource: grant.resource
+    };
+    return {
+      response,
+      tokens: [
+        {
+          tokenHash: hashToken(accessToken),
+          kind: "access" as const,
+          expiresAt: issuedAt + ACCESS_TOKEN_TTL_SECONDS
+        },
+        {
+          tokenHash: hashToken(refreshToken),
+          kind: "refresh" as const,
+          expiresAt:
+            grant.profileCeiling === "gateway-only" ? null : issuedAt + REFRESH_TOKEN_TTL_SECONDS
+        }
+      ]
+    };
+  }
+
   #issueTokens(
     clientId: string,
     resource: string,
     scopes: readonly string[],
     auditType: "token.issued" | "token.refreshed",
     options: {
-      readonly existingGrantId?: string;
       readonly surfaceProfile?: SurfaceProfile;
-      readonly refreshHash?: string;
       readonly onCommitted?: () => void;
     } = {}
   ): OAuthTokenResponse {
     const now = this.#now();
     const accessToken = randomIdentifier("at");
     const refreshToken = randomIdentifier("rt");
-    const grantId = options.existingGrantId ?? randomIdentifier("grant");
+    const grantId = randomIdentifier("grant");
     const tokens = [
       {
         tokenHash: hashToken(accessToken),
@@ -1089,22 +1199,18 @@ export class OAuthService implements OAuthTokenVerifier {
           options.surfaceProfile === "gateway-only" ? null : now + REFRESH_TOKEN_TTL_SECONDS
       }
     ];
-    if (options.refreshHash === undefined) {
-      this.#grants.issue(
-        {
-          grantId,
-          clientId,
-          resource,
-          scopes,
-          requestedProfile: options.surfaceProfile ?? "full",
-          profileCeiling: options.surfaceProfile ?? "full"
-        },
-        tokens,
-        now
-      );
-    } else if (!this.#grants.rotate(options.refreshHash, clientId, resource, tokens, now)) {
-      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
-    }
+    this.#grants.issue(
+      {
+        grantId,
+        clientId,
+        resource,
+        scopes,
+        requestedProfile: options.surfaceProfile ?? "full",
+        profileCeiling: options.surfaceProfile ?? "full"
+      },
+      tokens,
+      now
+    );
     options.onCommitted?.();
     this.#emit(auditType, "success", clientId);
     // Fire-and-forget: an authenticated client is auto-bound into a workspace (idempotent).
