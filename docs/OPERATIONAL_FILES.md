@@ -37,6 +37,11 @@ Use config show/status to locate your actual installation; do not expose secret-
 Config root contains `gateway.env` and sensitive `client.env`. Program root contains
 immutable `versions/`, atomic `current.json`, installation-marker.json and a platform launcher.
 
+`gateway.env` is read by the launcher through a fixed runtime-key allowlist, while
+`client.env` holds the static OAuth client credential. On an operator-managed Linux user
+service, reference `client.env` from the unit environment instead of copying those keys into
+`gateway.env`; see [Deployment](DEPLOYMENT.md).
+
 The proposed `lifecycle/operations.jsonl` belongs to the unwired ledger foundation, not
 the current runtime's normal state layout. Runner/Coordinator records and context receipts
 are in-memory. Custom harness roots require their own backup.

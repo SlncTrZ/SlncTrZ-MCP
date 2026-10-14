@@ -59,6 +59,22 @@ function transactionFromHtml(html: string): string {
   return match[1];
 }
 
+/** Reads the completion document's navigation target, which replaces the former 303 response. */
+function authorizationResponseTarget(html: string): URL {
+  const match = html.match(/<meta http-equiv="refresh" content="0;url=([^"]+)"/u);
+  if (match?.[1] === undefined) throw new Error("Missing authorization response navigation");
+  return new URL(unescapeHtmlEntities(match[1]));
+}
+
+function unescapeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gu, "&")
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&quot;/gu, '"')
+    .replace(/&#39;/gu, "'");
+}
+
 describe("OAuth HTTP flow", () => {
   it.each(["full", "gateway-only"] as const)(
     "makes HTTP revocation final for a retired %s refresh token inside grace",
@@ -232,8 +248,8 @@ describe("OAuth HTTP flow", () => {
       }),
       redirect: "manual"
     });
-    expect(approval.status).toBe(303);
-    const callback = new URL(approval.headers.get("location") ?? "");
+    expect(approval.status).toBe(200);
+    const callback = authorizationResponseTarget(await approval.text());
 
     const token = await fetch(`${origin}/token`, {
       method: "POST",
@@ -311,9 +327,9 @@ describe("OAuth HTTP flow", () => {
       }),
       redirect: "manual"
     });
-    expect(approval.status).toBe(303);
+    expect(approval.status).toBe(200);
     expect(saved).toEqual([redirectUri]);
-    const callback = new URL(approval.headers.get("location") ?? "");
+    const callback = authorizationResponseTarget(await approval.text());
     expect(callback.origin).toBe("https://oauth-redirect.googleusercontent.com");
     expect(callback.searchParams.get("state")).toBe("gemini-state");
 
@@ -332,6 +348,75 @@ describe("OAuth HTTP flow", () => {
       })
     });
     expect(token.status).toBe(200);
+  });
+
+  it("delivers the authorization response as a document navigation, not a redirect", async () => {
+    const clientId = "slnctrz-mcp";
+    const redirectUri =
+      "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-multihop";
+    const { origin, service } = await startOAuthServer({
+      clientId,
+      clientSecret: "server-side-client-secret",
+      clientName: "SlncTrZ-MCP",
+      redirectUris: ["https://claude.ai/api/mcp/auth_callback", redirectUri]
+    });
+    const verifier = "m".repeat(43);
+    const authorize = (state: string): URL => {
+      const url = new URL("/authorize", origin);
+      url.search = new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_challenge: service.pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        resource: RESOURCE,
+        scope: "mcp:tools",
+        state
+      }).toString();
+      return url;
+    };
+
+    const approvedTransaction = transactionFromHtml(
+      await (await fetch(authorize("approve-state"))).text()
+    );
+    const approval = await fetch(`${origin}/authorize`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        transaction_id: approvedTransaction,
+        owner_secret: OWNER_SECRET,
+        decision: "approve"
+      }),
+      redirect: "manual"
+    });
+    // A 3xx here would be re-checked against the consent page's form-action by Chrome, and every
+    // further hop the callback performs would have to be allow-listed as well.
+    expect(approval.status).toBe(200);
+    expect(approval.headers.get("location")).toBeNull();
+    expect(approval.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(approval.headers.get("content-security-policy")).toContain("form-action 'self'");
+    const approvalHtml = await approval.text();
+    expect(approvalHtml).toContain('rel="noreferrer"');
+    const callback = authorizationResponseTarget(approvalHtml);
+    expect(callback.href.startsWith(redirectUri)).toBe(true);
+    expect(callback.searchParams.get("code")).toBeTruthy();
+    expect(callback.searchParams.get("state")).toBe("approve-state");
+    expect(callback.searchParams.get("iss")).toBe("https://mcp.example.com/");
+
+    const deniedTransaction = transactionFromHtml(
+      await (await fetch(authorize("deny-state"))).text()
+    );
+    const denial = await fetch(`${origin}/authorize`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ transaction_id: deniedTransaction, decision: "deny" }),
+      redirect: "manual"
+    });
+    expect(denial.status).toBe(200);
+    expect(denial.headers.get("location")).toBeNull();
+    const denied = authorizationResponseTarget(await denial.text());
+    expect(denied.searchParams.get("error")).toBe("access_denied");
+    expect(denied.searchParams.get("state")).toBe("deny-state");
   });
 
   it("does not redirect to an unseen Gemini callback when the owner denies it", async () => {
@@ -420,9 +505,9 @@ describe("OAuth HTTP flow", () => {
       }),
       redirect: "manual"
     });
-    expect(approval.status).toBe(303);
+    expect(approval.status).toBe(200);
     expect(approval.headers.get("referrer-policy")).toBe("no-referrer");
-    const callback = new URL(approval.headers.get("location") ?? "");
+    const callback = authorizationResponseTarget(await approval.text());
     expect(callback.origin).toBe("https://client.example.com");
     expect(callback.searchParams.get("state")).toBe("http-state");
 
@@ -555,8 +640,8 @@ describe("OAuth HTTP flow", () => {
       }),
       redirect: "manual"
     });
-    expect(approval.status).toBe(303);
-    const callback = new URL(approval.headers.get("location") ?? "");
+    expect(approval.status).toBe(200);
+    const callback = authorizationResponseTarget(await approval.text());
 
     const token = await fetch(`${origin}/token`, {
       method: "POST",
@@ -604,7 +689,7 @@ describe("OAuth HTTP flow", () => {
       }),
       redirect: "manual"
     });
-    const callback = new URL(approval.headers.get("location") ?? "");
+    const callback = authorizationResponseTarget(await approval.text());
 
     const response = await fetch(`${origin}/token`, {
       method: "POST",
@@ -666,7 +751,7 @@ describe("OAuth HTTP flow", () => {
       }),
       redirect: "manual"
     });
-    const callback = new URL(approval.headers.get("location") ?? "");
+    const callback = authorizationResponseTarget(await approval.text());
     const untrustedClientId = `unknown-${"x".repeat(512)}`;
 
     const response = await fetch(`${origin}/token`, {
@@ -779,18 +864,20 @@ describe("OAuth HTTP flow", () => {
         redirect: "manual"
       });
 
-      expect(approval.status).toBe(303);
+      expect(approval.status).toBe(200);
     }
   });
 
   it("does not let failures in one authorization transaction lock out another transaction", async () => {
     const { origin, service } = await startOAuthServer();
+    const firstCallback = "https://first.example.com/oauth/callback";
+    const secondCallback = "https://second.example.com/oauth/callback";
     const first = service.registerClient({
-      redirect_uris: ["https://first.example.com/oauth/callback"],
+      redirect_uris: [firstCallback],
       token_endpoint_auth_method: "none"
     });
     const second = service.registerClient({
-      redirect_uris: ["https://second.example.com/oauth/callback"],
+      redirect_uris: [secondCallback],
       token_endpoint_auth_method: "none"
     });
     const buildAuthorizeUrl = (clientId: string, redirectUri: string, verifier: string): URL => {
@@ -807,9 +894,8 @@ describe("OAuth HTTP flow", () => {
       return url;
     };
 
-    const firstPage = await fetch(
-      buildAuthorizeUrl(first.client_id, "https://first.example.com/oauth/callback", "f".repeat(43))
-    );
+    const firstUrl = buildAuthorizeUrl(first.client_id, firstCallback, "f".repeat(43));
+    const firstPage = await fetch(firstUrl);
     const firstTransaction = transactionFromHtml(await firstPage.text());
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const failed = await fetch(`${origin}/authorize`, {
@@ -824,13 +910,8 @@ describe("OAuth HTTP flow", () => {
       expect(failed.status).toBe(200);
     }
 
-    const secondPage = await fetch(
-      buildAuthorizeUrl(
-        second.client_id,
-        "https://second.example.com/oauth/callback",
-        "s".repeat(43)
-      )
-    );
+    const secondUrl = buildAuthorizeUrl(second.client_id, secondCallback, "s".repeat(43));
+    const secondPage = await fetch(secondUrl);
     const secondTransaction = transactionFromHtml(await secondPage.text());
     const secondApproval = await fetch(`${origin}/authorize`, {
       method: "POST",
@@ -843,7 +924,7 @@ describe("OAuth HTTP flow", () => {
       redirect: "manual"
     });
 
-    expect(secondApproval.status).toBe(303);
+    expect(secondApproval.status).toBe(200);
   }, 10_000);
 
   it("keeps a bounded direct-peer backstop across many failing transactions", async () => {
@@ -1002,8 +1083,8 @@ describe("Gateway-only OAuth consent", () => {
       }),
       redirect: "manual"
     });
-    expect(approval.status).toBe(303);
-    const callback = new URL(approval.headers.get("location") ?? "");
+    expect(approval.status).toBe(200);
+    const callback = authorizationResponseTarget(await approval.text());
     const token = await fetch(new URL("/token", origin), {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },

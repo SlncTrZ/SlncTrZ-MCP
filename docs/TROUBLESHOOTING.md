@@ -27,6 +27,29 @@ New Gateway-only refresh tokens have no fixed/idle expiry but rotate on every su
 refresh; a revoked grant or reused refresh token still fails. Existing migrated grants
 retain finite lifetimes. Reconnect with fresh consent when a connection needs the new policy.
 
+A client that receives `invalid_client` / "Unknown client" is absent from the running
+process's client registry: either it never registered through dynamic client registration,
+or the configured static client never reached the process environment. `slnctrz-mcp config
+show` reports `staticClientId` and `staticClientFile` from the config file, which does not
+prove that the running process loaded them; check the running service environment too. For an
+operator-managed Linux user service, pass the sensitive static client file through the unit
+environment (see [Deployment](DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam)) rather
+than `gateway.env`, where the launcher refuses client keys. Restart and repeat consent after
+the client is present.
+
+"Authorization transaction is invalid" means the pending transaction is no longer in the
+running process. Pending transactions and authorization codes are process-local, single use
+and short lived (about ten minutes), so a service restart, a resubmitted consent page or a
+page left idle past that window produces this response. Repeat consent from the client in one
+sitting instead of resubmitting an older page.
+
+Consent completion is a document navigation rather than an HTTP redirect, so a browser policy
+declared on the consent page cannot block the client's own callback chain. A browser console
+report that names the consent URL while refusing form data refers to that chain, not to the
+consent submission itself; the refusal happens at the client callback. If the client reports
+an expired session right after an approved consent, that flow instance is stale: start the
+connection again in one browser instead of reusing a saved authorization URL.
+
 For a locked database, identify the writer/second instance first. For corruption, stop and
 preserve a coherent backup, then inspect doctor. Repair is bounded; it does not recover
 arbitrarily corrupt databases. See [Backup](BACKUP_RESTORE.md).

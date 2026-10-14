@@ -93,8 +93,13 @@ async function issueToken(origin: string): Promise<string> {
     }),
     redirect: "manual"
   });
-  expect(approval.status).toBe(303);
-  const callback = new URL(approval.headers.get("location") ?? "");
+  expect(approval.status).toBe(200);
+  const approvalDocument = await approval.text();
+  const approvalTarget = approvalDocument.match(
+    /<meta http-equiv="refresh" content="0;url=([^"]+)"/u
+  )?.[1];
+  if (approvalTarget === undefined) throw new Error("Authorization response navigation missing");
+  const callback = new URL(approvalTarget.replace(/&amp;/gu, "&"));
 
   const token = await fetch(`${origin}/token`, {
     method: "POST",

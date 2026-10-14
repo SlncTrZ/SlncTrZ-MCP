@@ -1,6 +1,6 @@
 /**
  * OAuth HTTP Router — discovery, DCR, consent, token, and revocation adapter.
- * Wing: auth | Topic: oauth-http-surface | Updated: 2026-10-07 16:15
+ * Wing: auth | Topic: oauth-http-surface | Updated: 2026-10-14 10:53
  *
  * Provenance: MCP authorization specification 2026-07-28, RFC 7009,
  * W3C CSP Level 3, ADR-011, ADR-012, and ADR-013.
@@ -49,10 +49,51 @@ function sendEmpty(res: ServerResponse, status: number): void {
   res.end();
 }
 
+function consentContentSecurityPolicy(redirectOrigin: string): string {
+  return `default-src 'none'; base-uri 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self' ${redirectOrigin}; frame-ancestors 'none'`;
+}
+
 function sendHtml(res: ServerResponse, status: number, body: string, redirectOrigin: string): void {
   res.writeHead(status, {
     ...HTML_HEADERS,
-    "content-security-policy": `default-src 'none'; base-uri 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self' ${redirectOrigin}; frame-ancestors 'none'`,
+    "content-security-policy": consentContentSecurityPolicy(redirectOrigin),
+    "content-length": Buffer.byteLength(body)
+  });
+  res.end(body);
+}
+
+/**
+ * Consent completion document — delivers the authorization response without an HTTP redirect.
+ *
+ * Chrome applies the consent page's `form-action` to the whole redirect chain of the form
+ * submission, so a 302/303 to the client callback is blocked unless every further hop that the
+ * client's callback performs is also allow-listed. A real client failed exactly this way: its
+ * callback re-redirects to the application, that hop was not allow-listed, and the authorization
+ * response never reached the client (`form-action` violations name the form URL, not the blocked
+ * hop, so the console blames the wrong URL). A meta refresh is a document navigation instead of a
+ * form submission, so `form-action` does not apply to it at all. The manual link keeps the flow
+ * usable when automatic navigation is unavailable, and `no-referrer` keeps the authorization code
+ * out of the client's Referer.
+ */
+function sendConsentCompletion(res: ServerResponse, location: URL, redirectOrigin: string): void {
+  const target = escapeHtml(location.href);
+  const body =
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    `<meta http-equiv="refresh" content="0;url=${target}">` +
+    "<title>Continuing authorization &middot; SlncTrZ-MCP</title>" +
+    "<style>body{margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;" +
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;' +
+    "color:#1a1d21;background:#eef0f3}main{text-align:center;padding:2rem;max-width:36rem}" +
+    "code{word-break:break-all}</style></head><body><main>" +
+    "<h1>Continuing authorization</h1>" +
+    `<p>Returning you to <code>${escapeHtml(location.origin)}</code>&hellip;</p>` +
+    `<p><a href="${target}" rel="noreferrer">Continue</a></p>` +
+    "</main></body></html>";
+  res.writeHead(200, {
+    ...HTML_HEADERS,
+    "referrer-policy": "no-referrer",
+    "content-security-policy": consentContentSecurityPolicy(redirectOrigin),
     "content-length": Buffer.byteLength(body)
   });
   res.end(body);
@@ -345,7 +386,7 @@ export class OAuthHttpRouter {
             if (redirect === undefined) {
               sendHtml(res, 200, deniedPage(), this.#service.issuer.origin);
             } else {
-              this.#redirect(res, redirect);
+              sendConsentCompletion(res, redirect, redirect.origin);
             }
             return true;
           }
@@ -364,10 +405,12 @@ export class OAuthHttpRouter {
           const ownerSecret = form.get("owner_secret") ?? "";
           const selectedProfile = this.#consentProfile(form);
           try {
-            this.#redirect(
-              res,
-              this.#service.approveAuthorization(transactionId, ownerSecret, selectedProfile)
+            const approvedRedirect = this.#service.approveAuthorization(
+              transactionId,
+              ownerSecret,
+              selectedProfile
             );
+            sendConsentCompletion(res, approvedRedirect, approvedRedirect.origin);
           } catch (error) {
             if (error instanceof OAuthError && error.code === OAuthErrorCode.AccessDenied) {
               this.#ownerTransactionFailureLimiter.consume(transactionId);
@@ -479,14 +522,5 @@ export class OAuthHttpRouter {
     res.setHeader("allow", allow);
     sendJson(res, 405, { error: "method_not_allowed" });
     return true;
-  }
-
-  #redirect(res: ServerResponse, location: URL): void {
-    res.writeHead(303, {
-      location: location.href,
-      "cache-control": "no-store",
-      "referrer-policy": "no-referrer"
-    });
-    res.end();
   }
 }

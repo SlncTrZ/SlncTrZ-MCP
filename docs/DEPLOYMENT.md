@@ -90,3 +90,12 @@ Environment=NODE_EXTRA_CA_CERTS=/absolute/path/to/internal-ca.pem
 ```
 
 The CA entry is optional and specific to your providers. Reload the user daemon and restart the user service after changing its environment. A local-patch ExecStart override must be removed or replaced by the installed launcher; otherwise an update can change the installed version while the service keeps running an old bundle. Verify running build identity separately after restart. Standard Linux User Install does not create this user service for you.
+
+A service that owns a static OAuth client also needs that client's configuration in the service environment. Reference the generated file from the same drop-in:
+
+```ini
+[Service]
+EnvironmentFile=/absolute/config-root/client.env
+```
+
+The launcher reads `gateway.env` through a fixed runtime-key allowlist, so `SLNCTRZ_CLIENT_*` keys belong in `client.env` and not in `gateway.env` — an unsupported key makes the launcher exit instead of starting the gateway. Without the file reference the static client is missing from the running process even though `config show` reports `staticClientId`/`staticClientFile`, and any client that relies on static credentials is rejected with `invalid_client`. Verify the running environment after restart, not only the configuration file.

@@ -2,6 +2,20 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.4.6
+
+Date: 2026-10-14
+
+### Fixed
+
+- The authorization response is delivered as a document navigation instead of an HTTP redirect. Chromium applies the consent page's `form-action` policy to the whole redirect chain of the form submission, so a client callback that re-redirects to a further application origin blocked the entire response and the client never received the authorization code. The completion document uses a meta refresh (a document navigation, which `form-action` does not govern) and keeps a manual continue link as a fallback.
+
+### Documentation / compatibility
+
+- Deployment guide: an operator-managed Linux user service must supply the sensitive static-client configuration (`client.env`) as part of its service environment. The installed launcher reads only the documented `gateway.env` runtime keys and refuses `SLNCTRZ_CLIENT_*` there, so without an `EnvironmentFile=` reference the static client is absent from the running process even though `config show` reports its file.
+- Troubleshooting: added the observed consent/authentication symptoms — `invalid_client` for a client absent from the running process, `Authorization transaction is invalid` for a consumed, expired or restart-cleared pending transaction, and consent completion that behaves differently between Chromium and Firefox.
+- No state-schema, grant or token change. Existing grants, dynamic client registrations and static redirect registrations are retained, and no reauthorization is required for this fix.
+
 ## 0.4.5
 
 Date: 2026-10-10
