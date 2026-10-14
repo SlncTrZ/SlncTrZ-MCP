@@ -50,6 +50,26 @@ async function reserveLoopbackPort() {
   });
 }
 
+/**
+ * Reads the consent completion document's callback target. Consent completion is a document
+ * navigation rather than an HTTP redirect, so the callback URL is not in a Location header.
+ */
+function approvalCallbackTarget(html) {
+  const match = /<meta http-equiv="refresh" content="0;url=([^"]+)"/u.exec(html);
+  if (match?.[1] === undefined) return undefined;
+  const target = match[1]
+    .replace(/&amp;/gu, "&")
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&quot;/gu, '"')
+    .replace(/&#39;/gu, "'");
+  try {
+    return new URL(target);
+  } catch {
+    return undefined;
+  }
+}
+
 const gatewayPort = await reserveLoopbackPort();
 const verifier = [
   "scrypt",
@@ -143,8 +163,13 @@ async function verifyPackagedHarness(origin) {
       decision: "approve"
     })
   });
-  if (approval.status !== 303) throw new Error("SEA OAuth approval failed");
-  const code = new URL(approval.headers.get("location")).searchParams.get("code");
+  if (approval.status !== 200 || approval.headers.get("location") !== null) {
+    throw new Error("SEA OAuth approval did not complete as a document navigation");
+  }
+  const callback = approvalCallbackTarget(await approval.text());
+  if (callback === undefined) throw new Error("SEA OAuth approval callback target missing");
+  const code = callback.searchParams.get("code");
+  if (code === null) throw new Error("SEA OAuth approval code missing");
   const exchanged = await fetch(`${origin}/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -185,7 +210,12 @@ async function verifyPackagedHarness(origin) {
           .trim()
       : text;
     if (!response.ok || !payload) throw new Error("SEA MCP exchange failed");
-    const reply = JSON.parse(payload);
+    let reply;
+    try {
+      reply = JSON.parse(payload);
+    } catch {
+      throw new Error("SEA MCP reply is not valid JSON");
+    }
     if (reply.error || !reply.result) throw new Error("SEA MCP tool dispatch failed");
     return reply.result;
   }
@@ -246,7 +276,12 @@ async function verifyPackagedHarness(origin) {
       };
       throw new Error(`SEA command environment execution failed: ${JSON.stringify(facts)}`);
     }
-    const facts = JSON.parse(result.stdout);
+    let facts;
+    try {
+      facts = JSON.parse(result.stdout);
+    } catch {
+      throw new Error("SEA command environment facts are not valid JSON");
+    }
     if (!facts.found || !facts.hasHome || !facts.privateExcluded)
       throw new Error("SEA command home/config discovery or environment isolation failed");
   }
