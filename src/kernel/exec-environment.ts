@@ -1,6 +1,6 @@
 /** Minimal command environment with native account/config directory discovery. */
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { userInfo } from "node:os";
 import { posix, win32 } from "node:path";
 
@@ -24,31 +24,48 @@ export class ExecEnvironmentError extends Error {
   }
 }
 
-const WINDOWS_FOLDER_LOOKUP_TIMEOUT_MS = 3_000;
+// Cold PowerShell start (first run, AV scanning, loaded runner) can exceed a tight budget, so the
+// read-only probe gets a roomy per-attempt timeout and one bounded retry before it fails closed.
+// Worst case is bounded: 2 attempts, and the lookup only runs when APPDATA/LOCALAPPDATA are absent.
+const WINDOWS_FOLDER_LOOKUP_TIMEOUT_MS = 10_000;
+const WINDOWS_FOLDER_LOOKUP_ATTEMPTS = 2;
 const WINDOWS_FOLDER_LOOKUP_OUTPUT_BYTES = 64 * 1_024;
 
-function windowsAppDataDirectories(systemRoot: string | undefined): WindowsAppDataDirectories {
-  if (process.platform !== "win32" || systemRoot === undefined) {
+function windowsFolderLookupTimedOut(result: SpawnSyncReturns<string>): boolean {
+  return result.error !== undefined && "code" in result.error && result.error.code === "ETIMEDOUT";
+}
+
+function windowsAppDataDirectories(
+  systemRoot: string | undefined,
+  platform: NodeJS.Platform
+): WindowsAppDataDirectories {
+  if (platform !== "win32" || systemRoot === undefined) {
     throw new Error("Windows account folder lookup unavailable");
   }
-  const result = spawnSync(
-    win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-    [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::WriteLine([Environment]::GetFolderPath('ApplicationData')); [Console]::WriteLine([Environment]::GetFolderPath('LocalApplicationData'))"
-    ],
-    {
-      env: { SystemRoot: systemRoot },
-      encoding: "utf8",
-      timeout: WINDOWS_FOLDER_LOOKUP_TIMEOUT_MS,
-      maxBuffer: WINDOWS_FOLDER_LOOKUP_OUTPUT_BYTES,
-      windowsHide: true
-    }
-  );
-  if (result.error !== undefined && "code" in result.error && result.error.code === "ETIMEDOUT") {
+  const command = [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::WriteLine([Environment]::GetFolderPath('ApplicationData')); [Console]::WriteLine([Environment]::GetFolderPath('LocalApplicationData'))"
+  ];
+  let result: SpawnSyncReturns<string> | undefined;
+  for (let attempt = 0; attempt < WINDOWS_FOLDER_LOOKUP_ATTEMPTS; attempt += 1) {
+    result = spawnSync(
+      win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      command,
+      {
+        env: { SystemRoot: systemRoot },
+        encoding: "utf8",
+        timeout: WINDOWS_FOLDER_LOOKUP_TIMEOUT_MS,
+        maxBuffer: WINDOWS_FOLDER_LOOKUP_OUTPUT_BYTES,
+        windowsHide: true
+      }
+    );
+    if (!windowsFolderLookupTimedOut(result)) break;
+  }
+  if (result === undefined) throw new Error("Windows account folder lookup failed");
+  if (windowsFolderLookupTimedOut(result)) {
     throw new ExecEnvironmentError("Windows app-data folder lookup timed out");
   }
   if (result.error !== undefined || result.status !== 0) {
@@ -126,7 +143,8 @@ export function buildExecEnvironment(options: ExecEnvironmentOptions = {}): Reco
       let folders: WindowsAppDataDirectories;
       try {
         folders = (
-          options.resolveWindowsAppData ?? (() => windowsAppDataDirectories(env.SystemRoot))
+          options.resolveWindowsAppData ??
+          (() => windowsAppDataDirectories(env.SystemRoot, platform))
         )();
       } catch (error) {
         if (error instanceof ExecEnvironmentError) throw error;
