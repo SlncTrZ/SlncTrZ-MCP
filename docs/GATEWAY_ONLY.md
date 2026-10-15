@@ -16,6 +16,7 @@ harness too. This profile/consent behavior is included in published v0.4.2.
   refresh tokens rotate and are single-use.
 - Migrated schema-v1/v2 grants retain their original finite lifetimes.
 - This profile does not sandbox provider tools or the coding client's own tools.
+- **Host Tokens (ADR-030):** Headless and durable agents may authenticate using an Owner-issued Host Token (`Authorization: Bearer hst_...`) instead of OAuth. Host Tokens are hard-coded to this Gateway-only ceiling and are deleted after 15 days of inactivity. See [User Guide](USER_GUIDE.md#host-tokens-for-durable-and-headless-clients).
 
 ## 2. Connect your coding agent
 

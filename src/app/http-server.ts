@@ -20,6 +20,9 @@ import {
   type AuthInfo,
   type ServerEventBus
 } from "@modelcontextprotocol/server";
+import type { AuthenticatedConnection } from "../auth/connection-profile.js";
+import type { HostTokenStore } from "../auth/host-token-store.js";
+import { authenticateHostToken } from "../auth/host-token-auth.js";
 import { OAuthHttpRouter } from "../auth/oauth-http-router.js";
 import { type OAuthService } from "../auth/oauth-service.js";
 import { type ToolAuditSink } from "../observability/tool-audit.js";
@@ -121,6 +124,7 @@ function safeIngressError(
 
 export interface GatewayServerOptions {
   readonly oauthService: OAuthService;
+  readonly hostTokens?: HostTokenStore;
   readonly allowedHostnames?: readonly string[];
   readonly allowedOriginHostnames?: readonly string[];
   readonly maxBodyBytes?: number;
@@ -432,12 +436,28 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           return;
         }
 
+        const accessToken = bearerToken(req.headers.authorization);
+        let authenticatedConnection: AuthenticatedConnection;
+        const isHostToken = accessToken?.startsWith("hst_") === true;
         try {
-          req.auth = await verifyBearerToken(req.headers.authorization, {
-            verifier: options.oauthService,
-            requiredScopes: ["mcp:tools"],
-            resourceMetadataUrl: options.oauthService.resourceMetadataUrl
-          });
+          if (isHostToken && accessToken !== undefined) {
+            const verified = authenticateHostToken(
+              options.hostTokens,
+              accessToken,
+              options.oauthService.resource
+            );
+            req.auth = verified.auth;
+            authenticatedConnection = verified.connection;
+          } else {
+            req.auth = await verifyBearerToken(req.headers.authorization, {
+              verifier: options.oauthService,
+              requiredScopes: ["mcp:tools"],
+              resourceMetadataUrl: options.oauthService.resourceMetadataUrl
+            });
+            if (accessToken === undefined) throw new Error("Missing bearer token");
+            authenticatedConnection =
+              await options.oauthService.authenticateConnection(accessToken);
+          }
         } catch (error) {
           await sendResponse(
             res,
@@ -449,13 +469,7 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
           return;
         }
 
-        const accessToken = bearerToken(req.headers.authorization);
-        if (accessToken === undefined) {
-          throw new Error("Verified OAuth request is missing its bearer token");
-        }
-        const authenticatedConnection =
-          await options.oauthService.authenticateConnection(accessToken);
-
+        if (accessToken === undefined) throw new Error("Missing verified bearer token");
         const captured = options.policyStore?.captureLease();
         let releaseRuntime = captured?.release;
         let resolution: ExchangePolicyResolution;
@@ -496,8 +510,13 @@ export function createGatewayServer(options: GatewayServerOptions): Server {
             ...(options.debateService === undefined
               ? {}
               : { debateService: options.debateService }),
-            restrictSurfaceProfile: (profile) =>
-              options.oauthService.restrictConnection(accessToken, profile)
+            // A host credential has no OAuth grant to mutate and cannot acquire Full.
+            ...(isHostToken
+              ? {}
+              : {
+                  restrictSurfaceProfile: (profile) =>
+                    options.oauthService.restrictConnection(accessToken, profile)
+                })
           });
           releaseRuntime ??= resolution.snapshot.extensionRuntime?.acquire();
         } catch (error) {

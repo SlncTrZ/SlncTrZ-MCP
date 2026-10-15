@@ -94,6 +94,7 @@ export interface OAuthServiceOptions {
   };
   /** Durable owner-approved redirect registrations for the configured static client. */
   readonly staticRedirectStore?: {
+    readonly load?: (clientId: string) => readonly string[];
     readonly add: (clientId: string, redirectUri: string, updatedAt: number) => readonly string[];
   };
   /** Optional pre-registered confidential client for static-credential flows. */
@@ -1001,6 +1002,58 @@ export class OAuthService implements OAuthTokenVerifier {
     this.#grants.revokeGrant(record.grantId);
     this.#emit("token.revoked", "success", record.clientId);
     return true;
+  }
+
+  /** Explicit Owner hot reload. Validate the complete candidate before swapping live maps.
+   * Active client removal requires normal Owner revocation first, preventing credential revival.
+   * Static secrets/environment remain startup configuration; persisted callbacks are additive.
+   */
+  reloadClientsByOwner(): { activated: true; dynamicClients: number; staticRedirects: number } {
+    this.#purgeExpired();
+    const records = this.#dynamicClientStore?.load() ?? this.#dynamicClientRecords();
+    if (records.length > this.#maxDynamicClients) throw new Error("oauth_client_reload_capacity");
+    const candidate = new Map<string, RegisteredClient>();
+    const dynamicIds = new Set<string>();
+    for (const [id, client] of this.#clients) {
+      if (!this.#dynamicClientIds.has(id)) candidate.set(id, client);
+    }
+    for (const record of records) {
+      if (candidate.has(record.clientId) || dynamicIds.has(record.clientId))
+        throw new Error("oauth_client_reload_duplicate");
+      const redirectUris = [...new Set(record.redirectUris.map(validateRedirectUri))];
+      if (redirectUris.length < 1 || redirectUris.length > MAX_REDIRECT_URIS)
+        throw new Error("oauth_client_reload_redirects");
+      candidate.set(record.clientId, {
+        clientId: record.clientId,
+        ...(record.clientName === undefined ? {} : { clientName: record.clientName }),
+        redirectUris,
+        issuedAt: record.issuedAt
+      });
+      dynamicIds.add(record.clientId);
+    }
+    let staticRedirects = 0;
+    if (this.#staticClientId !== undefined && this.#staticRedirectStore !== undefined) {
+      const client = candidate.get(this.#staticClientId);
+      if (client === undefined) throw new Error("oauth_static_client_reload_missing");
+      const redirectUris = [
+        ...new Set([
+          ...client.redirectUris,
+          ...(this.#staticRedirectStore.load?.(this.#staticClientId) ?? []).map(validateRedirectUri)
+        ])
+      ];
+      if (redirectUris.length > MAX_REDIRECT_URIS) throw new Error("oauth_client_reload_redirects");
+      candidate.set(client.clientId, { ...client, redirectUris });
+      staticRedirects = redirectUris.length;
+    }
+    for (const id of this.#dynamicClientIds) {
+      if (!dynamicIds.has(id) && this.#clientHasActiveState(id))
+        throw new Error("oauth_client_reload_requires_revoke");
+    }
+    this.#clients.clear();
+    for (const [id, client] of candidate) this.#clients.set(id, client);
+    this.#dynamicClientIds.clear();
+    for (const id of dynamicIds) this.#dynamicClientIds.add(id);
+    return { activated: true, dynamicClients: dynamicIds.size, staticRedirects };
   }
 
   /** Revoke every ephemeral authorization artifact and grant across all dynamic clients. */

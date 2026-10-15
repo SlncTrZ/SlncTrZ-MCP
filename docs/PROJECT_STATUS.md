@@ -1,5 +1,91 @@
 # Project Status
 
+## Client and Owner Console QA — 2026-10-14/15
+
+Native Linux Chromium and Windows Chrome each passed **11/11 checks** against the real
+QA backend: Host Token issue/list/reveal/dismiss/revoke, CSRF/scope denial, secret clearing,
+audit retention, logout and Owner registry reload. A malformed registry returned 409 while
+the previously registered client remained usable; a restored valid candidate reloaded.
+
+Pi 1.2.0 on Windows passed two fresh Host Token MCP discovery processes with eight
+authenticated requests. The bearer was referenced through an environment variable; the
+QA token was revoked. Claude/Codex were not found on the checked Linux/Windows PATHs;
+their acceptance remains UNVERIFIED, not failed.
+
+OpenCode 2.0.28 on Linux passed real dynamic registration/PKCE/Owner consent through
+both native API and native MCP CLI onboarding. In disposable client state, two fresh
+server cycles reused the single OAuth grant without new consent. Expiring only the
+server's access record produced successful refresh recovery, with one refresh-history row.
+These fresh profiles used managed SQLite OAuth credentials and created no legacy
+`mcp-auth.json`; the previously reported mixed-store defect was not reproduced here.
+
+R-ACC-02 is **QA_VERIFIED / FIELD OPEN**. R-OAUTH-06 remains OPEN for existing/mixed-store
+migration and affected field profiles. No production service or real credential was used.
+A4 has native Console QA evidence; A5 remote credential validity remains OPEN.
+No LLM was invoked, so configured model availability is unverified. Product source remains
+unchanged from the recorded source fingerprint; no commit/push/release/deploy occurred.
+
+## Native artifact/install QA — 2026-10-14
+
+Linux and Windows each passed **18/18 native artifact/install checks** with an ephemeral
+QA signing key and loopback HTTPS CA. Baseline was rebuilt from tag v0.4.5; the candidate
+was built from the current uncommitted source. These are QA artifacts, not official releases.
+
+Verified: clean User Install, signed CLI update, invalid signature/tampered bytes rejection,
+activation preservation, identity/doctor, Host Token surface enforcement, restart/revoke/idle
+deletion with separate audit, OAuth compatibility, rollback/re-upgrade and unchanged OAuth v3.
+This supersedes the earlier installed-QA-unverified statement below for this exact QA scope.
+
+Windows OpenCode native 1.19.0 passed two fresh MCP CLI cycles using a QA Host Token,
+without OAuth/browser; eight authenticated requests were observed and the token was revoked.
+Linux OpenCode 2.0.28 passed two fresh isolated foreground-server/API discovery cycles,
+with eight authenticated requests and QA token revocation. Its 2.x configuration uses
+`mcp.servers`; private server authentication was held only in memory. Earlier unsuccessful
+client attempts are retained as UNVERIFIED, not counted as PASS. The configured model remained
+`ag/gemini-3.8-flash-medium`; no LLM request or model substitution occurred.
+
+Official publisher signing/CI/release, production field acceptance and existing OAuth
+R-OAUTH-06/R-ACC-02 remain OPEN. No production install/service/credential was changed.
+
+## ADR-030 / A3 + A4/A5 source verification — 2026-10-14
+
+A3 is integrated in source: no fixed expiry; 15-day inactivity enforced during each
+Host Token authentication; credential-row deletion with independent audit. HTTP `/mcp`
+hard-caps `hst_` at Gateway-only/mcp:tools and preserves OAuth PKCE/refresh.
+Owner Console + CSRF and authenticated loopback CLI support issue/list/revoke/delete.
+One persistent companion Store is shared and closed after listener drain.
+
+| Gate                                   | Result                                                 |
+| -------------------------------------- | ------------------------------------------------------ |
+| Native Linux .227 / Node 24.19.0       | 939 PASS / 12 SKIP / 0 FAIL                            |
+| Native Windows .171 / Node 24.18.0     | 921 PASS / 30 SKIP / 0 FAIL                            |
+| Typecheck / full ESLint / docs-check   | PASS on both OS                                        |
+| Source and Linux QA mirror fingerprint | Exact byte match across 259 source/scripts/tests files |
+
+Each OS passed 115 test files, with 1 skipped. Skip is not PASS.
+A3 is **SOURCE + NATIVE_QA + OPENCODE_HOST_QA verified**, not CLOSED or shipped.
+The native installed QA above covers signed test artifacts and Host Token reconnect;
+official release, Pi/Claude/Codex and existing OAuth field reconnect remain unverified.
+
+A4 explicit Owner registry reload is source-verified; invalid candidates retain the prior
+registry and existing grants survive additions. It is an Owner action, not automatic watching.
+A5 authenticated Owner health and credential-reference status are implemented. A5 remains
+**SOURCE_PARTIAL**: configured/missing metadata does not certify remote expiry/auth validity.
+R-OAUTH-06 and R-ACC-02 remain OPEN.
+
+Canonical main HEAD remains `7af1fb2`; the implementation is uncommitted.
+No production restart/deploy, release, credential mutation or model substitution occurred.
+See [ADR-030](adr/adr-030-host-tokens.md) and [operating guide](USER_GUIDE.md#host-tokens-for-durable-and-headless-clients).
+
+## Historical Store-only checkpoint — 2026-10-14 (superseded above)
+
+This update supersedes the dated 2026-10-10 snapshot below; the older snapshot is retained as historical evidence.
+
+- **Published:** v0.4.5 was published/promoted Latest by [release workflow 38428103630](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38428103630), tag commit `ae91c00`. A previous operational checkpoint confirmed deployment to host .227, doctor PASS and OAuth DB schema v3 with additive `refresh_history`. This paragraph is **not** a new live probe.
+- **Source:** local `main` at `7af1fb2` when A3 work began; two untracked A3 files `src/auth/host-token-store.ts` and `tests/unit/host-token-store.test.ts`. Host Token Store is **not yet integrated** with the HTTP MCP bearer path or Owner Console. Isolated Linux QA: 4/4 targeted unit tests and TypeScript typecheck passed. Native Windows, end-to-end auth, installed SEA and release gates have **not** passed for A3.
+- **ADR-030 decision:** owner-approved design for long-lived Host Tokens with **no fixed expiry**, **15 days of inactivity** measured by successful authenticated requests, credential-row deletion on revoke/inactivity, and a separate audit trail. This is a design/source checkpoint, **not a shipped feature**.
+- **Open gaps:** A3 HTTP/owner integration and acceptance; A4 client-registry hot reload; A5 provider/credential health; OpenCode client credential-store behavior; two-reopen acceptance. No A3 commit, push, tag, release, deployment or production credential migration has been performed.
+
 Snapshot: 2026-10-10, accumulating changes for a deferred v0.4.5 release. This is dated maintainer evidence, not a live installation status. Check `--build-info`, `status --json`, runtime `core.ping` and the published release before operational decisions.
 
 ## Source, release and runtime

@@ -115,6 +115,96 @@ Do not use an Owner passphrase as a bearer header or copy client/provider secret
 project config, examples or chat. Normal dynamic OAuth setup uses the MCP URL and browser
 consent; it does not require copying setup's static client credentials.
 
+## Host Tokens for durable and headless clients
+
+Source feature under ADR-030; use only a build that includes Host Token support.
+OAuth clients may continue using PKCE and refresh without switching authentication.
+
+In Owner Console → Connections → Host Tokens, enter a client/machine label and choose
+**Issue token**. Copy the secret into your client's secure credential storage, then dismiss
+it. Reveal/hide is local; the secret is never retrievable from the gateway afterward.
+The same Owner can revoke/delete a token immediately from that panel.
+
+Owner CLI (private loopback control plane, with existing Owner authentication):
+
+```sh
+slnctrz-mcp owner host-token issue --label "Pi workstation"
+slnctrz-mcp owner host-token list
+slnctrz-mcp owner host-token revoke <token-id>
+slnctrz-mcp owner host-token delete <token-id>
+```
+
+Issue returns the secret once; do not record terminal output or redirect it into a file.
+List returns metadata only. Revoke/delete uses the public token ID, never the bearer;
+repeating the action returns `revoked: false` after the row has already been deleted.
+There is no `--expires`, scope override or Full profile option.
+
+Configure your client to send the issued Host Token as its Bearer authorization header
+on the HTTPS `/mcp` endpoint. Keep one credential per workload; do not paste it into
+chat, logs, source/config files in a repository or KB. Do not use production credentials
+in tests. Prefer the client's secure credential store.
+
+Host Tokens have **no fixed expiry**, but **15 days without successful authentication**
+causes credential deletion. The first inactivity anchor is issuance; wrong tokens and
+Owner-route authentication failures do not extend it. At the boundary (15 days exactly),
+the request gets 401 and the token cannot be revived. Issue a new credential to resume.
+A tool error after valid authentication still counts as use. Audit remains separately.
+
+They always have `mcp:tools` + **Gateway-only**: `core.ping`, available Debate tools and
+Owner-enabled provider tools. Coding/file/media/context/skills/task and Owner/Full
+operations are unavailable. OAuth Full client defaults do not change this ceiling.
+Provider authority still depends on the gateway policy; treat each bearer as a secret.
+See [ADR-030](adr/adr-030-host-tokens.md) and [Backup](BACKUP_RESTORE.md).
+
+### OpenCode configuration by version
+
+Keep the bearer in an environment variable populated by your secret manager. The example
+contains only a reference to `SLNCTRZ_HOST_TOKEN`, not the secret itself.
+
+OpenCode 2.x uses `mcp.servers`:
+
+```json
+{
+  "model": "ag/gemini-3.8-flash-medium",
+  "mcp": {
+    "servers": {
+      "slnctrz": {
+        "type": "remote",
+        "url": "https://gateway.example/mcp",
+        "oauth": false,
+        "headers": {
+          "Authorization": "Bearer {env:SLNCTRZ_HOST_TOKEN}"
+        }
+      }
+    }
+  }
+}
+```
+
+OpenCode 1.x places the same remote entry directly at `mcp.slnctrz`, with
+`enabled: true`. Do not copy the 1.x wrapper into 2.x; use the installed client's
+[version-specific MCP guide](https://dev.opencode.ai/v2/docs/mcp-servers/).
+Keep OAuth enabled on a separate OAuth connection. `oauth: false` here selects the
+issued Host Token header. Configuring a model does not certify its availability.
+
+Run `opencode mcp list` to check discovery. On OpenCode 2.x, this command uses its
+background service; isolated QA should use a separate foreground server and its API
+rather than restarting a working service.
+
+### Pi configuration
+
+Pi 1.2.0 supports an environment reference without copying the bearer into `mcp.json`.
+Populate `SLNCTRZ_HOST_TOKEN` through your secret manager, then configure and check:
+
+```sh
+pi mcp add slnctrz --url https://gateway.example/mcp --bearer-token-env-var SLNCTRZ_HOST_TOKEN
+pi mcp list --json
+```
+
+Use the installed client's supported command/version. Native Windows Pi 1.2.0 passed
+two discovery processes with a disposable Host Token; this check invoked no LLM.
+It does not certify model availability or existing OAuth sessions.
+
 ## 2. CLI Commands
 
 Use the installed launcher/executable path printed by setup if it is not on PATH.
@@ -222,3 +312,36 @@ by learning cancellation and preserves indeterminate cancellation outcomes. Keep
 on v0.4.4 to avoid the known restart defect; see
 [Deployment](DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam) before enabling on a verified build.
 Cancellation does not prove remote mutations were undone; inspect uncertain effects before retrying.
+
+## Owner client registry hot reload and provider health
+
+After changing the private `oauth-clients.json` registry or adding persisted static
+callbacks in `oauth-static-redirects.json`, choose **Reload client registry** in the
+Connections panel, or run:
+
+```sh
+slnctrz-mcp owner clients-reload
+```
+
+This is an explicit Owner action; no Gateway restart or background file watcher is needed.
+The entire candidate is validated before replacing in-memory client maps. Invalid JSON,
+redirects, capacity or static/dynamic ID collisions return 409 and retain the prior registry.
+Existing grants, PKCE transactions and scope/profile bindings are preserved on additions.
+Remove active clients through normal Owner revocation before deleting registry records;
+hot reload rejects removal while authorization/grant state is still active. Static callbacks
+are additive; static client secrets and environment configuration remain startup settings.
+
+`POST /owner/api/clients/reload` requires Owner session and CSRF; loopback
+`POST /clients/reload` requires Owner authentication. Host bearers cannot use either route.
+
+`GET /owner/api/health` requires the existing Owner session. It returns observation time,
+policy version, provider product status and summary, and credential-reference status:
+`not_required`, `missing` or `configured`. The Console also displays this credential status.
+A provider requiring several references is missing credentials if **any** reference is absent.
+No credential values, endpoints, command arguments or environment values are returned.
+Reading health does not probe/restart a provider or mutate credential state.
+
+`configured` means metadata exists, not that a remote bearer is currently valid. Runtime
+health is the supervisor's reported observation; credential expiry/authentication validity
+still needs an explicit provider probe. This endpoint is not anonymous and does not
+certify live deployment or named-client reconnect acceptance.

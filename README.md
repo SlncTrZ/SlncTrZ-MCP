@@ -48,25 +48,67 @@ usage limits and billing still apply; the gateway does not increase those allowa
 
 ## Quick start
 
-**Linux x64:** use a terminal. **Windows x64:** use Git Bash for setup.
+**Linux x64:** terminal (User or System service). **Windows x64:** Git Bash for User Install.
+
+Download the official installer:
 
 ```bash
 curl --fail --location --proto '=https' --tlsv1.2 \
   https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest/download/install.sh \
   --output /tmp/slnctrz-install.sh
-
-sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME/projects"
 ```
 
-Replace the last path with an **existing** project directory. On Windows, use an absolute
-Git Bash path such as `/c/Users/YourName/projects`.
+### 1. Install on Linux
 
-1. Run the **Start:** command printed by setup. Windows can run its installed executable
-   from PowerShell; Linux uses the printed launcher/config command.
-2. Open the **Owner Console** at `http://127.0.0.1:3100/`. Read the Owner passphrase privately
+- **Linux User Install (`--mode user`, default):**
+
+  ```bash
+  sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "$HOME/projects"
+  ```
+
+  Runs as a foreground process via the printed launcher. To run as a background service without root privileges, set up `systemd --user`:
+
+  ```bash
+  mkdir -p ~/.config/systemd/user
+  # Point ExecStart to ~/.local/bin/slnctrz-mcp and enable:
+  systemctl --user daemon-reload && systemctl --user enable --now slnctrz-mcp.service
+  ```
+
+- **Linux System Service (`--mode system`, systemd):**
+  Requires `sudo`. Automatically provisions and registers `/etc/systemd/system/slnctrz-mcp.service`:
+
+  ```bash
+  sudo sh /tmp/slnctrz-install.sh --mode system --port 3100 --path /srv/projects
+  sudo systemctl status slnctrz-mcp
+  sudo systemctl restart slnctrz-mcp
+  ```
+
+  _Security Note:_ The service runs as the invoking non-root user (`SUDO_USER`), never as root.
+
+### 2. Install on Windows
+
+Run Git Bash (User Install, no Administrator escalation needed):
+
+```bash
+sh /tmp/slnctrz-install.sh --mode user --port 3100 --path "/c/Users/YourName/projects"
+```
+
+Run the **Start:** command printed by setup (runnable from PowerShell or cmd.exe). Windows System Install/service is unsupported.
+
+---
+
+### 3. Connect AI Clients
+
+1. Open the **Owner Console** at `http://127.0.0.1:3100/`. Read the Owner passphrase privately
    from the file identified by setup and enter it only in the Console/consent page.
-3. Review Paths, Commands and MCP Servers, then connect your client to
-   `http://127.0.0.1:3100/mcp` and complete OAuth.
+2. Review Paths, Commands and MCP Servers.
+3. Choose your client connection method:
+   - **Method A — Host Tokens (Headless / Coding Agents):** For OpenCode, Pi, Codex, or background scripts where browser OAuth is undesirable. Issue a token in the Owner Console or via CLI:
+     ```bash
+     slnctrz-mcp owner host-token issue --label "OpenCode"
+     ```
+     Configure your client with `Authorization: Bearer hst_...` to `http://127.0.0.1:3100/mcp`. Host tokens are hard-coded to **Gateway-only** and automatically deleted after 15 days of inactivity (ADR-030).
+   - **Method B — Native OAuth 2.0 PKCE (Web AI / Claude):** Connect client to `http://127.0.0.1:3100/mcp`, complete browser consent, and select **Full** (with coding tools) or **Gateway-only** (providers only).
 4. Ask the client to call `core.ping`; check the gateway identity, profile and available tools.
 
 For a cloud AI, use a reachable HTTPS endpoint and the
@@ -96,11 +138,11 @@ See [Security](SECURITY.md) and [Backup and Restore](docs/BACKUP_RESTORE.md).
 | Add MCP providers or custom skills    | [MCP Servers](MCP_SERVERS.md) · [Harness](docs/HARNESS.md)        |
 | Diagnose or update an installation    | [Troubleshooting](docs/TROUBLESHOOTING.md)                        |
 | Contribute or inspect the design      | [Contributing](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md) |
-| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.6.md)        |
+| Planned upgrades and release evidence | [Plan](PLAN.md) · [Release Notes](docs/releases/v0.4.7.md)        |
 | Browse all documentation              | [Documentation index](docs/README.md)                             |
 
 Linux x64 and Windows x64 are the standalone release targets. This tree prepares
-[v0.4.6](docs/releases/v0.4.6.md); publication becomes stable only after the signed
+[v0.4.6](docs/releases/v0.4.7.md); publication becomes stable only after the signed
 release workflow passes its public installation and browser gates. Check the
 [latest published release](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/latest)
 for current availability. Source, published release and running process are separate

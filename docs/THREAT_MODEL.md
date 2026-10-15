@@ -70,3 +70,24 @@ prevents those learning deadlines from triggering shared-provider recovery. Keep
 disabled on v0.4.4 to avoid that known defect.
 
 See [Security](../SECURITY.md) and [Release](../RELEASE.md).
+
+## ADR-030 Host Tokens
+
+Host bearers are random 256-bit credentials stored only as hashes in a private companion
+SQLite database. The fixed authority ceiling is `gateway-only` + `mcp:tools`; Owner
+session/control authentication is separate. Existing profile enforcement hides forbidden
+tools from discovery and prevents dispatch. Issue/Owner delete is session + CSRF protected;
+loopback CLI requires Owner authentication. Management accepts no authority/expiry overrides.
+
+No fixed expiry is imposed. At >=15 days since last successful authentication (or issue),
+authentication atomically deletes the credential and records `inactive_15d` in independent
+audit. Failed authentication cannot touch the anchor. Revoke/prune and authentication use
+serialized transactions, so a completed revoke cannot be reversed by another connection.
+In-flight operations authenticated before revoke commits may finish. Successful requests
+are audited; metadata retention is bounded independently to 250,000 newest events.
+
+A stolen bearer may keep itself active. There is no IP or physical device binding;
+provider policy determines its blast radius. Use HTTPS and private client storage/backups.
+No bearer or token hash is retained in audit. OS-user compromise remains outside this
+credential boundary. Backup restoration may resurrect an older row; reconcile before use.
+See [ADR-030](adr/adr-030-host-tokens.md) for persistence and rollback contracts.

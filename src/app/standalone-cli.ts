@@ -96,6 +96,11 @@ function help(): string {
     "  owner policy",
     "  owner reload",
     "  owner connections",
+    "  owner clients-reload",
+    "  owner host-token issue --label <label>   # secret returned once; do not log",
+    "  owner host-token list",
+    "  owner host-token revoke <token-id>",
+    "  owner host-token delete <token-id>",
     "  owner profile <grant-id> <full|gateway-only>",
     "  owner client-default <client-id> <full|gateway-only>",
     "  owner rename <grant-id> <label>",
@@ -457,6 +462,48 @@ export async function runStandaloneCli(
     const paths = managedStatePaths(stateRoot);
     await initializeDefaultWorkspace({ paths, root });
     output.write(JSON.stringify({ workspaceId: "default", root, policyFile: paths.policyFile }));
+    return true;
+  }
+  if (command === "clients-reload") {
+    if (args.length !== 2) throw new Error("owner clients-reload does not accept arguments");
+    output.write(
+      JSON.stringify(
+        await ownerRequest("/clients/reload", { method: "POST" }, environment, fetchImpl)
+      )
+    );
+    return true;
+  }
+  if (command === "host-token") {
+    const action = args[2];
+    let init: RequestInit;
+    if (action === "list" && args.length === 3) {
+      init = { method: "GET" };
+    } else if (action === "issue") {
+      only(args.slice(3), ["--label"]);
+      const label = option(args.slice(3), "--label").trim();
+      if (args.length !== 5 || label.length < 1 || label.length > 64)
+        throw new Error("Usage: owner host-token issue --label <1-64 characters>");
+      init = {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label })
+      };
+    } else if (
+      (action === "revoke" || action === "delete") &&
+      args.length === 4 &&
+      /^[a-f0-9]{24}$/.test(args[3] ?? "")
+    ) {
+      init = {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tokenId: args[3] })
+      };
+    } else {
+      throw new Error(
+        "Usage: owner host-token issue --label <label> | list | revoke <token-id> | delete <token-id>"
+      );
+    }
+    output.write(JSON.stringify(await ownerRequest("/host-tokens", init, environment, fetchImpl)));
     return true;
   }
   if (command === "connections" && args.length === 2) {

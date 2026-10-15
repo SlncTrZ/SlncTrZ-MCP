@@ -45,3 +45,15 @@ service, reference `client.env` from the unit environment instead of copying tho
 The proposed `lifecycle/operations.jsonl` belongs to the unwired ledger foundation, not
 the current runtime's normal state layout. Runner/Coordinator records and context receipts
 are in-memory. Custom harness roots require their own backup.
+
+## Host Token state (ADR-030)
+
+`<stateRoot>/secrets/host-tokens.sqlite3` contains hash-only live credentials and a
+separate bounded metadata audit. Include this database and present WAL/SHM sidecars
+in coherent private backups. Client-side plaintext secrets are not recoverable from it.
+Credential deletion does not remove its independent audit events (newest 250,000 retained).
+
+OAuth database schema/version is unchanged. An older binary ignores the new companion
+file and cannot accept Host Tokens. Re-upgrading checks the 15-day inactivity boundary
+before allowing access. Restoring an older backup can restore rows deleted after that
+backup: reconcile/revoke affected token IDs before reopening network access.

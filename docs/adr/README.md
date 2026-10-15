@@ -38,9 +38,11 @@ components. Routine choices belong in code comments or commit messages, not here
 | ADR-027 | Global coding context and progressive Agent Skills                  | Accepted                                                         |
 | ADR-028 | Passive usage telemetry and context-savings dashboard               | Accepted for v0.3.1                                              |
 
+| [ADR-030](adr-030-host-tokens.md) | Owner-issued Host Tokens: Gateway-only, 15-day inactivity deletion | Accepted; source implementation, installed acceptance pending |
+
 ## How to add an ADR
 
-1. Copy `_template.md` to the next unused number, e.g. `adr-029-title.md`.
+1. Copy `_template.md` to the next unused number, e.g. `adr-031-title.md`.
 2. Fill in Status, Context, Decision, Consequences.
 3. Add the row to the register above.
 4. Keep it short and decision-focused.

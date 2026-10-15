@@ -50,6 +50,7 @@ export interface ManagedStatePaths {
   readonly auditDatabaseFile: string;
   readonly usageDatabaseFile: string;
   readonly oauthGrantsDatabaseFile: string;
+  readonly hostTokensDatabaseFile: string;
   readonly debateDatabaseFile: string;
   readonly lifecycleIntentFile: string;
   readonly installationMetadataFile: string;
@@ -73,6 +74,7 @@ export function managedStatePaths(root = join(homedir(), ".slnctrz-mcp")): Manag
     auditDatabaseFile: join(root, "audit.sqlite3"),
     usageDatabaseFile: join(root, "usage.sqlite3"),
     oauthGrantsDatabaseFile: join(root, "oauth-grants.sqlite3"),
+    hostTokensDatabaseFile: join(secretsDirectory, "host-tokens.sqlite3"),
     debateDatabaseFile: join(root, "debate.sqlite3"),
     lifecycleIntentFile: join(root, "lifecycle-intent.json"),
     installationMetadataFile: join(root, "installation.json"),

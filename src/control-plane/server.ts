@@ -1,6 +1,8 @@
 /** Loopback-only local diagnostics and revocation control plane. */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { HostTokenStore } from "../auth/host-token-store.js";
+import { manageHostTokens } from "../owner/host-token-management.js";
 import { FixedWindowRateLimiter } from "../auth/fixed-window-rate-limiter.js";
 import { validateConnectionLabel } from "../auth/oauth-grant-store.js";
 import type { OwnerConnectionService } from "../auth/owner-connection-service.js";
@@ -20,6 +22,12 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 
 export interface ControlPlaneOptions {
   readonly ownerSecretHash: string;
+  readonly hostTokens?: HostTokenStore;
+  readonly reloadClients?: () => {
+    activated: true;
+    dynamicClients: number;
+    staticRedirects: number;
+  };
   readonly oauthService: Pick<OAuthService, "revokeClientByOwner" | "revokeTokenByOwner">;
   readonly policyStore: Pick<PolicySnapshotStore, "capture" | "reload">;
   readonly connections?: Pick<
@@ -174,6 +182,31 @@ export function createControlPlaneServer(options: ControlPlaneOptions): Server {
         return;
       }
 
+      if (method === "POST" && pathname === "/clients/reload") {
+        if (options.reloadClients === undefined) {
+          sendJson(res, 503, { error: { code: "client_registry_unavailable" } });
+          audit("error");
+          return;
+        }
+        try {
+          sendJson(res, 200, options.reloadClients());
+          audit("success");
+        } catch {
+          sendJson(res, 409, { error: { code: "client_registry_reload_failed" } });
+          audit("error");
+        }
+        return;
+      }
+      if (pathname === "/host-tokens") {
+        const body =
+          method === "POST" || method === "DELETE"
+            ? await readBoundedJson(req, maxBodyBytes)
+            : undefined;
+        const result = manageHostTokens(options.hostTokens, method, body);
+        sendJson(res, result.status, result.body);
+        audit(result.status < 400 ? "success" : "error");
+        return;
+      }
       if (method === "GET" && pathname === "/connections") {
         if (options.connections === undefined) {
           sendJson(res, 503, {

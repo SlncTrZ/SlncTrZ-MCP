@@ -1,8 +1,8 @@
 # SlncTrZ-MCP Architecture
 
 The gateway gives authenticated Web AI and coding clients owner-controlled access to one
-Linux or Windows account. This guide describes the v0.4.5 source contract, based on
-published v0.4.4 plus the pending cancellation fixes; publication and runtime observations are separate facts in
+Linux or Windows account. This guide describes the v0.4.6 source contract, based on
+published v0.4.5 plus Host Tokens (ADR-030), Client Registry Hot Reload, and Chromium CSP consent completion fixes; publication and runtime observations are separate facts in
 [Project Status](docs/PROJECT_STATUS.md).
 
 ## 1. System Overview
@@ -38,6 +38,7 @@ The MCP endpoint is `:3100/mcp`; the same HTTP listener serves the optional Owne
 | Provider supervisor  | STDIO children or remote Streamable HTTP endpoints            | Per-provider isolation, deadlines, recovery budgets                            |
 | Usage / audit        | Numeric traffic estimates and bounded event records           | Separate SQLite stores; no prompt/argument/output capture in Usage             |
 | Standalone product   | Setup, verified update, rollback, doctor and uninstall        | Managed install/state/config roots                                             |
+| Host Tokens          | Random 256-bit bearer, 15-day idle deletion, headless auth   | Companion SQLite database; hard-coded gateway-only ceiling                    |
 | Lifecycle ledger     | Append-only operation records and identity comparison         | Foundation module; not wired into this gateway runtime                         |
 
 The owner controls Autonomy, Paths, Commands and MCP Servers. Restricted file tools enforce
@@ -93,7 +94,7 @@ recurrent `session_invalid`
 incidents are additionally bounded by a rolling incident budget. Credential rotation stages
 a new opaque ref and attempts transactional activation/rollback; it is not a zero-downtime guarantee.
 
-In the v0.4.5 source contract, cancellation is request-local: active cancellation does not
+In the v0.4.6 source contract, cancellation is request-local: active cancellation does not
 create or overwrite a shared recovery incident, restart the provider or consume its budget.
 Pre-dispatch and queued cancellation preserve `failureClass: cancelled`. Genuine request
 timeouts and provider faults retain bounded recovery. Cancellation does not prove rollback

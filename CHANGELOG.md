@@ -2,6 +2,18 @@
 
 User-visible product changes are recorded here. Internal commit history is not a substitute for release notes.
 
+## 0.4.7
+
+Date: 2026-10-15
+
+### Added
+
+- Owner-issued Host Tokens (ADR-030) with 256-bit entropy, 15-day idle deletion, and a hard-coded Gateway-only ceiling for headless and durable AI agents.
+- Hot reload for the dynamic client registry (A4) via Owner Console and CLI without restarting the gateway.
+- Authenticated provider credential health reporting (A5) distinguishing configured, missing, and not-required credential states.
+- Document-based meta-refresh OAuth consent completion with restrictive CSP for Chromium redirect compatibility.
+- Comprehensive Linux system service installation documentation for systemd (`--mode system`) and rootless `systemd --user` modes.
+
 ## 0.4.6
 
 Date: 2026-10-14

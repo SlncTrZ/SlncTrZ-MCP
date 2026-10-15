@@ -1,10 +1,11 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createOwnerSecretHash } from "../../src/auth/owner-verifier.js";
+import { HostTokenStore } from "../../src/auth/host-token-store.js";
 import { bootstrap } from "../../src/app/main.js";
 import type { RuntimeConfig } from "../../src/app/config.js";
 import { listenControlPlane, type ControlListenAddress } from "../../src/control-plane/server.js";
@@ -60,6 +61,73 @@ async function assertPortIsAvailable(address: ControlListenAddress | ListenAddre
 }
 
 describe("bootstrap lifecycle", () => {
+  it("wires one persistent host store to control and MCP across application restarts", async () => {
+    const root = await stateRoot();
+    let controlAddress: ControlListenAddress | undefined;
+    let gatewayAddress: ListenAddress | undefined;
+    const config = runtimeConfig(root);
+    const dependencies = {
+      config,
+      shutdownTimeoutMs: 1_000,
+      listenControlPlane: async (
+        server: Parameters<typeof listenControlPlane>[0],
+        options: Parameters<typeof listenControlPlane>[1]
+      ) => {
+        controlAddress = await listenControlPlane(server, options);
+        return controlAddress;
+      },
+      listenGateway: async (
+        server: Parameters<typeof listenGateway>[0],
+        options: Parameters<typeof listenGateway>[1]
+      ) => {
+        gatewayAddress = await listenGateway(server, options);
+        return gatewayAddress;
+      }
+    };
+    let lifecycle = await bootstrap(dependencies);
+    let token = "";
+    let tokenId = "";
+    try {
+      const secret = (await readFile(managedStatePaths(root).ownerPassphraseFile, "utf8")).trim();
+      const issued = await fetch(`http://127.0.0.1:${controlAddress?.port}/host-tokens`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ label: "restart client" })
+      });
+      expect(issued.status).toBe(201);
+      const body = (await issued.json()) as { token: string; metadata: { tokenId: string } };
+      token = body.token;
+      tokenId = body.metadata.tokenId;
+    } finally {
+      await lifecycle.shutdown();
+    }
+    lifecycle = await bootstrap(dependencies);
+    try {
+      const response = await fetch(`http://127.0.0.1:${gatewayAddress?.port}/mcp`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream"
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+      });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("core.ping");
+    } finally {
+      await lifecycle.shutdown();
+    }
+    const store = new HostTokenStore(managedStatePaths(root).hostTokensDatabaseFile);
+    try {
+      expect(store.list()).toMatchObject([{ tokenId, label: "restart client" }]);
+      expect(store.audit().map((e) => e.event)).toEqual(["issued", "used"]);
+    } finally {
+      store.close();
+    }
+  });
   it("closes the control listener when public gateway startup fails", async () => {
     let controlAddress: ControlListenAddress | undefined;
     await expect(

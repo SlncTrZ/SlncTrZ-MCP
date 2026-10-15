@@ -220,6 +220,51 @@ async function startOwner(options: {
 }
 
 describe("Owner provider detail GET API", () => {
+  it("publishes authenticated health and detects any missing credential without probes", async () => {
+    const configured = provider();
+    const missing = provider({
+      id: "missing",
+      manifest: { ...configured.manifest, id: "missing", credentialRefs: ["present", "absent"] }
+    });
+    const disabled = provider({ id: "disabled", enabled: false });
+    const credentials: McpCredentialMetadata[] = [{ ref: "present", kind: "bearer" }];
+    const { origin, login, calls } = await startOwner({
+      providers: [configured, missing, disabled],
+      credentials
+    });
+    expect((await fetch(origin + "/owner/api/health")).status).toBe(401);
+    const { cookie } = await login();
+    const response = await fetch(origin + "/owner/api/health", { headers: { cookie } });
+    expect(response.status).toBe(200);
+    const raw = await response.text();
+    expect(raw).not.toContain("credentialRefs");
+    expect(raw).not.toContain("endpoint");
+    const body = JSON.parse(raw) as {
+      mcpServers: unknown[];
+      mcpSummary: unknown;
+      observedAt: string;
+      credentialCheck: string;
+    };
+    expect(body.observedAt).toBeTruthy();
+    expect(body.mcpServers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "github",
+          status: "ready",
+          credentialStatus: "not_required"
+        }),
+        expect.objectContaining({
+          id: "missing",
+          status: "auth_required",
+          credentialStatus: "missing"
+        }),
+        expect.objectContaining({ id: "disabled", status: "disabled" })
+      ])
+    );
+    expect(body.mcpSummary).toEqual({ total: 3, working: 1, attention: 1, disabled: 1, error: 0 });
+    expect(body.credentialCheck).toContain("no provider authentication probe");
+    expect(calls).toEqual({ discover: 0, sync: 0, setEnabled: 0, remove: 0 });
+  });
   it("returns a projected detail for an authenticated owner session", async () => {
     const { origin, calls, login } = await startOwner({ providers: [provider()] });
     const { cookie } = await login();
