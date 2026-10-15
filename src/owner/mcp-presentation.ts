@@ -284,11 +284,10 @@ function authMode(
 
 export function projectProviderDetail(input: ProjectProviderDetailInput): OwnerMcpProviderDetail {
   const manifest = input.provider.manifest;
-  const credentialMissing =
-    (manifest.credentialRefs?.length ?? 0) > 0 &&
-    !(manifest.credentialRefs ?? []).some((ref) =>
-      input.credentials.some((candidate) => candidate.ref === ref)
-    );
+  const refs = manifest.credentialRefs ?? [];
+  const credentialMissing = refs.some(
+    (ref) => !input.credentials.some((candidate) => candidate.ref === ref)
+  );
   const status = deriveProviderStatus({
     enabled: input.provider.enabled,
     runtime: input.runtime,

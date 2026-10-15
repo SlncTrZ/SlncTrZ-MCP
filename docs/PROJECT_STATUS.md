@@ -1,5 +1,12 @@
 # Project Status
 
+## SlncTrZ-MCP v0.4.7 Released & Promoted to Latest — 2026-10-15
+
+Official release `v0.4.7` was published and promoted to Latest by [release workflow 38669913467](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38669913467), release commit `dd1ad85e4b15f89e9d89510683f94e942e76285d`.
+
+- **Shipped features:** Owner-issued Host Tokens (ADR-030) with 15-day idle deletion and hard-coded Gateway-only ceiling, Client Registry Hot Reload (A4), Provider Credential Health (A5), Meta-refresh OAuth consent completion for Chromium form-action compatibility, and full Linux systemd documentation.
+- **Verification:** All 13 CI/release jobs passed (Node 22/24 release gates, Windows native gate, Linux/Windows SEA builds, multi-target Ed25519 signing, clean public Windows and Linux User Installs, and headless Chromium `/usage` browser acceptance).
+
 ## Client and Owner Console QA — 2026-10-14/15
 
 Native Linux Chromium and Windows Chrome each passed **11/11 checks** against the real
@@ -90,10 +97,8 @@ Snapshot: 2026-10-10, accumulating changes for a deferred v0.4.5 release. This i
 
 ## Source, release and runtime
 
-- Package version is 0.4.5 in preparation; [release notes](releases/v0.4.5.md) describe cancellation fixes and provider metadata/drawer improvements. Publication is deliberately deferred while further fixes accumulate; no tag, release or deployment is authorized by this checkpoint.
-- Latest implementation checkpoint `919dc646dd09b16d6d2a1e8270066eb7a1798ee2` passed [CI 38030182379](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38030182379). Version/docs preparation `8743d8c6fbc18fe917af79789a848b11aa40f001` passed [CI 38025543845](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38025543845); cancellation fix `4b9a6b6` passed [CI 38024534915](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38024534915). These include Linux Node 22/24, Windows native security/runtime, license and performance gates. Later commits require their own exact-ref CI.
-- Latest stable observed on 2026-10-10 was [v0.4.4](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.4), release commit `19d7a3452216216f8c0e65e51f609547d4cf3af0`. [Release run 38023563881](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38023563881) passed native builds/identity, protected signing, public Linux/Windows User Install, Chromium acceptance and promotion.
-- v0.4.5 must pass those gates on its own signed candidate. Existing published tags/assets remain unchanged.
+- Package version is 0.4.7; [release notes](releases/v0.4.7.md) describe Host Tokens (ADR-030), Client Reload (A4), Credential Health (A5) and Linux systemd documentation.
+- Latest stable published release is [v0.4.7](https://github.com/SlncTrZ/SlncTrZ-MCP/releases/tag/v0.4.7), release commit `dd1ad85e4b15f89e9d89510683f94e942e76285d`. [Release run 38669913467](https://github.com/SlncTrZ/SlncTrZ-MCP/actions/runs/38669913467) passed native builds/identity, protected signing, public Linux/Windows User Install, Chromium acceptance and promotion.
 - Live Gateway-only reachability was checked; exact running build identity was not established by that probe. Source/release operations do not update or restart the live gateway.
 
 ## Completed source work

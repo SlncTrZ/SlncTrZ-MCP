@@ -1,55 +1,42 @@
 # Product Plan
 
-Published baseline: v0.4.4 as observed on 2026-10-10. The next patch is v0.4.5 in source
-preparation, not yet a published or deployed version. [Project Status](docs/PROJECT_STATUS.md)
-separates source, public release and running identity. Publication is deliberately deferred
-while additional fixes accumulate; no tag, official release or deployment is requested.
+Published baseline: v0.4.7 promoted Latest on 2026-10-15. [Project Status](docs/PROJECT_STATUS.md)
+separates source, public release and running identity.
 
 ## 1. Current product
 
 - Owner-controlled Linux/Windows gateway, OAuth PKCE, Owner Console, Paths and Commands.
 - Full and Gateway-only profiles; first-consent selection and durable Gateway-only grants.
+- Owner-issued Host Tokens (ADR-030) with 256-bit entropy, 15-day inactivity deletion, and hard-coded Gateway-only ceiling.
+- Dynamic Client Registry Hot Reload (A4) and Provider Credential Health (A5).
+- Meta-refresh document consent completion with restrictive CSP for Chromium redirect compatibility.
 - Gateway-only provider calls need no gateway context receipt; Full guards remain enforced.
 - Unified dashboard, provider detail drawer, guarded actions and durable workspace display name.
 - Structured onboarding through the canonical Product Agent Harness and progressive skills.
 - In-memory Runner and Task Coordinator multi-client claim; durable two-participant Debate.
 - Usage charts based on gateway-observed numeric telemetry.
 - Native Linux/Windows SEA packaging, signed manifests and public acceptance gates.
-- Optional owner-opt-in Prediction Seam; v0.4.4 has the cancellation defects described below.
+- Optional owner-opt-in Prediction Seam with request-local cancellation isolation.
 - Durable lifecycle ledger foundation; controller wiring remains pending.
 
-## 2. v0.4.5 patch scope
+## 2. v0.4.7 milestones shipped
 
 | Requirement | Status | Acceptance |
 | --- | --- | --- |
-| Learning deadlines must not restart shared CyberBrain | Source fixed in `4b9a6b6` | Real-supervisor record/resolve deadline tests preserve readiness and unrelated calls |
-| Pre-dispatch/queued cancellation must remain indeterminate | Source fixed in `4b9a6b6` | Cancelled error identity and real-supervisor MCP outcome tests |
-| Observed HTTP/STDIO provider software identity and protocol | Source implemented in `919dc64` | Handshake/API tests; unknown values, timestamps and no GET probe |
-| Local command disclosure, Tools total and flexible list height | Source implemented in `919dc64` | Source Chromium dashboard 83/83 checks; argv/env excluded |
-| Current guides reflect implemented behavior and release boundaries | Preparation `8743d8c` passed CI; checkpoint docs updated | Docs contract, links, formatting and exact-ref CI |
-| Publish exact verified patch artifacts | Deferred until owner requests release | Native identity, protected signing, public installs and installed Chromium |
+| Owner-issued Host Tokens (ADR-030) | Shipped in v0.4.7 | Unit, conformance, and native installed OpenCode / Pi verification |
+| Client Registry Hot Reload (A4) | Shipped in v0.4.7 | Native Console & loopback CLI candidate validation, active grant preservation |
+| Provider Credential Health (A5) | Shipped in v0.4.7 | Authenticated health status, missing vs configured reference detection |
+| Meta-refresh OAuth consent completion | Shipped in v0.4.7 | Chromium form-action redirect chain workaround, CSP verification |
+| Linux system service documentation | Shipped in v0.4.7 | Complete systemd `--mode system` and rootless `systemd --user` runbook |
+| Multi-target SEA build & Ed25519 signing | Shipped in v0.4.7 | Native Linux/Windows SEA, clean public User Install and browser acceptance |
 
-Latest implementation `919dc64` passed hosted Linux Node 22/24 and Windows native CI.
-Local full quality passed 871 tests with 29 skips plus typecheck/lint/format, docs and build.
-These are source checks; the final accumulated candidate must be verified again before release.
-
-Existing published tags and signed assets remain unchanged. No new database migration,
-OAuth grant change, credential rotation or reauthorization is part of this patch.
-
-## 3. Before release or deployment
-
-1. Verify the combined v0.4.5 source ref on Linux Node 22/24 and Windows Node 24.
-2. Build and identify native Linux/Windows artifacts from that exact candidate.
-3. Pass protected signing, clean public User Install and installed browser gates before stable promotion.
-4. Record named-client OAuth and service/keyring evidence separately where those claims are made.
-5. Deploy only as a separate approved operation, with coherent backup and running identity checks.
-
-## 4. Later objectives
+## 3. Active and later objectives
 
 | Area | Work | Required evidence |
 | --- | --- | --- |
-| Reliability | Explicit lifecycle-controller wiring | Restart reconciliation, identity and ownership-safe stop |
-| Latency | Measure provider dispatch before optimizing | Reproducible p50/p95/p99 under stated load |
-| Scalability | Bound concurrent work | Limits/cancellation/exhaustion evidence; no horizontal multi-process claim |
-| Observability | Improve operational visibility | Numeric telemetry, privacy boundaries and installed browser checks |
-| Provider expansion | Integrate domain engines | Runtime discovery and provider-native acceptance |
+| Performance | Host token lastUsedAt throttle & audit prune optimization | Reduced fsync frequency under high-throughput automation |
+| Reliability | Explicit lifecycle-controller wiring for operation ledger | Restart reconciliation, identity and ownership-safe stop |
+| Testing | Concurrency stress tests for host token revoke vs auth | Multi-process contention and SQLITE_BUSY verification |
+| Observability | Live provider heartbeat monitoring | Proactive upstream health probes without blocking request dispatch |
+| Platform | Linux ARM64 native target evaluation | Native ARM64 runner, build-sea, and release-gate verification |
+| Provider expansion | Integrate domain engineering engines | Runtime discovery and provider-native acceptance |

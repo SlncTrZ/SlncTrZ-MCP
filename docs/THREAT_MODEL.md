@@ -36,7 +36,7 @@ State is in-memory; a host crash is not durable task recovery.
 STDIO subprocesses are supervised; remote HTTP providers are independent services.
 Ambiguous failures and cancellations are not replayed. At most one automatic replay is
 allowed after explicit pre-dispatch session rejection proves no execution; recovery keeps
-the original deadline and a rolling incident budget. In the v0.4.5 source contract, request
+the original deadline and a rolling incident budget. From v0.4.5 onwards, request
 cancellation does not create/overwrite provider recovery incidents or restart healthy providers.
 Cancellation is not proof that remote side effects were undone.
 Credential rotation rollback attempts to restore the active configuration; an external outage
@@ -65,9 +65,9 @@ Optional Prediction Seam is owner-controlled and default-off. It invokes the con
 CyberBrain backend with gateway transport metadata, not a new client grant, and never copies
 tool arguments/provider output. It records before outcome and excludes CyberBrain/read-only
 calls. Its one-second learning deadlines can leave missing/unresolved records; shared provider
-credentials may collapse attribution into one backend identity. The v0.4.5 cancellation fix
+credentials may collapse attribution into one backend identity. The cancellation fix in v0.4.5+
 prevents those learning deadlines from triggering shared-provider recovery. Keep the seam
-disabled on v0.4.4 to avoid that known defect.
+disabled on pre-v0.4.5 builds to avoid that known defect.
 
 See [Security](../SECURITY.md) and [Release](../RELEASE.md).
 

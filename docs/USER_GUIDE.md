@@ -1,8 +1,7 @@
 # User Guide
 
-Install, connect and use the published gateway. Stable release: v0.4.4 as observed on
-2026-10-10. This tree prepares the v0.4.5 cancellation patch; see
-[Project Status](PROJECT_STATUS.md) before assuming an installed binary has them.
+Install, connect and use the published gateway. Stable release: v0.4.7 promoted Latest on
+2026-10-15; see [Project Status](PROJECT_STATUS.md).
 
 ## 1. Installation & Endpoints
 
@@ -307,9 +306,9 @@ grant permissions. The lifecycle ledger foundation does not make these tasks dur
 
 Prediction Seam is disabled by default and requires owner-controlled runtime configuration
 plus a ready `cyberbrain` provider. It records transport expectations, not domain correctness,
-without copying tool arguments/output. The v0.4.5 patch fixes shared-provider recovery caused
+without copying tool arguments/output. The cancellation fix in v0.4.5+ fixes shared-provider recovery caused
 by learning cancellation and preserves indeterminate cancellation outcomes. Keep it disabled
-on v0.4.4 to avoid the known restart defect; see
+on pre-v0.4.5 builds to avoid the known restart defect; see
 [Deployment](DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam) before enabling on a verified build.
 Cancellation does not prove remote mutations were undone; inspect uncertain effects before retrying.
 

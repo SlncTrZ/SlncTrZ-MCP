@@ -264,6 +264,13 @@ describe("Owner provider detail GET API", () => {
     expect(body.mcpSummary).toEqual({ total: 3, working: 1, attention: 1, disabled: 1, error: 0 });
     expect(body.credentialCheck).toContain("no provider authentication probe");
     expect(calls).toEqual({ discover: 0, sync: 0, setEnabled: 0, remove: 0 });
+
+    const missingDetailRes = await fetch(origin + "/owner/api/mcp/missing/detail", {
+      headers: { cookie }
+    });
+    expect(missingDetailRes.status).toBe(200);
+    const missingDetail = (await missingDetailRes.json()) as { status: string };
+    expect(missingDetail.status).toBe("auth_required");
   });
   it("returns a projected detail for an authenticated owner session", async () => {
     const { origin, calls, login } = await startOwner({ providers: [provider()] });

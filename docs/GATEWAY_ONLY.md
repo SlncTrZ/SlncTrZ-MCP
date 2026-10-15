@@ -116,5 +116,5 @@ treating every network or server error as an auth problem.
 
 The v0.4.3 exec-environment and Owner session/navigation improvements do not change this
 profile contract. Gateway-only provider calls no longer require context.bootstrap or a receipt;
-Full guards remain enforced. The unreleased v0.4.5 cancellation patch is tracked separately in
-[Project Status](PROJECT_STATUS.md) and does not change OAuth grants or ceilings.
+Full guards remain enforced. Any unreleased features or future patches are tracked separately in
+[Project Status](PROJECT_STATUS.md) and do not change OAuth grants or ceilings.

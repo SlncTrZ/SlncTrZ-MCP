@@ -1,7 +1,7 @@
 # Troubleshooting Guide
 
-Start with the symptom, then check the running artifact and profile. Published baseline:
-v0.4.4 as observed on 2026-10-10; v0.4.5 is source preparation. A source version alone does
+Start with the symptom, then check the running artifact and profile. Stable baseline:
+v0.4.7 promoted Latest on 2026-10-15. A source version alone does
 not identify an installed process or prove a fix is deployed.
 
 ## 1. Version Mismatch
@@ -153,12 +153,11 @@ production cookie defect was established. Do not weaken cookie/CSRF policy to hi
 
 ## 9. Prediction Seam deadlines or cancellation outcomes
 
-On v0.4.4 with the optional seam enabled, a one-second learning deadline can trigger
+On pre-v0.4.5 builds with the optional seam enabled, a one-second learning deadline can trigger
 shared CyberBrain restart, and pre-dispatch/queued cancellation can be recorded as
-contradicted. Disable `SLNCTRZ_PREDICTION_SEAM_ENABLED` and restart through the owning
-service/terminal while awaiting a verified update containing the v0.4.5 fix.
+contradicted. Disable `SLNCTRZ_PREDICTION_SEAM_ENABLED` or update to v0.4.5+ (including current v0.4.7).
 
-In the v0.4.5 source contract, learning-deadline cancellation does not create a shared
+From v0.4.5 onwards, learning-deadline cancellation does not create a shared
 provider recovery incident, restart or quarantine; cancelled calls resolve indeterminate.
 Missing/unresolved predictions can still occur because learning is best-effort. Inspect
 provider readiness and running build identity; do not replay a mutation merely to obtain

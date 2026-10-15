@@ -78,12 +78,12 @@ It records before non-read calls to other providers and resolves transport outco
 without copying caller arguments/provider output. It adds no client tool grant and remains
 disabled by default.
 
-The v0.4.5 source fix makes learning-deadline cancellation request-local and preserves
+The cancellation fix in v0.4.5+ makes learning-deadline cancellation request-local and preserves
 indeterminate outcomes for pre-dispatch/queued cancellation. Keep the seam disabled on
-v0.4.4 to avoid the known shared-backend restart defect. Missing/unresolved learning remains
+pre-v0.4.5 builds to avoid the known shared-backend restart defect. Missing/unresolved learning remains
 possible; agents must not replay mutations or fabricate retrospective predictions to fill gaps.
 See [Deployment](DEPLOYMENT.md#5-optional-cyberbrain-prediction-seam) and
-[v0.4.5 release notes](releases/v0.4.5.md) before enabling on a verified installed build.
+[v0.4.7 release notes](releases/v0.4.7.md) before enabling on a verified installed build.
 
 ## Security and privacy
 
